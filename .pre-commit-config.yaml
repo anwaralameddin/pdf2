@@ -1,0 +1,51 @@
+default_language_version:
+  rust: 1.75.0
+# default_stages: [commit, push]
+repos:
+  # ------------------------------------------------------------
+  # General
+  # ------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+        # - id: mixed-line-ending
+        #   args: [--fix=lf]
+      - id: trailing-whitespace
+        # - id: check-illegal-windows-names
+        # - id: check-shebang-scripts-are-executable
+  # ------------------------------------------------------------
+  # Format YAML files
+  # ------------------------------------------------------------
+  # - repo: https://github.com/google/yamlfmt
+  #   rev: v0.10.0
+  #   hooks:
+  #     - id: yamlfmt
+# ------------------------------------------------------------
+# Rust Testing
+# ------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --release
+        language: system
+        pass_filenames: false
+        always_run: true
+# ------------------------------------------------------------
+# FIXME Rust Testing
+# ------------------------------------------------------------
+# - repo: local
+#   hooks:
+#     - id: rustfmt
+#       name: rustfmt
+#       entry: rustfmt
+#       language: system
+#       pass_filenames: true
+#       always_run: true

@@ -1,0 +1,10 @@
+*          text=auto eol=lf working-tree-encoding=UTF-8
+
+*.bin      binary
+*.data     binary
+*.pdf      binary
+
+*.md       diff=markdown
+*.rs       diff=rust
+*.sh       diff=bash
+*.toml     diff=toml

@@ -1,0 +1,13 @@
+# blank_lines_lower_bound = 1
+condense_wildcard_suffixes = true
+format_code_in_doc_comments = true
+format_macro_matchers = true
+format_strings = true
+hex_literal_case = "Upper"
+imports_granularity = "Item"
+imports_layout = "HorizontalVertical"
+newline_style = "Unix"
+normalize_comments = true
+normalize_doc_attributes = true
+group_imports = "StdExternalCrate"
+# wrap_comments = true
