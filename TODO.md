@@ -60,9 +60,9 @@
 ## Future Work
 
 - Compare PDF files:
-    - index PDF objects for comparison.
-- Implement a <code>cmp</code> feature that allows the package to connect to a database (generate one if needed) to store and query object hashes from different files.
+    - Index PDF objects for comparison.
+    - Implement a <code>cmp</code> feature that allows the package to connect to a database (generate one if needed) to store and query object hashes from different files.
 
 - Implement a PDF viewer:
-    - minimal, in a way similar to <code>Zathura</code>, but.
-    - provide better support for annotations, hyperlinks, and text/image selection and extraction.
+    - Minimal, in a way similar to <code>Zathura</code>.
+    - Yet, it provides better support for annotations, hyperlinks, and text/image selection and extraction.
