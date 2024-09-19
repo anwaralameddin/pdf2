@@ -2,16 +2,16 @@
 #![allow(dead_code)]
 
 mod convert;
-pub mod file;
 mod fmt;
 mod object;
 mod parse;
+pub mod pdf;
 mod process;
 mod xref;
 
 use ::std::num::NonZeroU64;
 
-pub use self::file::PdfBuilder;
+pub use self::pdf::PdfBuilder;
 
 // Limit the size of the decoded stream to 1 GiB.
 const DECODED_LIMIT: usize = 1 << 30;

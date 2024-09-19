@@ -30,13 +30,13 @@ fn main() {
             Ok(pdf) => pdf,
             Err(err) => {
                 // TODO Replace with log::error!.
-                eprintln!("ERROR: Failed to build PDF: {:?}", err);
+                eprintln!("ERROR: Failed to build PDF: {}", err);
                 continue;
             }
         };
         if let Err(err) = pdf.status() {
             // TODO Replace with log::error!.
-            eprintln!("ERROR: PDF status: {:#?}", err);
+            eprintln!("ERROR: PDF status: {}", err);
             continue;
         }
         // TODO Replace with log::info!.
