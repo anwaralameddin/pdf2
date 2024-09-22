@@ -52,8 +52,8 @@ pub struct Pdf<'path> {
     errors: PdfRecoverable<'path>,
 }
 
-impl<'path> Pdf<'path> {
-    pub fn status(&'path self) -> Result<(), &PdfRecoverable<'path>> {
+impl Pdf<'_> {
+    pub fn status(&self) -> Result<(), &PdfRecoverable> {
         if self.errors.is_empty() {
             Ok(())
         } else {
@@ -79,6 +79,7 @@ mod process {
     use super::error::PdfResult;
     use super::*;
     use crate::object::indirect::object::IndirectObject;
+    use crate::parse::NewParser;
     use crate::parse::Parser;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;

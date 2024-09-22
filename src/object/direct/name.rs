@@ -11,7 +11,6 @@ use self::error::NameRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::character_set::printable_token;
 use crate::parse::error::ParseErr;
-use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse_error;

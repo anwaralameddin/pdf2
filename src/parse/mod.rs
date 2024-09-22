@@ -2,6 +2,8 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
+use self::error::NewParseErr;
+use self::error::NewParseResult;
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
@@ -48,8 +50,49 @@ pub(crate) trait Parser {
         }
     }
 }
+pub(crate) trait NewParser<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> NewParseResult<'buffer, (&[Byte], Self)>
+    where
+        Self: Sized;
+
+    /// Try to parse the buffer and return an option:
+    /// - Some(Ok(_)): if the buffer was parsed successfully
+    /// - Some(Err(ParseErr::Failure(_))): if the parser failed with no possible
+    /// recovery
+    /// - None: if the parser returned another error, which could be recovered
+    /// by another parser
+    fn parse_semi_quiet<O>(buffer: &'buffer [Byte]) -> Option<NewParseResult<(&[Byte], O)>>
+    where
+        Self: Sized,
+        O: From<Self>,
+    {
+        let result = Self::parse(buffer);
+        match result {
+            Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
+            Err(NewParseErr::Failure(err)) => Some(Err(NewParseErr::Failure(err))),
+            _ => None,
+        }
+    }
+}
 
 mod tests {
+    #[macro_export]
+    macro_rules! new_parse_assert_eq {
+        ($buffer:expr, $expected_parsed:expr, $expected_remaining:expr) => {
+            assert_eq!(
+                NewParser::parse($buffer).unwrap(),
+                ($expected_remaining, $expected_parsed)
+            );
+        };
+        // The two patterns differ only in the trailing comma
+        ($buffer:expr, $expected_parsed:expr, $expected_remaining:expr,) => {
+            assert_eq!(
+                NewParser::parse($buffer).unwrap(),
+                ($expected_remaining, $expected_parsed)
+            );
+        };
+    }
+
     #[macro_export]
     macro_rules! parse_assert_eq {
         ($buffer:expr, $expected_parsed:expr, $expected_remaining:expr) => {

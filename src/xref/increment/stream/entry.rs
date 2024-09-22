@@ -17,14 +17,13 @@ pub(crate) enum Entry {
 }
 
 mod convert {
-    use self::error::EntryError;
+    use super::error::EntryError;
     use super::*;
     use crate::parse::num::bytes_to_u64;
-    use crate::process::error::ProcessErr;
     use crate::Byte;
 
     impl TryFrom<(&[Byte], &[Byte], &[Byte])> for Entry {
-        type Error = ProcessErr;
+        type Error = EntryError;
         /// REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
         fn try_from(value: (&[Byte], &[Byte], &[Byte])) -> Result<Self, Self::Error> {
             let (field1, field2, field3) = value;
@@ -35,30 +34,33 @@ mod convert {
             } else {
                 // REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
                 // Fields are provided in the big-endian order
-                bytes_to_u64(field1).ok_or_else(|| EntryError::Overflow(field1.to_vec()))?
+                bytes_to_u64(field1).ok_or(EntryError::FieldOverflow(field1.to_vec()))?
+                // TODO (TEMP)
             };
-            let value2 =
-                bytes_to_u64(field2).ok_or_else(|| EntryError::Overflow(field2.to_vec()))?;
-            let value3 =
-                bytes_to_u64(field3).ok_or_else(|| EntryError::Overflow(field3.to_vec()))?;
+            let value2 = bytes_to_u64(field2).ok_or(EntryError::FieldOverflow(field2.to_vec()))?; // TODO (TEMP)
+            let value3 = bytes_to_u64(field3).ok_or(EntryError::FieldOverflow(field3.to_vec()))?; // TODO (TEMP)
 
             match value1 {
                 0 => {
                     let next_free = value2;
-                    let generation_number = GenerationNumber::try_from(value3)
-                        .map_err(|_| EntryError::GenerationNumber(value3))?;
+                    let generation_number = GenerationNumber::try_from(value3).map_err(|err| {
+                        EntryError::GenerationNumber(field3.to_vec(), value3, err)
+                        // TODO (TEMP)
+                    })?;
                     Ok(Self::Free(next_free, generation_number))
                 }
                 1 => {
                     let offset = value2;
-                    let generation_number = GenerationNumber::try_from(value3)
-                        .map_err(|_| EntryError::GenerationNumber(value3))?;
+                    let generation_number = GenerationNumber::try_from(value3).map_err(|err| {
+                        EntryError::GenerationNumber(field3.to_vec(), value3, err)
+                        // TODO (TEMP)
+                    })?;
                     Ok(Self::InUse(offset, generation_number))
                 }
                 2 => {
                     let object_number = ObjectNumber::try_from(value2)
-                        .map_err(|_| EntryError::ObjectNumber(value2))?;
-                    // REFERENCE: [7.5.8.3 Cross-reference stream data, p68]
+                        .map_err(|err| EntryError::ObjectNumber(field2.to_vec(), value2, err))?; // TODO (TEMP)
+                                                                                                 // REFERENCE: [7.5.8.3 Cross-reference stream data, p68]
                     let id = Id::new(object_number, GenerationNumber::default());
                     let index = value3;
                     Ok(Self::Compressed(id, index))
@@ -70,19 +72,18 @@ mod convert {
 }
 
 pub(crate) mod error {
+    use ::std::num::TryFromIntError;
     use ::thiserror::Error;
 
     use crate::Byte;
 
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum EntryError {
-        #[error("Overflow: {0:?}")]
-        Overflow(Vec<Byte>),
-        #[error("Invalid generation number. Input: {0}")]
-        GenerationNumber(u64),
-        #[error("Invalid index number. Input: {0}")]
-        ObjectNumber(u64),
-        #[error("Invalid index number. Input: {0}")]
-        IndexNumber(u64),
+        #[error("Field overflow. Input: {0:?}")]
+        FieldOverflow(Vec<Byte>),
+        #[error("Object number. Input{0:?}. Value: {1}. Error: {2}")]
+        ObjectNumber(Vec<Byte>, u64, TryFromIntError),
+        #[error("Generation number. Input{0:?}. Value: {1}. Error: {2}")]
+        GenerationNumber(Vec<Byte>, u64, TryFromIntError),
     }
 }

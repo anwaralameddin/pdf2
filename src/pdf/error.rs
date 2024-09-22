@@ -7,8 +7,9 @@ use ::thiserror::Error;
 
 use super::*;
 use crate::object::indirect::id::Id;
+use crate::parse::error::NewParseErr;
 use crate::parse::error::ParseErr;
-use crate::process::error::ProcessErr;
+use crate::process::error::NewProcessErr;
 use crate::Offset;
 
 pub type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
@@ -17,9 +18,9 @@ pub type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum PdfErr<'path> {
     #[error("Parse. File: {0}. Error: {1}")]
-    Parse(&'path Path, ParseErr),
+    Parse(&'path Path, NewParseErr<'path>),
     #[error("Process. File: {0}. Error: {1}")]
-    Process(&'path Path, ProcessErr),
+    Process(&'path Path, NewProcessErr),
     #[error("Empty cross-reference table. File: {0}")]
     EmptyPreTable(&'path Path),
     // ::std::io::Error as IoError; does not implement PartialEq or Clone,
@@ -38,7 +39,7 @@ pub struct PdfRecoverable<'path> {
     errors: Vec<ObjectRecoverable>,
 }
 
-impl<'path> Display for PdfRecoverable<'path> {
+impl Display for PdfRecoverable<'_> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         writeln!(
             f,
@@ -55,6 +56,7 @@ impl<'path> Display for PdfRecoverable<'path> {
 
 // This error variant is always included in the PdfRecoverable, and
 // there is no need to include the path here.
+// FIXME: Add Copy when ParseErr is changed to NewParseErr
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ObjectRecoverable {
     #[error("Parse. Id: {0}. Offset {1}. Error: {2}")]
@@ -77,7 +79,7 @@ mod convert {
         }
     }
 
-    impl<'path> Deref for PdfRecoverable<'path> {
+    impl Deref for PdfRecoverable<'_> {
         type Target = Vec<ObjectRecoverable>;
 
         fn deref(&self) -> &Self::Target {

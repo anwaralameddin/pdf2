@@ -16,7 +16,6 @@ use self::error::RealFailure;
 use self::error::RealRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
-use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_f64;
 use crate::parse::Parser;

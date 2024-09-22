@@ -4,7 +4,6 @@ use ::nom::bytes::complete::take_till;
 use ::nom::bytes::complete::take_while;
 use ::nom::bytes::complete::take_while1;
 use ::nom::character::complete::char;
-use ::nom::character::complete::digit0;
 use ::nom::character::complete::digit1;
 use ::nom::combinator::opt;
 use ::nom::combinator::recognize;
@@ -98,21 +97,9 @@ pub(crate) fn printable_token(buffer: &[Byte]) -> IResult<&[Byte], &[Byte]> {
     take_while1(is_printable_regular)(buffer)
 }
 
+// TODO Replace with digit1
 pub(crate) fn number1(buffer: &[Byte]) -> IResult<&[Byte], &str> {
     let (buffer, number) = digit1(buffer)?;
-    let number = if let Ok(number) = ::std::str::from_utf8(number) {
-        number
-    } else {
-        return Err(NomErr::Failure(NomError {
-            input: number,
-            code: ErrorKind::Digit,
-        }));
-    };
-    Ok((buffer, number))
-}
-
-pub(crate) fn number0(buffer: &[Byte]) -> IResult<&[Byte], &str> {
-    let (buffer, number) = digit0(buffer)?;
     let number = if let Ok(number) = ::std::str::from_utf8(number) {
         number
     } else {
@@ -408,13 +395,5 @@ mod tests {
             ErrorKind::Digit,
         )));
         assert_eq!(parse_result, expected_error);
-    }
-
-    #[test]
-    fn number0_valid() {
-        assert_eq!(number0(b"123 ").unwrap(), (b" ".as_slice(), "123"));
-        assert_eq!(number0(b"0 ").unwrap(), (b" ".as_slice(), "0"));
-        assert_eq!(number0(b"R").unwrap(), (b"R".as_slice(), ""));
-        assert_eq!(number0(b".123").unwrap(), (b".123".as_slice(), ""));
     }
 }

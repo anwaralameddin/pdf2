@@ -8,7 +8,6 @@ use ::std::fmt::Result as FmtResult;
 use self::error::NullRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
-use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_NULL;

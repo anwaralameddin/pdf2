@@ -10,25 +10,26 @@ use ::std::collections::VecDeque;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use error::SectionCode;
 
-use self::error::SectionFailure;
-use self::error::SectionRecoverable;
 use self::subsection::Subsection;
+use super::error::IncrementCode;
 use super::trailer::Trailer;
-use crate::fmt::debug_bytes;
+use crate::new_parse_failure;
 use crate::object::direct::dictionary::Dictionary;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space;
 use crate::parse::character_set::white_space_or_comment;
-use crate::parse::error::ParseErr;
-use crate::parse::error::ParseFailure;
-use crate::parse::error::ParseRecoverable;
-use crate::parse::error::ParseResult;
+use crate::parse::error::NewParseErr;
+use crate::parse::error::NewParseFailure;
+use crate::parse::error::NewParseRecoverable;
+use crate::parse::error::NewParseResult;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::NewParser;
 use crate::parse::Parser;
 use crate::parse::KW_TRAILER;
 use crate::parse::KW_XREF;
-use crate::parse_error;
-use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p57]
@@ -48,14 +49,14 @@ impl Display for Section {
     }
 }
 
-impl Parser for Section {
+impl NewParser<'_> for Section {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (mut buffer, _) = terminated(tag(KW_XREF), eol)(buffer).map_err(parse_error!(
+    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+        let (mut buffer, _) = terminated(tag(KW_XREF), eol)(buffer).map_err(parse_recoverable!(
             e,
-            SectionRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(e.input),
+            NewParseRecoverable {
+                buffer: e.input,
+                code: ParseErrorCode::NotFound(stringify!(Section), Some(e.code))
             }
         ))?;
         // Here, we know that the buffer starts with a cross-reference section,
@@ -76,22 +77,28 @@ impl Parser for Section {
             tag(KW_TRAILER),
             opt(white_space_or_comment),
         )(buffer)
-        .map_err(parse_failure!(
+        .map_err(new_parse_failure!(
             e,
-            SectionFailure::MissingClosing {
-                code: e.code,
-                input: debug_bytes(e.input),
+            NewParseFailure {
+                buffer: e.input,
+                code: ParseErrorCode::MissingClosing(stringify!(Section), e.code)
             }
         ))?;
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (buffer, trailer) =
-            Dictionary::parse_semi_quiet::<Dictionary>(buffer).unwrap_or_else(|| {
-                Err(ParseErr::Failure(
-                    SectionFailure::TrailerDictionary(debug_bytes(buffer)).into(),
-                ))
-            })?;
+        let (buffer, trailer) = Dictionary::parse(buffer).map_err(|err| {
+            NewParseFailure {
+                buffer,
+                code: SectionCode::MissingTrailerDictionary(
+                    Box::new(err.code().clone()), // TODO(TEMP)
+                )
+                .into(),
+            }
+        })?;
 
-        let trailer = Trailer::try_from(&trailer)?;
+        let trailer = Trailer::try_from(&trailer).map_err(|err| NewParseFailure {
+            buffer,
+            code: IncrementCode::TrailerDictionary(stringify!(Section), err).into(),
+        })?;
 
         let section = Section {
             subsections,
@@ -107,26 +114,26 @@ mod process {
 
     use super::entry::Entry;
     use super::Section;
-    use crate::process::error::ProcessResult;
-    use crate::xref::error::TableError;
+    use crate::process::error::NewProcessResult;
+    use crate::xref::increment::error::IncrementError;
     use crate::xref::Table;
     use crate::xref::ToTable;
     use crate::ObjectNumberOrZero;
 
     impl ToTable for Section {
         // REFERENCE: [7.5.4 Cross-reference table, p56]
-        fn to_table(&self) -> ProcessResult<Table> {
+        fn to_table(&self) -> NewProcessResult<Table> {
             let mut object_numbers: HashSet<ObjectNumberOrZero> = Default::default();
-            self.subsections
-                .iter()
-                .try_fold(Table::default(), |mut table, subsection| {
+            self.subsections.iter().try_fold(
+                Table::default(),
+                |mut table, subsection| -> NewProcessResult<Table> {
                     for (index, entry) in subsection.entries.iter().enumerate() {
                         let object_number =
                             subsection.first_object_number + index as ObjectNumberOrZero;
                         // The object number should not appear in multiple
                         // subsections within the same section
                         if !object_numbers.insert(object_number) {
-                            return Err(TableError::DuplicateObjectNumber(object_number).into());
+                            return Err(IncrementError::DuplicateObjectNumber(object_number).into());
                         }
 
                         match entry {
@@ -143,7 +150,8 @@ mod process {
                         }
                     }
                     Ok(table)
-                })
+                },
+            )
         }
     }
 }
@@ -163,24 +171,15 @@ mod convert {
 
 pub(crate) mod error {
 
-    use ::nom::error::ErrorKind;
     use ::thiserror::Error;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum SectionRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
+    use crate::parse::error::ParseErrorCode;
 
+    // Box does not implement Copy
     #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum SectionFailure {
-        #[error(
-            "Missing Closing: Expected a cross-reference subsection or a trailer. {code:?}. \
-             Input: {input}"
-        )]
-        MissingClosing { code: ErrorKind, input: String },
-        #[error("Trailer dictionary. Input: {0}")]
-        TrailerDictionary(String),
+    pub enum SectionCode {
+        #[error("Missing trailer dictionary. Error: {0}")]
+        MissingTrailerDictionary(Box<ParseErrorCode>),
     }
 }
 
@@ -188,13 +187,12 @@ pub(crate) mod error {
 mod tests {
     use ::nom::error::ErrorKind;
 
-    use self::error::SectionRecoverable;
     use super::entry::Entry;
     use super::*;
     use crate::assert_err_eq;
+    use crate::new_parse_assert_eq;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
-    use crate::parse_assert_eq;
 
     #[test]
     fn section_valid() {
@@ -204,21 +202,21 @@ mod tests {
             VecDeque::default(),
             Trailer::new(1).set_root(unsafe { Reference::new_unchecked(1, 0) }),
         );
-        parse_assert_eq!(buffer, section, "".as_bytes());
+        new_parse_assert_eq!(buffer, section, "".as_bytes());
         // Synthetic test
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
         let section = Section::new(
             [Subsection::new(0, [Entry::Free(0, 65535)])],
             Trailer::new(1),
         );
-        parse_assert_eq!(buffer, section, "".as_bytes());
+        new_parse_assert_eq!(buffer, section, "".as_bytes());
 
         // PDF produced by pdfunite from PDFs produced by Microsoft Word
         let buffer: &[Byte] =
             include_bytes!("../../../../tests/data/F3D45259CBB36D09F04BF0D65BAAD3ED_section.bin");
         let subsection: Section =
             include!("../../../../tests/code/F3D45259CBB36D09F04BF0D65BAAD3ED_section.rs");
-        parse_assert_eq!(
+        new_parse_assert_eq!(
             buffer,
             subsection,
             "\r\nstartxref\r\n38912\r\n%%EOF\r\n".as_bytes()
@@ -234,38 +232,29 @@ mod tests {
         // Incmplte cross-reference section
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n";
         let parse_result = Section::parse(buffer);
-        let expected_error = ParseErr::Failure(
-            SectionFailure::MissingClosing {
-                code: ErrorKind::Tag,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = NewParseFailure {
+            buffer: b"",
+            code: ParseErrorCode::MissingClosing(stringify!(Section), ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Missing cross-reference section
         let buffer = b"trailer<</Size 1>>";
         let parse_result = Section::parse(buffer);
-        let expected_error = ParseErr::Error(
-            SectionRecoverable::NotFound {
-                code: ErrorKind::Tag,
-                input: "trailer<</Size 1>>".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = NewParseRecoverable {
+            buffer: b"trailer<</Size 1>>",
+            code: ParseErrorCode::NotFound(stringify!(Section), Some(ErrorKind::Tag)),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Missing trailer
         // TOOD Refactor error messages to avoid the repetition below
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n<</Size 1>>";
         let parse_result = Section::parse(buffer);
-        let expected_error = ParseErr::Failure(
-            SectionFailure::MissingClosing {
-                code: ErrorKind::Tag,
-                input: "<</Size 1>>".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = NewParseFailure {
+            buffer: b"<</Size 1>>",
+            code: ParseErrorCode::MissingClosing(stringify!(Section), ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

@@ -12,11 +12,37 @@ use super::filter::lzw::error::LzwError;
 use super::filter::predictor::error::PredictorError;
 use super::filter::predictor::png::error::PngError;
 use super::filter::predictor::tiff::error::TiffError;
-use crate::xref::error::TableError;
+use crate::object::direct::dictionary::error::DataTypeError;
+use crate::object::direct::dictionary::error::MissingEntryError;
+use crate::xref::error::XRefError;
+use crate::xref::increment::error::IncrementError;
 use crate::xref::increment::stream::entry::error::EntryError;
 use crate::xref::increment::stream::error::XRefStreamError;
 
+pub(crate) type NewProcessResult<T> = Result<T, NewProcessErr>;
 pub(crate) type ProcessResult<T> = Result<T, ProcessErr>;
+
+#[derive(Debug, Error, PartialEq, Clone)]
+
+pub enum NewProcessErr {
+    // TODO (TEMP)
+    #[error("Old: {0}")]
+    Old(#[from] ProcessErr),
+    //
+    #[error("DataType: {0}")]
+    DataType(#[from] DataTypeError<'static>),
+    #[error("MissingEntry: {0}")]
+    MissingEntry(#[from] MissingEntryError),
+    //
+    #[error("Entry: {0}")]
+    Entry(#[from] EntryError),
+    #[error("XRefStream: {0}")]
+    XRefStream(#[from] XRefStreamError),
+    #[error("Increment: {0}")]
+    Increment(#[from] IncrementError),
+    #[error("XRef: {0}")]
+    XRef(#[from] XRefError),
+}
 
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ProcessErr {
@@ -24,12 +50,18 @@ pub enum ProcessErr {
     Encoding(#[from] EncodingError),
     #[error("Escape: {0}")]
     Escape(#[from] EscapeError),
-    #[error("Filter: {0}")]
-    Filter(#[from] FilterError),
+    // TODO (TEMP)
+    #[error("Utf8: {0}")]
+    Utf8(#[from] Utf8Error),
+    // Filter errors
     #[error("Predictor: {0}")]
     Predictor(#[from] PredictorError),
-    #[error("JBIG2: {0}")]
-    Jbig2(#[from] Jbig2Error),
+    #[error("Tiff: {0}")]
+    Tiff(#[from] TiffError),
+    #[error("Png: {0}")]
+    Png(#[from] PngError),
+    #[error("Filter: {0}")]
+    Filter(#[from] FilterError),
     #[error("ASCIIHex: {0}")]
     ASCIIHex(#[from] ASCIIHexError),
     #[error("ASCII85: {0}")]
@@ -38,18 +70,18 @@ pub enum ProcessErr {
     Lzw(#[from] LzwError),
     #[error("Flate: {0}")]
     Flate(#[from] FlateError),
-    #[error("Tiff: {0}")]
-    Tiff(#[from] TiffError),
-    #[error("Png: {0}")]
-    Png(#[from] PngError),
+    #[error("JBIG2: {0}")]
+    Jbig2(#[from] Jbig2Error),
+}
 
-    #[error("XRefStream: {0}")]
-    XRefStream(#[from] XRefStreamError),
-    #[error("Table: {0}")]
-    Table(#[from] TableError),
-    #[error("Entry: {0}")]
-    Entry(#[from] EntryError),
-
-    #[error("Utf8: {0}")]
-    Utf8(#[from] Utf8Error),
+#[macro_export]
+macro_rules! process_err {
+    ($e:ident, $error:expr) => {
+        |err| match err {
+            NomErr::Incomplete(_) => unreachable!(
+                "::nom::complete functions do not return the Incomplete error variant."
+            ),
+            NomErr::Error($e) | NomErr::Failure($e) => $error,
+        }
+    };
 }

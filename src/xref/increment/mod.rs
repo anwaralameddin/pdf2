@@ -6,13 +6,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::IncrementRecoverable;
 use self::section::Section;
 use self::stream::XRefStream;
-use crate::fmt::debug_bytes;
-use crate::parse::error::ParseErr;
-use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::error::NewParseErr;
+use crate::parse::error::NewParseRecoverable;
+use crate::parse::error::NewParseResult;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::NewParser;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55]
@@ -31,26 +31,28 @@ impl Display for Increment {
     }
 }
 
-impl Parser for Increment {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl NewParser<'_> for Increment {
+    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
         Section::parse_semi_quiet::<Self>(buffer)
             .or_else(|| XRefStream::parse_semi_quiet::<Self>(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    IncrementRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                Err(NewParseRecoverable {
+                    buffer,
+                    code: ParseErrorCode::NotFound(stringify!(Increment), None),
+                }
+                .into())
             })
     }
 }
 
 mod process {
     use super::*;
-    use crate::process::error::ProcessResult;
+    use crate::process::error::NewProcessResult;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for Increment {
-        fn to_table(&self) -> ProcessResult<Table> {
+        fn to_table(&self) -> NewProcessResult<Table> {
             match self {
                 Self::Section(section) => section.to_table(),
                 Self::Stream(stream) => stream.to_table(),
@@ -87,13 +89,24 @@ mod convert {
 }
 
 pub(crate) mod error {
-
+    use ::std::num::TryFromIntError;
     use ::thiserror::Error;
 
+    use crate::process::error::NewProcessErr;
+
+    // NewProcessErr do not implement Copy
     #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IncrementRecoverable {
-        #[error("Not found: {0}")]
-        NotFound(String),
+    pub enum IncrementCode {
+        #[error("{0}. Trailer dictionary. Error: {1}")]
+        TrailerDictionary(&'static str, NewProcessErr),
+    }
+
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum IncrementError {
+        #[error("Generation number. Error: {1}. Input: {0}")]
+        EntryGenerationNumber(u64, TryFromIntError),
+        #[error("Duplicate object number: {0}")]
+        DuplicateObjectNumber(u64),
     }
 }
 

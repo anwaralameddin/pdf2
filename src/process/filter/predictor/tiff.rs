@@ -95,7 +95,7 @@ struct BitsReader<'a> {
     location: usize,
 }
 
-impl<'a> BitsReader<'a> {
+impl BitsReader<'_> {
     fn next_bits(&mut self) -> ProcessResult<Option<Byte>> {
         let byte_location = self.location / 8;
         let bit_location = self.location % 8;
@@ -183,7 +183,7 @@ struct BitsWriter<'a> {
     bit_location: usize,
 }
 
-impl<'a> BitsWriter<'a> {
+impl BitsWriter<'_> {
     fn write_component(&mut self, component: Byte) -> ProcessResult<()> {
         if self.bit_location + *self.parms.bits_per_component > 8 {
             return Err(TiffError::BitsOutOfBound(

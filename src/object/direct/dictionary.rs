@@ -16,7 +16,6 @@ use crate::fmt::debug_bytes;
 use crate::object::indirect::reference::Reference;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
-use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse_error;
@@ -135,7 +134,7 @@ mod convert {
     use ::std::ops::Deref;
     use ::std::result::Result as StdResult;
 
-    use self::error::DataTypeErr;
+    use self::error::DataTypeError;
     use super::*;
     use crate::object::direct::array::Array;
     use crate::object::direct::numeric::Integer;
@@ -175,11 +174,14 @@ mod convert {
             self.0.get(&key.into())
         }
 
-        pub(crate) fn get_array(&self, key: &str) -> StdResult<Option<Array>, DataTypeErr> {
+        pub(crate) fn get_array<'key>(
+            &self,
+            key: &'key str,
+        ) -> StdResult<Option<&Array>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
-                    value.as_array().cloned().ok_or_else(|| DataTypeErr {
-                        key: key.to_string(),
+                    value.as_array().ok_or_else(|| DataTypeError {
+                        key,
                         expected_type: stringify!(u64),
                         value: value.to_string(),
                         dictionary: self.to_string(),
@@ -188,11 +190,14 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn get_name(&self, key: &str) -> StdResult<Option<Name>, DataTypeErr> {
+        pub(crate) fn get_name<'key>(
+            &self,
+            key: &'key str,
+        ) -> StdResult<Option<&Name>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
-                    value.as_name().cloned().ok_or_else(|| DataTypeErr {
-                        key: key.to_string(),
+                    value.as_name().ok_or_else(|| DataTypeError {
+                        key,
                         expected_type: stringify!(u64),
                         value: value.to_string(),
                         dictionary: self.to_string(),
@@ -201,15 +206,18 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn get_u64(&self, key: &str) -> StdResult<Option<u64>, DataTypeErr> {
+        pub(crate) fn get_u64<'key>(
+            &self,
+            key: &'key str,
+        ) -> StdResult<Option<u64>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
                     value
                         .as_numeric()
                         .and_then(Numeric::as_integer)
                         .and_then(Integer::as_u64)
-                        .ok_or_else(|| DataTypeErr {
-                            key: key.to_string(),
+                        .ok_or_else(|| DataTypeError {
+                            key,
                             expected_type: stringify!(u64),
                             value: value.to_string(),
                             dictionary: self.to_string(),
@@ -218,11 +226,14 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn get_reference(&self, key: &str) -> StdResult<Option<Reference>, DataTypeErr> {
+        pub(crate) fn get_reference<'key>(
+            &self,
+            key: &'key str,
+        ) -> StdResult<Option<&Reference>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
-                    value.as_reference().cloned().ok_or_else(|| DataTypeErr {
-                        key: key.to_string(),
+                    value.as_reference().ok_or_else(|| DataTypeError {
+                        key,
                         expected_type: stringify!(Reference),
                         value: value.to_string(),
                         dictionary: self.to_string(),
@@ -253,16 +264,24 @@ pub(crate) mod error {
         MissingClosing(String),
     }
 
+    // TODO(TEMP) Replace the two errors below to DictionaryError
     #[derive(Debug, Error, PartialEq, Clone)]
     #[error(
         "Wrong data type. Key {key}. Expected a {expected_type} value, found {value} in \
          {dictionary}"
     )]
-    pub struct DataTypeErr {
-        pub(crate) key: String,
+    pub struct DataTypeError<'key> {
+        pub(crate) key: &'key str,
         pub(crate) expected_type: &'static str,
-        pub(crate) value: String,
-        pub(crate) dictionary: String,
+        pub(crate) value: String,      // TODO (TEMP)
+        pub(crate) dictionary: String, // TODO (TEMP)
+    }
+
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    #[error("Missing required entry. Key {key}. Expected a {data_type} value")]
+    pub struct MissingEntryError {
+        pub(crate) key: &'static str,
+        pub(crate) data_type: &'static str,
     }
 }
 

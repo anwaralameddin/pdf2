@@ -5,11 +5,14 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
+use super::error::IncrementCode;
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
-use crate::parse::error::ParseResult;
+use crate::parse::error::NewParseFailure;
+use crate::parse::error::NewParseResult;
+use crate::parse::NewParser;
 use crate::parse::Parser;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
@@ -29,23 +32,26 @@ impl Display for XRefStream {
     }
 }
 
-impl Parser for XRefStream {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl NewParser<'_> for XRefStream {
+    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (buffer, IndirectObject { id, value }) = Parser::parse(buffer)?;
+        let (remaining, IndirectObject { id, value }) = Parser::parse(buffer)?;
 
         let stream = Stream::try_from(value)?;
 
-        let trailer = Trailer::try_from(&stream.dictionary)?;
+        let trailer = Trailer::try_from(&stream.dictionary).map_err(|err| NewParseFailure {
+            buffer,
+            code: IncrementCode::TrailerDictionary(stringify!(XRefStream), err).into(),
+        })?;
 
         let xref_stream = XRefStream {
             id,
             stream,
             trailer,
         };
-        Ok((buffer, xref_stream))
+        Ok((remaining, xref_stream))
     }
 }
 
@@ -53,13 +59,18 @@ mod process {
     use ::nom::bytes::complete::take;
     use ::nom::multi::many0;
     use ::nom::sequence::tuple;
+    use ::nom::Err as NomErr;
     use ::std::collections::HashSet;
 
+    use super::entry::error::EntryError;
     use super::entry::Entry;
     use super::error::XRefStreamError;
     use super::*;
-    use crate::process::error::ProcessResult;
-    use crate::xref::error::TableError;
+    use crate::object::direct::dictionary::error::MissingEntryError;
+    use crate::process::error::NewProcessErr;
+    use crate::process::error::NewProcessResult;
+    use crate::process_err;
+    use crate::xref::increment::error::IncrementError;
     use crate::xref::increment::trailer::KEY_TYPE;
     use crate::xref::increment::trailer::KEY_W;
     use crate::xref::increment::trailer::VAL_XREF;
@@ -68,7 +79,7 @@ mod process {
     use crate::ObjectNumberOrZero;
 
     impl ToTable for XRefStream {
-        fn to_table(&self) -> ProcessResult<Table> {
+        fn to_table(&self) -> NewProcessResult<Table> {
             // TODO Change the errors below into warnings as long as they don't
             // prevent building the table
 
@@ -85,10 +96,11 @@ mod process {
             let mut entries_iter = entries.iter();
 
             let mut object_numbers: HashSet<ObjectNumberOrZero> = Default::default();
+
             index.iter().try_fold(
                 Table::default(),
                 |mut table, (first_object_number, count)| {
-                    for i in 0..*count {
+                    for entry_index in 0..*count {
                         // TODO We probably need a different warning when [0, size] is used
                         let entry =
                             entries_iter
@@ -96,12 +108,12 @@ mod process {
                                 .ok_or(XRefStreamError::EntriesTooShort {
                                     first_object_number: *first_object_number,
                                     count: *count,
-                                    i,
+                                    index: entry_index,
                                 })?;
-                        let object_number = first_object_number + i;
+                        let object_number = first_object_number + entry_index;
 
                         if !object_numbers.insert(object_number) {
-                            return Err(TableError::DuplicateObjectNumber(object_number).into());
+                            return Err(IncrementError::DuplicateObjectNumber(object_number).into());
                         }
 
                         match entry {
@@ -130,31 +142,31 @@ mod process {
     }
 
     impl XRefStream {
-        fn get_entries(&self) -> ProcessResult<Vec<Entry>> {
+        fn get_entries(&self) -> NewProcessResult<Vec<Entry>> {
             // Type
             self.trailer
                 .r#type()
-                .ok_or(XRefStreamError::MissingEntry {
+                .ok_or(NewProcessErr::from(MissingEntryError {
                     key: KEY_TYPE,
                     data_type: stringify!(Name),
-                })
+                }))
                 .and_then(|type_| {
                     if type_.ne(VAL_XREF) {
                         Err(XRefStreamError::WrongValue {
                             key: KEY_TYPE,
                             expected: VAL_XREF,
-                            value: type_.to_string(),
-                        })
+                            value: type_.clone(), // TODO (TEMP)
+                        }
+                        .into())
                     } else {
                         Ok(type_)
                     }
                 })?;
             // W
-            let [count1, count2, count3] =
-                self.trailer.w().ok_or(XRefStreamError::MissingEntry {
-                    key: KEY_W,
-                    data_type: stringify!("array of three integers"),
-                })?;
+            let [count1, count2, count3] = self.trailer.w().ok_or(MissingEntryError {
+                key: KEY_W,
+                data_type: stringify!(array of three integers),
+            })?;
 
             let decoded_data = self.stream.defilter()?;
             let buffer = decoded_data.as_slice();
@@ -165,19 +177,20 @@ mod process {
                 take(*count3),
             )));
 
-            let (buffer, entries) =
-                parser(buffer).map_err(|err| XRefStreamError::ParseDecoded(err.to_string()))?;
+            let (buffer, entries) = parser(buffer).map_err(process_err!(e, {
+                XRefStreamError::ParseDecoded(e.input.to_vec(), e.code) // TODO (TEMP)
+            }))?;
             if !buffer.is_empty() {
-                return Err(XRefStreamError::DecodedLength {
-                    w: [*count1, *count2, *count3],
-                    decoded_length: decoded_data.len(),
-                }
+                return Err(XRefStreamError::DecodedLength(
+                    [*count1, *count2, *count3],
+                    decoded_data.len(),
+                )
                 .into());
             }
             let entries = entries
                 .into_iter()
                 .map(|(field1, field2, field3)| Entry::try_from((field1, field2, field3)))
-                .collect::<ProcessResult<Vec<_>>>()?;
+                .collect::<Result<Vec<_>, EntryError>>()?;
             Ok(entries)
         }
     }
@@ -185,13 +198,15 @@ mod process {
 
 mod convert {
     use super::*;
+    use crate::process::error::NewProcessResult;
 
     impl XRefStream {
-        pub(crate) fn new(id: Id, stream: Stream) -> ParseResult<Self> {
+        // TODO(TEMP) Should this be a processing error?
+        pub(crate) fn new(id: Id, stream: &Stream) -> NewProcessResult<Self> {
             let trailer = Trailer::try_from(&stream.dictionary)?;
             Ok(Self {
                 id,
-                stream,
+                stream: stream.clone(), // TODO(TEMP)
                 trailer,
             })
         }
@@ -199,51 +214,48 @@ mod convert {
 }
 
 pub(crate) mod error {
+
+    use ::nom::error::ErrorKind;
     use ::thiserror::Error;
 
+    use crate::fmt::debug_bytes;
+    use crate::object::direct::name::Name;
+    use crate::Byte;
     use crate::IndexNumber;
 
+    // Name and Vec do not implement Copy
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum XRefStreamError {
-        #[error("Missing required key {key}. Expected a {data_type} value")]
-        MissingEntry {
-            key: &'static str,
-            data_type: &'static str,
-        },
         #[error("Wrong value. Key {key}. Expected a {expected} value, found {value}")]
         WrongValue {
             key: &'static str,
             expected: &'static str,
-            value: String,
+            value: Name, // TODO(TEMP) &'buffer [Byte]
         },
-        #[error("Parsing Decoded data: {0}")]
-        ParseDecoded(
-            String, // TODO Replace with NomErr<NomError<Box<Byte>>>,
-        ),
+        #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
+        ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) &'buffer [Byte]
+        #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
+        DecodedLength([usize; 3], usize),
         #[error(
-            "Decoded data length {decoded_length}: Not a multiple of the sum of W values: {w:?}"
-        )]
-        DecodedLength {
-            w: [usize; 3],
-            decoded_length: usize,
-        },
-        #[error("Entries length {entries_length} does not match the size {size}")]
-        EntriesLength { entries_length: usize, size: usize },
-        #[error(
-            "Entries too short. First object number: {first_object_number}. count: {count}. \
-             Missing the {i}th entry"
+            "Entries too short. First object number: {}. Entry count: {}. Missing the {}th entry",
+            first_object_number,
+            count,
+            index
         )]
         EntriesTooShort {
             first_object_number: u64,
             count: IndexNumber,
-            i: IndexNumber,
+            index: IndexNumber,
         },
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ::std::collections::HashMap;
+
     use super::*;
+    use crate::new_parse_assert_eq;
     use crate::object::direct::array::Array;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
@@ -251,7 +263,6 @@ mod tests {
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
-    use crate::parse_assert_eq;
     use crate::xref::increment::trailer::VAL_XREF;
 
     #[test]
@@ -272,7 +283,7 @@ mod tests {
                 Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
             ])
             .set_type(Name::from(VAL_XREF))
-            .set_others(Dictionary::from_iter([
+            .set_others(HashMap::from_iter([
                 (Name::from(KEY_LENGTH), 1760.into()),
                 (Name::from(KEY_FILTER), Name::from("FlateDecode").into()),
             ]));
@@ -281,7 +292,7 @@ mod tests {
             stream: Stream::new(dictionary, &buffer[215..1975]),
             trailer,
         };
-        parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
+        new_parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -291,10 +302,10 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
-            Stream::new(dictionary, &buffer[215..1304]),
+            &Stream::new(dictionary, &buffer[215..1304]),
         )
         .unwrap();
-        parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
+        new_parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -304,10 +315,10 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
-            Stream::new(dictionary, &buffer[215..717]),
+            &Stream::new(dictionary, &buffer[215..717]),
         )
         .unwrap();
-        parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
+        new_parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }
 
     // TODO Add tests

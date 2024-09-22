@@ -1,19 +1,19 @@
 use ::std::collections::VecDeque;
+use error::PreTableCode;
 
-use self::error::PreTableFailure;
 use super::increment::Increment;
 use super::startxref::StartXRef;
-use crate::parse::error::ParseFailure;
-use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::error::NewParseFailure;
+use crate::parse::error::NewParseResult;
+use crate::parse::NewParser;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct PreTable(VecDeque<Increment>);
 
-impl Parser for PreTable {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl NewParser<'_> for PreTable {
+    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
         let (_, startxref) = StartXRef::parse(buffer)?;
 
         let mut increments = VecDeque::new();
@@ -21,8 +21,10 @@ impl Parser for PreTable {
         let mut prev = Some(*startxref);
 
         while let Some(offset) = prev {
-            let start = usize::try_from(offset)
-                .map_err(|err| ParseFailure::from(PreTableFailure::Offset(offset, err)))?;
+            let start = usize::try_from(offset).map_err(|err| NewParseFailure {
+                buffer: &[],
+                code: PreTableCode::U64ToOffSet(offset, err).into(),
+            })?;
             let buffer_ref = &buffer[start..];
             let (_, increment) = Increment::parse(buffer_ref)?;
 
@@ -45,12 +47,12 @@ impl Parser for PreTable {
 
 mod process {
     use super::*;
-    use crate::process::error::ProcessResult;
+    use crate::process::error::NewProcessResult;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for PreTable {
-        fn to_table(&self) -> ProcessResult<Table> {
+        fn to_table(&self) -> NewProcessResult<Table> {
             self.iter()
                 .try_fold(Table::default(), |mut table, increment| {
                     table.extend(increment.to_table()?);
@@ -96,12 +98,13 @@ mod convert {
 }
 
 pub(crate) mod error {
+
     use ::std::num::TryFromIntError;
     use ::thiserror::Error;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum PreTableFailure {
-        #[error("Invalid offset: {0:?}. Input: {1}")]
-        Offset(u64, TryFromIntError),
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum PreTableCode {
+        #[error("Offset. Code: {1}. Input: {0}")]
+        U64ToOffSet(u64, TryFromIntError),
     }
 }
