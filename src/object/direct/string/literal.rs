@@ -309,9 +309,6 @@ mod process {
     }
 
     impl OwnedLiteral {
-        /// REFERENCE:
-        /// - [7.3.4.2 Literal strings, p25]
-        /// - ["Table 3: Escape sequences in literal strings", p25-26]
         pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
             Literal::from(self).escape()
         }

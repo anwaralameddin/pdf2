@@ -112,6 +112,7 @@ mod process {
             encoding.decode(&self.escape()?)
         }
     }
+
     impl OwnedString {
         pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
             String_::from(self).escape()

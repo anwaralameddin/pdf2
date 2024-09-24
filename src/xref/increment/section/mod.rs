@@ -189,6 +189,7 @@ mod tests {
             Trailer::new(1).set_root(unsafe { Reference::new_unchecked(1, 0) }),
         );
         parse_assert_eq!(buffer, section, "".as_bytes());
+
         // Synthetic test
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
         let section = Section::new(
