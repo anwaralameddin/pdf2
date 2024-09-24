@@ -9,11 +9,11 @@ pub(crate) mod string;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
-use array::Array;
-use dictionary::Dictionary;
 
+use self::array::Array;
 use self::array::OwnedArray;
 use self::boolean::Boolean;
+use self::dictionary::Dictionary;
 use self::dictionary::OwnedDictionary;
 use self::name::Name;
 use self::name::OwnedName;

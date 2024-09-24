@@ -228,6 +228,7 @@ mod process {
 mod convert {
 
     use super::*;
+    use crate::object::indirect::IndirectValue;
     use crate::object::indirect::OwnedIndirectValue;
     use crate::object::BorrowedBuffer;
     use crate::parse::error::ParseFailure;
@@ -274,21 +275,21 @@ mod convert {
     }
 
     // TODO (TEMP) Implement once `IndirectValue` is implemented
-    // impl<'buffer> TryFrom<IndirectValue<'buffer>> for Stream<'buffer> {
-    //     type Error = ParseFailure<'static>;
+    impl<'buffer> TryFrom<IndirectValue<'buffer>> for Stream<'buffer> {
+        type Error = ParseFailure<'static>;
 
-    //     fn try_from(value: OwnedIndirectValue) -> Result<Self, Self::Error> {
-    //         if let OwnedIndirectValue::Stream(stream) = value {
-    //             Ok(stream)
-    //         } else {
-    //             Err(ParseFailure {
-    //                 buffer: &[], // TODO (TEMP) Replace with value.as_bytes() when implemented
-    //                 object: stringify!(Stream),
-    //                 code: ParseErrorCode::ObjectType,
-    //             })
-    //         }
-    //     }
-    // }
+        fn try_from(value: IndirectValue<'buffer>) -> Result<Self, Self::Error> {
+            if let IndirectValue::Stream(stream) = value {
+                Ok(stream)
+            } else {
+                Err(ParseFailure {
+                    buffer: &[], // TODO (TEMP) Replace with value.as_bytes() when implemented
+                    object: stringify!(Stream),
+                    code: ParseErrorCode::ObjectType,
+                })
+            }
+        }
+    }
 
     impl TryFrom<OwnedIndirectValue> for OwnedStream {
         type Error = ParseFailure<'static>;
