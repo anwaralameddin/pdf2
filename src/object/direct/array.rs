@@ -22,7 +22,7 @@ use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.3.6 Array objects, p29]
-#[derive(Debug, Default, Clone)] // TODO (TEMP) Add Copy
+#[derive(Debug, Default, Clone)]
 pub struct Array<'buffer>(Vec<DirectValue<'buffer>>);
 
 #[derive(Debug, Default, Clone)]
@@ -43,7 +43,8 @@ impl Display for Array<'_> {
 
 impl Display for OwnedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&Array::from(self), f) // TODO (TEMP) Array::from involves reallocation
+        // TODO (TEMP) Array::from involves reallocation
+        Display::fmt(&Array::from(self), f)
     }
 }
 
@@ -63,7 +64,8 @@ impl PartialEq for Array<'_> {
 
 impl PartialEq for OwnedArray {
     fn eq(&self, other: &Self) -> bool {
-        Array::from(self) == Array::from(other) // TODO (TEMP) Array::from involves reallocation
+        // TODO (TEMP) Array::from involves reallocation
+        Array::from(self) == Array::from(other)
     }
 }
 

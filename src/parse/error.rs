@@ -63,8 +63,11 @@ pub enum ParseErrorCode {
     RecMissingSubobject(&'static str, Box<ParseErrorCode>),
     #[error("Missing key: Error: {0}")]
     RecMissingKey(&'static str),
+    // TODO (TEMP) Remove when OwnedName is discarded
     #[error("Missing value. Key {0}. Error: {1}")]
-    RecMissingValue(OwnedName, Box<ParseErrorCode>),
+    RecMissingValueCloned(OwnedName, Box<ParseErrorCode>),
+    // #[error("Missing value. Key {0}. Error: {1}")]
+    // RecMissingValue(Name<'buffer>, Box<ParseErrorCode>),
     #[error("Missing closing. Error: {0}")]
     RecMissingClosing(Box<ParseErrorCode>),
     #[error(

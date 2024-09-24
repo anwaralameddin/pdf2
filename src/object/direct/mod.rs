@@ -10,6 +10,7 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use array::Array;
+use dictionary::Dictionary;
 
 use self::array::OwnedArray;
 use self::boolean::Boolean;
@@ -34,12 +35,12 @@ use crate::Byte;
 /// Streams are always indirect objects. While `Reference` is not an object, it
 /// can substitute for one in some contexts, and it is convenient to treat it as
 /// such. Hence, the `DirectValue` enum includes it along with direct objects.
-#[derive(Debug, PartialEq, Clone)] // TODO (TEMP) Add Copy
+#[derive(Debug, PartialEq, Clone)]
 pub enum DirectValue<'buffer> {
     Reference(Reference),
     Array(Array<'buffer>),
     Boolean(Boolean),
-    Dictionary(&'buffer OwnedDictionary), // TODO (TEMP) Replace with Dictionary
+    Dictionary(Dictionary<'buffer>),
     Name(Name<'buffer>),
     Null(Null),
     Numeric(Numeric),
@@ -90,7 +91,7 @@ impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
             .or_else(|| Name::parse_suppress_recoverable(buffer))
             .or_else(|| String_::parse_suppress_recoverable(buffer))
             .or_else(|| Array::parse_suppress_recoverable(buffer))
-            // .or_else(|| OwnedDictionary::parse_suppress_recoverable(buffer)) // TODO (TEMP) Replace with dictionary.parse_suppress_recoverable(buffer)
+            .or_else(|| Dictionary::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable {
                     buffer,
@@ -165,8 +166,8 @@ mod convert {
                 DirectValue::Array(array) => Self::OwnedBuffer::Array(array.to_owned_buffer()),
                 DirectValue::Boolean(boolean) => Self::OwnedBuffer::Boolean(boolean),
                 DirectValue::Dictionary(dictionary) => {
-                    Self::OwnedBuffer::Dictionary(dictionary.clone())
-                } // TODO (TEMP) Replace with dictionary.to_owned_buffer()
+                    Self::OwnedBuffer::Dictionary(dictionary.to_owned_buffer())
+                }
                 DirectValue::Name(name) => Self::OwnedBuffer::Name(name.to_owned_buffer()),
                 DirectValue::Null(null) => Self::OwnedBuffer::Null(null),
                 DirectValue::Numeric(numeric) => Self::OwnedBuffer::Numeric(numeric),
@@ -181,7 +182,7 @@ mod convert {
                 OwnedDirectValue::Reference(reference) => Self::Reference(*reference),
                 OwnedDirectValue::Array(array) => Self::Array(array.into()),
                 OwnedDirectValue::Boolean(boolean) => Self::Boolean(*boolean),
-                OwnedDirectValue::Dictionary(dictionary) => Self::Dictionary(dictionary),
+                OwnedDirectValue::Dictionary(dictionary) => Self::Dictionary(dictionary.into()),
                 OwnedDirectValue::Name(owned_name) => Self::Name(owned_name.into()),
                 OwnedDirectValue::Null(null) => Self::Null(*null),
                 OwnedDirectValue::Numeric(numeric) => Self::Numeric(*numeric),
@@ -194,7 +195,7 @@ mod convert {
     impl_from_ref!('buffer, Array<'buffer>, Array, DirectValue<'buffer>);
     impl_from_ref!('buffer, Boolean, Boolean, DirectValue<'buffer>);
     impl_from_ref!('buffer, bool, Boolean, DirectValue<'buffer>);
-    impl_from_ref!('buffer, &'buffer OwnedDictionary, Dictionary, DirectValue<'buffer>);
+    impl_from_ref!('buffer, Dictionary<'buffer>, Dictionary, DirectValue<'buffer>);
     impl_from_ref!('buffer, Name<'buffer>, Name, DirectValue<'buffer>);
     impl_from_ref!('buffer, Null, Null, DirectValue<'buffer>);
     impl_from_ref!('buffer, Integer, Numeric, DirectValue<'buffer>);
@@ -247,7 +248,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_dictionary(&self) -> Option<&OwnedDictionary> {
+        pub(crate) fn as_dictionary(&self) -> Option<&Dictionary> {
             if let Self::Dictionary(v) = self {
                 Some(v)
             } else {
