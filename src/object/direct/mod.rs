@@ -10,13 +10,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::array::Array;
+use self::array::OwnedArray;
 use self::boolean::Boolean;
-use self::dictionary::Dictionary;
-use self::name::Name;
+use self::dictionary::OwnedDictionary;
+use self::name::OwnedName;
 use self::null::Null;
 use self::numeric::Numeric;
-use self::string::String_;
+use self::string::OwnedString;
 use crate::object::indirect::reference::Reference;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
@@ -31,19 +31,19 @@ use crate::Byte;
 /// can substitute for one in some contexts, and it is convenient to treat it as
 /// such. Hence, the `DirectValue` enum includes it along with direct objects.
 #[derive(Debug, PartialEq, Clone)]
-pub enum DirectValue {
+pub enum OwnedDirectValue {
     Reference(Reference),
-    Array(Array),
+    Array(OwnedArray),
     Boolean(Boolean),
-    Dictionary(Dictionary),
-    Name(Name),
+    Dictionary(OwnedDictionary),
+    Name(OwnedName),
     Null(Null),
     Numeric(Numeric),
-    String(String_),
+    String(OwnedString),
     // Stream(Stream),
 }
 
-impl Display for DirectValue {
+impl Display for OwnedDirectValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::Reference(reference) => write!(f, "{}", reference),
@@ -58,16 +58,16 @@ impl Display for DirectValue {
     }
 }
 
-impl Parser<'_> for DirectValue {
+impl Parser<'_> for OwnedDirectValue {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         Reference::parse_suppress_recoverable(buffer)
             .or_else(|| Null::parse_suppress_recoverable(buffer))
             .or_else(|| Boolean::parse_suppress_recoverable(buffer))
             .or_else(|| Numeric::parse_suppress_recoverable(buffer))
-            .or_else(|| Name::parse_suppress_recoverable(buffer))
-            .or_else(|| String_::parse_suppress_recoverable(buffer))
-            .or_else(|| Array::parse_suppress_recoverable(buffer))
-            .or_else(|| Dictionary::parse_suppress_recoverable(buffer))
+            .or_else(|| OwnedName::parse_suppress_recoverable(buffer))
+            .or_else(|| OwnedString::parse_suppress_recoverable(buffer))
+            .or_else(|| OwnedArray::parse_suppress_recoverable(buffer))
+            .or_else(|| OwnedDictionary::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable {
                     buffer,
@@ -84,11 +84,11 @@ mod process {
 
     use super::*;
 
-    impl DirectValue {
+    impl OwnedDirectValue {
         pub(crate) fn lookup<'a>(
             &self,
-            _parsed_objects: &'a HashMap<Reference, DirectValue>,
-        ) -> Option<&'a DirectValue> {
+            _parsed_objects: &'a HashMap<Reference, OwnedDirectValue>,
+        ) -> Option<&'a OwnedDirectValue> {
             todo!("Implement lookup and report unfound references")
             // REFERENCE: [7.3.9 Null object, p33]
             // TODO Indirect references to non-existent objects should resolve to null
@@ -100,35 +100,35 @@ mod convert {
 
     use self::numeric::Integer;
     use self::numeric::Real;
-    use self::string::Hexadecimal;
-    use self::string::Literal;
+    use self::string::OwnedHexadecimal;
+    use self::string::OwnedLiteral;
     use super::*;
     use crate::impl_from;
-    use crate::object::direct::array::Array;
+    use crate::object::direct::array::OwnedArray;
     use crate::object::direct::boolean::Boolean;
-    use crate::object::direct::dictionary::Dictionary;
-    use crate::object::direct::name::Name;
+    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::name::OwnedName;
     use crate::object::direct::null::Null;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::string::String_;
+    use crate::object::direct::string::OwnedString;
 
-    impl_from!(Reference, Reference, DirectValue);
-    impl_from!(Array, Array, DirectValue);
-    impl_from!(Boolean, Boolean, DirectValue);
-    impl_from!(bool, Boolean, DirectValue);
-    impl_from!(Dictionary, Dictionary, DirectValue);
-    impl_from!(Name, Name, DirectValue);
-    impl_from!(Null, Null, DirectValue);
-    impl_from!(Integer, Numeric, DirectValue);
-    impl_from!(u64, Numeric, DirectValue);
-    impl_from!(Real, Numeric, DirectValue);
-    impl_from!(f64, Numeric, DirectValue);
-    impl_from!(Numeric, Numeric, DirectValue);
-    impl_from!(Hexadecimal, String, DirectValue);
-    impl_from!(Literal, String, DirectValue);
-    impl_from!(String_, String, DirectValue);
+    impl_from!(Reference, Reference, OwnedDirectValue);
+    impl_from!(OwnedArray, Array, OwnedDirectValue);
+    impl_from!(Boolean, Boolean, OwnedDirectValue);
+    impl_from!(bool, Boolean, OwnedDirectValue);
+    impl_from!(OwnedDictionary, Dictionary, OwnedDirectValue);
+    impl_from!(OwnedName, Name, OwnedDirectValue);
+    impl_from!(Null, Null, OwnedDirectValue);
+    impl_from!(Integer, Numeric, OwnedDirectValue);
+    impl_from!(u64, Numeric, OwnedDirectValue);
+    impl_from!(Real, Numeric, OwnedDirectValue);
+    impl_from!(f64, Numeric, OwnedDirectValue);
+    impl_from!(Numeric, Numeric, OwnedDirectValue);
+    impl_from!(OwnedHexadecimal, String, OwnedDirectValue);
+    impl_from!(OwnedLiteral, String, OwnedDirectValue);
+    impl_from!(OwnedString, String, OwnedDirectValue);
 
-    impl DirectValue {
+    impl OwnedDirectValue {
         pub(crate) fn as_reference(&self) -> Option<&Reference> {
             if let Self::Reference(v) = self {
                 Some(v)
@@ -137,7 +137,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_array(&self) -> Option<&Array> {
+        pub(crate) fn as_array(&self) -> Option<&OwnedArray> {
             if let Self::Array(v) = self {
                 Some(v)
             } else {
@@ -153,7 +153,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_dictionary(&self) -> Option<&Dictionary> {
+        pub(crate) fn as_dictionary(&self) -> Option<&OwnedDictionary> {
             if let Self::Dictionary(v) = self {
                 Some(v)
             } else {
@@ -161,7 +161,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_name(&self) -> Option<&Name> {
+        pub(crate) fn as_name(&self) -> Option<&OwnedName> {
             if let Self::Name(v) = self {
                 Some(v)
             } else {
@@ -185,7 +185,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_string(&self) -> Option<&String_> {
+        pub(crate) fn as_string(&self) -> Option<&OwnedString> {
             if let Self::String(v) = self {
                 Some(v)
             } else {

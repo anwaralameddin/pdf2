@@ -1,6 +1,6 @@
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
-use crate::object::indirect::stream::Stream;
+use crate::object::direct::dictionary::OwnedDictionary;
+use crate::object::indirect::stream::OwnedStream;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
@@ -8,7 +8,7 @@ const KEY_JBIG2_GLOBALS: &str = "JBIG2Globals";
 
 /// REFERENCE: [Table 12 — Optional parameter for the JBIG2Decode filter. p46]
 #[derive(Debug, Clone, PartialEq)]
-struct Jbig2Globals(Stream);
+struct Jbig2Globals(OwnedStream);
 
 #[derive(Debug)]
 pub(super) struct JBiG2 {
@@ -28,12 +28,12 @@ impl Filter for JBiG2 {
 mod convert {
     use super::error::Jbig2Error;
     use super::*;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
     use crate::process::error::ProcessErr;
 
     impl JBiG2 {
         pub(in crate::process::filter) fn new(
-            decode_parms: Option<&Dictionary>,
+            decode_parms: Option<&OwnedDictionary>,
         ) -> ProcessResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let jbig2_globals = decode_parms
@@ -49,10 +49,10 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue> for Jbig2Globals {
+    impl TryFrom<&OwnedDirectValue> for Jbig2Globals {
         type Error = ProcessErr;
 
-        fn try_from(_value: &DirectValue) -> Result<Self, Self::Error> {
+        fn try_from(_value: &OwnedDirectValue) -> Result<Self, Self::Error> {
             todo!("Implement TryFrom<&DirectValue> for Jbig2Globals")
         }
     }

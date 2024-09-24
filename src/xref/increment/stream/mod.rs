@@ -8,7 +8,7 @@ use ::std::fmt::Result as FmtResult;
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
-use crate::object::indirect::stream::Stream;
+use crate::object::indirect::stream::OwnedStream;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
@@ -21,7 +21,7 @@ use crate::Byte;
 #[derive(Debug, PartialEq)]
 pub(crate) struct XRefStream {
     pub(crate) id: Id,
-    pub(crate) stream: Stream,
+    pub(crate) stream: OwnedStream,
     pub(crate) trailer: Trailer,
 }
 
@@ -38,7 +38,7 @@ impl Parser<'_> for XRefStream {
         // errors
         let (remains, IndirectObject { id, value }) = Parser::parse(buffer)?;
 
-        let stream = Stream::try_from(value)?;
+        let stream = OwnedStream::try_from(value)?;
 
         let trailer = Trailer::try_from(&stream.dictionary).map_err(|err| ParseFailure {
             buffer, // TODO (TEMP) Remove with stream.dictionary.as_bytes() when implemented
@@ -202,7 +202,7 @@ mod convert {
     use crate::process::error::NewProcessResult;
 
     impl XRefStream {
-        pub(crate) fn new(id: Id, stream: &Stream) -> NewProcessResult<Self> {
+        pub(crate) fn new(id: Id, stream: &OwnedStream) -> NewProcessResult<Self> {
             let trailer = Trailer::try_from(&stream.dictionary)?;
             Ok(Self {
                 id,
@@ -219,7 +219,7 @@ pub(crate) mod error {
     use ::thiserror::Error;
 
     use crate::fmt::debug_bytes;
-    use crate::object::direct::name::Name;
+    use crate::object::direct::name::OwnedName;
     use crate::Byte;
     use crate::IndexNumber;
 
@@ -230,7 +230,7 @@ pub(crate) mod error {
         WrongValue {
             key: &'static str,
             expected: &'static str,
-            value: Name, // TODO(TEMP) &'buffer [Byte]
+            value: OwnedName, // TODO(TEMP) &'buffer [Byte]
         },
         #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
         ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) Remove Vec<Byte> with &'buffer [Byte]
@@ -255,10 +255,10 @@ mod tests {
     use ::std::collections::HashMap;
 
     use super::*;
-    use crate::object::direct::array::Array;
-    use crate::object::direct::dictionary::Dictionary;
-    use crate::object::direct::name::Name;
-    use crate::object::direct::string::Hexadecimal;
+    use crate::object::direct::array::OwnedArray;
+    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::name::OwnedName;
+    use crate::object::direct::string::OwnedHexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
@@ -279,17 +279,17 @@ mod tests {
             .set_index(vec![(0, 750)])
             .set_info(unsafe { Reference::new_unchecked(748, 0) })
             .set_id([
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                OwnedHexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                OwnedHexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
             ])
-            .set_type(Name::from(VAL_XREF))
+            .set_type(OwnedName::from(VAL_XREF))
             .set_others(HashMap::from_iter([
-                (Name::from(KEY_LENGTH), 1760.into()),
-                (Name::from(KEY_FILTER), Name::from("FlateDecode").into()),
+                (OwnedName::from(KEY_LENGTH), 1760.into()),
+                (OwnedName::from(KEY_FILTER), OwnedName::from("FlateDecode").into()),
             ]));
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },
-            stream: Stream::new(dictionary, &buffer[215..1975]),
+            stream: OwnedStream::new(dictionary, &buffer[215..1975]),
             trailer,
         };
         parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
@@ -302,7 +302,7 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
-            &Stream::new(dictionary, &buffer[215..1304]),
+            &OwnedStream::new(dictionary, &buffer[215..1304]),
         )
         .unwrap();
         parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
@@ -315,7 +315,7 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
-            &Stream::new(dictionary, &buffer[215..717]),
+            &OwnedStream::new(dictionary, &buffer[215..717]),
         )
         .unwrap();
         parse_assert_eq!(buffer, xref_stream, &buffer[735..]);

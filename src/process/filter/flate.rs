@@ -6,7 +6,7 @@ use ::std::io::Read;
 use self::error::FlateError;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::dictionary::OwnedDictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
@@ -50,7 +50,7 @@ mod convert {
 
     impl Fl {
         pub(in crate::process::filter) fn new(
-            decode_parms: Option<&Dictionary>,
+            decode_parms: Option<&OwnedDictionary>,
         ) -> ProcessResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;

@@ -1,5 +1,5 @@
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::dictionary::OwnedDictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
@@ -7,7 +7,7 @@ use crate::Byte;
 pub(super) struct Crypt {}
 
 impl Crypt {
-    pub(super) fn new(_decode_parms: Option<&Dictionary>) -> ProcessResult<Self> {
+    pub(super) fn new(_decode_parms: Option<&OwnedDictionary>) -> ProcessResult<Self> {
         todo!("Implement Crypt::new")
     }
 }

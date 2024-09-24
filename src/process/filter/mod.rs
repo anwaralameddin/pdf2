@@ -24,9 +24,9 @@ use self::jpx::Jpx;
 use self::lzw::Lzw;
 use self::run_length::RL;
 use super::error::ProcessResult;
-use crate::object::direct::dictionary::Dictionary;
-use crate::object::direct::name::Name;
-use crate::object::direct::DirectValue;
+use crate::object::direct::dictionary::OwnedDictionary;
+use crate::object::direct::name::OwnedName;
+use crate::object::direct::OwnedDirectValue;
 use crate::object::indirect::stream::KEY_DECODEPARMS;
 use crate::object::indirect::stream::KEY_F;
 use crate::object::indirect::stream::KEY_FDECODEPARMS;
@@ -103,7 +103,7 @@ enum Filtering {
 }
 
 impl Filtering {
-    pub(super) fn new(name: &Name, decode_parms: Option<&Dictionary>) -> ProcessResult<Self> {
+    pub(super) fn new(name: &OwnedName, decode_parms: Option<&OwnedDictionary>) -> ProcessResult<Self> {
         // REFERENCE: [Table 92 — Additional abbreviations in an inline image
         // object, p269]
         match name.as_bytes() {
@@ -161,7 +161,7 @@ mod convert {
 
     impl FilteringChain {
         /// REFERENCE: [7.3.8.2 Stream extent, p31-33]
-        pub(crate) fn new(dictionary: &Dictionary) -> ProcessResult<Self> {
+        pub(crate) fn new(dictionary: &OwnedDictionary) -> ProcessResult<Self> {
             // TODO Move this to a separate function that `parses` the stream
             // dictionary according to a specific schema.
             let filtering = if dictionary.get(KEY_F).is_some() {
@@ -177,15 +177,18 @@ mod convert {
 
             let filter_chain = match (filtering, decode_pars) {
                 (
-                    Some(DirectValue::Name(filtering)),
-                    Some(DirectValue::Dictionary(decode_pars)),
+                    Some(OwnedDirectValue::Name(filtering)),
+                    Some(OwnedDirectValue::Dictionary(decode_pars)),
                 ) => {
                     vec![Filtering::new(filtering, Some(decode_pars))?]
                 }
-                (Some(DirectValue::Name(filtering)), None) => {
+                (Some(OwnedDirectValue::Name(filtering)), None) => {
                     vec![Filtering::new(filtering, None)?]
                 }
-                (Some(DirectValue::Array(filterings)), Some(DirectValue::Array(decode_pars))) => {
+                (
+                    Some(OwnedDirectValue::Array(filterings)),
+                    Some(OwnedDirectValue::Array(decode_pars)),
+                ) => {
                     if filterings.len() != decode_pars.len() {
                         return Err(
                             FilterError::Mismatch(filterings.len(), decode_pars.len()).into()
@@ -196,13 +199,13 @@ mod convert {
                         .zip(decode_pars.iter())
                         .map(|(filtering, decode_pars)| match (filtering, decode_pars) {
                             (
-                                DirectValue::Name(filtering),
-                                DirectValue::Dictionary(decode_pars),
+                                OwnedDirectValue::Name(filtering),
+                                OwnedDirectValue::Dictionary(decode_pars),
                             ) => Ok(Filtering::new(filtering, Some(decode_pars))?),
-                            (DirectValue::Name(filtering), DirectValue::Null(_)) => {
+                            (OwnedDirectValue::Name(filtering), OwnedDirectValue::Null(_)) => {
                                 Ok(Filtering::new(filtering, None)?)
                             }
-                            (DirectValue::Name(_), _) => Err(FilterError::DataType(
+                            (OwnedDirectValue::Name(_), _) => Err(FilterError::DataType(
                                 KEY_DECODEPARMS,
                                 stringify!(Dictionary),
                                 decode_pars.clone(),
@@ -217,10 +220,10 @@ mod convert {
                         })
                         .collect::<ProcessResult<_>>()?
                 }
-                (Some(DirectValue::Array(filtersing)), None) => filtersing
+                (Some(OwnedDirectValue::Array(filtersing)), None) => filtersing
                     .iter()
                     .map(|filtering| -> ProcessResult<Filtering> {
-                        if let DirectValue::Name(filtering) = filtering {
+                        if let OwnedDirectValue::Name(filtering) = filtering {
                             Ok(Filtering::new(filtering, None)?)
                         } else {
                             Err(FilterError::DataType(
@@ -253,15 +256,15 @@ mod convert {
 pub(in crate::process) mod error {
     use ::thiserror::Error;
 
-    use crate::object::direct::name::Name;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::name::OwnedName;
+    use crate::object::direct::OwnedDirectValue;
 
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum FilterError {
         #[error("Unsupported type. Input: {0}")]
-        Unsupported(Name),
+        Unsupported(OwnedName),
         #[error("{0}: Invalid data type. Expected {1}, found {2}")]
-        DataType(&'static str, &'static str, DirectValue),
+        DataType(&'static str, &'static str, OwnedDirectValue),
         #[error("Mismatching number of filters {0} and decode parameters {1}")]
         Mismatch(usize, usize),
     }
@@ -269,7 +272,7 @@ pub(in crate::process) mod error {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::indirect::stream::Stream;
+    use crate::object::indirect::stream::OwnedStream;
     use crate::parse::Parser;
     use crate::process::error::ProcessResult;
     use crate::Byte;
@@ -278,7 +281,7 @@ mod tests {
         buffer: &[Byte],
         expected: &[Byte],
     ) -> ProcessResult<()> {
-        let (_, stream) = Stream::parse(buffer).unwrap();
+        let (_, stream) = OwnedStream::parse(buffer).unwrap();
         let defiltered = stream.defilter()?;
         assert_eq!(defiltered, expected);
         let refiltered = stream.filter_buffer(defiltered.as_slice())?;
@@ -296,7 +299,7 @@ mod tests {
         buffer: &[Byte],
         expected: &[Byte],
     ) -> ProcessResult<()> {
-        let (_, stream) = Stream::parse(buffer).unwrap();
+        let (_, stream) = OwnedStream::parse(buffer).unwrap();
         let defiltered = stream.defilter()?;
         assert_eq!(defiltered, expected);
         let refiltered = stream.filter_buffer(defiltered.as_slice())?;

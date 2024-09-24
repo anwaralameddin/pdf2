@@ -25,9 +25,9 @@ use crate::Bytes;
 
 /// REFERENCE: [7.3.5 Name objects, p27-28]
 #[derive(Clone)]
-pub struct Name(Bytes);
+pub struct OwnedName(Bytes);
 
-impl Display for Name {
+impl Display for OwnedName {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "/")?;
         for &byte in self.0.iter() {
@@ -37,13 +37,13 @@ impl Display for Name {
     }
 }
 
-impl Debug for Name {
+impl Debug for OwnedName {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "/{}", debug_bytes(&self.0))
     }
 }
 
-impl PartialEq for Name {
+impl PartialEq for OwnedName {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
             self_escaped == other_escaped
@@ -54,7 +54,7 @@ impl PartialEq for Name {
     }
 }
 
-impl PartialEq<str> for Name {
+impl PartialEq<str> for OwnedName {
     fn eq(&self, other: &str) -> bool {
         if let Ok(name) = self.escape() {
             name == other.as_bytes()
@@ -64,9 +64,9 @@ impl PartialEq<str> for Name {
     }
 }
 
-impl Eq for Name {}
+impl Eq for OwnedName {}
 
-impl Hash for Name {
+impl Hash for OwnedName {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self.escape() {
             Ok(escaped) => escaped.hash(state),
@@ -75,7 +75,7 @@ impl Hash for Name {
     }
 }
 
-impl Parser<'_> for Name {
+impl Parser<'_> for OwnedName {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, value) =
             preceded(char('/'), printable_token)(buffer).map_err(parse_recoverable!(
@@ -109,7 +109,7 @@ mod process {
         Other,
     }
 
-    impl Name {
+    impl OwnedName {
         /// REFERENCE: [7.3.5 Name objects, p28]
         /// FIXME Only a prefix solidus, printable characters, number signs and
         /// pairs of hexadecimal digits are allowed in names.
@@ -195,23 +195,23 @@ mod process {
 mod convert {
     use ::std::ops::Deref;
 
-    use super::Name;
+    use super::OwnedName;
     use super::*;
     use crate::Byte;
 
-    impl From<&[Byte]> for Name {
+    impl From<&[Byte]> for OwnedName {
         fn from(value: &[Byte]) -> Self {
             Self(value.into())
         }
     }
 
-    impl From<&str> for Name {
+    impl From<&str> for OwnedName {
         fn from(value: &str) -> Self {
             Self::from(value.as_bytes())
         }
     }
 
-    impl Deref for Name {
+    impl Deref for OwnedName {
         type Target = Bytes;
 
         fn deref(&self) -> &Self::Target {
@@ -252,19 +252,19 @@ mod tests {
     #[test]
     fn name_valid() {
         // Synthetic tests
-        parse_assert_eq!(b"/ABC123", Name::from("ABC123"), "".as_bytes());
-        parse_assert_eq!(b"/A_B+C^1!2@3", Name::from("A_B+C^1!2@3"), "".as_bytes());
-        parse_assert_eq!(b"/123", Name::from("123"), "".as_bytes());
-        parse_assert_eq!(b"/.@domain(", Name::from(".@domain"), "(".as_bytes());
-        parse_assert_eq!(b"/#41#20Name)", Name::from("A Name"), ")".as_bytes());
-        parse_assert_eq!(b"/#28Name#29", Name::from("(Name)"), "".as_bytes());
+        parse_assert_eq!(b"/ABC123", OwnedName::from("ABC123"), "".as_bytes());
+        parse_assert_eq!(b"/A_B+C^1!2@3", OwnedName::from("A_B+C^1!2@3"), "".as_bytes());
+        parse_assert_eq!(b"/123", OwnedName::from("123"), "".as_bytes());
+        parse_assert_eq!(b"/.@domain(", OwnedName::from(".@domain"), "(".as_bytes());
+        parse_assert_eq!(b"/#41#20Name)", OwnedName::from("A Name"), ")".as_bytes());
+        parse_assert_eq!(b"/#28Name#29", OwnedName::from("(Name)"), "".as_bytes());
     }
 
     #[test]
     fn name_invalid() {
         // Synthetic tests
         // Name: Not found
-        let parse_result = Name::parse(b"Name");
+        let parse_result = OwnedName::parse(b"Name");
         let expected_error = ParseRecoverable {
             buffer: b"Name",
             object: stringify!(Name),
@@ -276,9 +276,9 @@ mod tests {
     #[test]
     fn name_escape_valid() {
         // Synthetic tests
-        assert_eq!(Name::from("#41#20Name").escape().unwrap(), b"A Name");
-        assert_eq!(Name::from("#28Name#29").escape().unwrap(), b"(Name)");
-        assert_eq!(Name::from("#23Name").escape().unwrap(), b"#Name");
+        assert_eq!(OwnedName::from("#41#20Name").escape().unwrap(), b"A Name");
+        assert_eq!(OwnedName::from("#28Name#29").escape().unwrap(), b"(Name)");
+        assert_eq!(OwnedName::from("#23Name").escape().unwrap(), b"#Name");
     }
 
     #[test]
@@ -290,24 +290,24 @@ mod tests {
         // let object = &Name::from("Name)");
 
         // Name: A non-hexadecimal character following the number sign
-        let object = &Name::from("Name#_");
+        let object = &OwnedName::from("Name#_");
         let expected_error =
             EscapeError::Name(NameEscape::InvalidHexDigit(object.to_string(), '_'));
         escape_assert_err!(object, expected_error);
 
         // Name: Incomplete hex code
-        let object = &Name::from("Name#7_");
+        let object = &OwnedName::from("Name#7_");
         let expected_error =
             EscapeError::Name(NameEscape::IncompleteHexCode(object.to_string(), 7, '_'));
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing number sign
-        let object = &Name::from("Name#");
+        let object = &OwnedName::from("Name#");
         let expected_error = EscapeError::Name(NameEscape::TraillingNumberSign(object.to_string()));
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing hex digit
-        let object = &Name::from("Name#7");
+        let object = &OwnedName::from("Name#7");
         let expected_error =
             EscapeError::Name(NameEscape::TraillingHexDigit(object.to_string(), 7));
         escape_assert_err!(object, expected_error);

@@ -13,7 +13,7 @@ use ::std::fmt::Result as FmtResult;
 
 use self::subsection::Subsection;
 use super::trailer::Trailer;
-use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::dictionary::OwnedDictionary;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space;
 use crate::parse::character_set::white_space_or_comment;
@@ -84,7 +84,7 @@ impl Parser<'_> for Section {
             }
         ))?;
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (remains, trailer) = Dictionary::parse(buffer).map_err(|err| ParseFailure {
+        let (remains, trailer) = OwnedDictionary::parse(buffer).map_err(|err| ParseFailure {
             buffer: err.buffer(),
             object: stringify!(Section),
             code: ParseErrorCode::RecMissingSubobject(stringify!(Trailer), Box::new(err.code())),
@@ -176,7 +176,7 @@ mod tests {
     use super::entry::Entry;
     use super::*;
     use crate::assert_err_eq;
-    use crate::object::direct::string::Hexadecimal;
+    use crate::object::direct::string::OwnedHexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse_assert_eq;
 

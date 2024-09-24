@@ -8,12 +8,12 @@ use ::std::path::Path;
 use self::error::PdfErr;
 use self::error::PdfRecoverable;
 use crate::object::indirect::id::Id;
-use crate::object::indirect::IndirectValue;
+use crate::object::indirect::OwnedIndirectValue;
 use crate::xref::increment::trailer::Trailer;
 use crate::xref::Table;
 use crate::Byte;
 
-type ObjectsInUse = HashMap<Id, (IndirectValue, Span)>;
+type ObjectsInUse = HashMap<Id, (OwnedIndirectValue, Span)>;
 
 // TODO Add support for spans within object streams
 #[derive(Debug, PartialEq, Clone, Copy)]

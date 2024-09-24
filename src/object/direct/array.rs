@@ -8,7 +8,7 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::ops::Deref;
 
-use crate::object::direct::DirectValue;
+use crate::object::direct::OwnedDirectValue;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -21,9 +21,9 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.6 Array objects, p29]
 #[derive(Debug, Default, Clone)]
-pub struct Array(Vec<DirectValue>);
+pub struct OwnedArray(Vec<OwnedDirectValue>);
 
-impl Display for Array {
+impl Display for OwnedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "[")?;
         for (i, obj) in self.0.iter().enumerate() {
@@ -36,7 +36,7 @@ impl Display for Array {
     }
 }
 
-impl PartialEq for Array {
+impl PartialEq for OwnedArray {
     fn eq(&self, other: &Self) -> bool {
         if self.0.len() != other.0.len() {
             return false;
@@ -50,10 +50,10 @@ impl PartialEq for Array {
     }
 }
 
-impl Parser<'_> for Array {
+impl Parser<'_> for OwnedArray {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let mut array = vec![];
-        let mut value: DirectValue;
+        let mut value: OwnedDirectValue;
         let (mut buffer, _) = terminated(char('['), opt(white_space_or_comment))(buffer).map_err(
             parse_recoverable!(
                 e,
@@ -73,7 +73,7 @@ impl Parser<'_> for Array {
                 break;
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse(buffer).map_err(|err| ParseFailure {
+            (buffer, value) = OwnedDirectValue::parse(buffer).map_err(|err| ParseFailure {
                 buffer: err.buffer(),
                 object: stringify!(Array),
                 code: ParseErrorCode::RecMissingClosing(Box::new(err.code())),
@@ -95,29 +95,29 @@ impl Parser<'_> for Array {
 mod convert {
     use super::*;
 
-    impl From<Vec<DirectValue>> for Array {
-        fn from(value: Vec<DirectValue>) -> Self {
+    impl From<Vec<OwnedDirectValue>> for OwnedArray {
+        fn from(value: Vec<OwnedDirectValue>) -> Self {
             Self(value)
         }
     }
 
-    impl FromIterator<DirectValue> for Array {
-        fn from_iter<T: IntoIterator<Item = DirectValue>>(iter: T) -> Array {
+    impl FromIterator<OwnedDirectValue> for OwnedArray {
+        fn from_iter<T: IntoIterator<Item = OwnedDirectValue>>(iter: T) -> OwnedArray {
             Self(Vec::from_iter(iter))
         }
     }
 
-    impl Deref for Array {
-        type Target = Vec<DirectValue>;
+    impl Deref for OwnedArray {
+        type Target = Vec<OwnedDirectValue>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
         }
     }
 
-    impl IntoIterator for Array {
-        type Item = DirectValue;
-        type IntoIter = <Vec<DirectValue> as IntoIterator>::IntoIter;
+    impl IntoIterator for OwnedArray {
+        type Item = OwnedDirectValue;
+        type IntoIter = <Vec<OwnedDirectValue> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()
@@ -131,48 +131,48 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::object::direct::name::Name;
+    use crate::object::direct::name::OwnedName;
     use crate::object::direct::null::Null;
-    use crate::object::direct::string::Hexadecimal;
-    use crate::object::direct::string::Literal;
+    use crate::object::direct::string::OwnedHexadecimal;
+    use crate::object::direct::string::OwnedLiteral;
     use crate::parse_assert_eq;
 
     #[test]
     fn array_valid() {
         // A synthetic test
         let buffer = b"[1 1.0 true null(A literal string)/Name]";
-        let expected_parsed = Array::from_iter([
+        let expected_parsed = OwnedArray::from_iter([
             1.into(),
             1.0.into(),
             true.into(),
             Null.into(),
-            Literal::from("A literal string").into(),
-            Name::from("Name").into(),
+            OwnedLiteral::from("A literal string").into(),
+            OwnedName::from("Name").into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
 
         // A synthetic test
         // Array: Empty
         let buffer = b"[]";
-        let expected_parsed = Array::from_iter([]);
+        let expected_parsed = OwnedArray::from_iter([]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
 
         // A synthetic test
         // Array: 2D matrix
         let buffer = b"[[1 2 3] [4 5 6] [7 8 9]]";
-        let expected_parsed = Array::from_iter([
-            Array::from_iter([1.into(), 2.into(), 3.into()]).into(),
-            Array::from_iter([4.into(), 5.into(), 6.into()]).into(),
-            Array::from_iter([7.into(), 8.into(), 9.into()]).into(),
+        let expected_parsed = OwnedArray::from_iter([
+            OwnedArray::from_iter([1.into(), 2.into(), 3.into()]).into(),
+            OwnedArray::from_iter([4.into(), 5.into(), 6.into()]).into(),
+            OwnedArray::from_iter([7.into(), 8.into(), 9.into()]).into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21
         // Array: No space between elements
         let buffer = b"[<CD74097EBFE5D8A25FE8A229299730FA><CD74097EBFE5D8A25FE8A229299730FA>]";
-        let expected_parsed = Array::from_iter([
-            Hexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
-            Hexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
+        let expected_parsed = OwnedArray::from_iter([
+            OwnedHexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
+            OwnedHexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
     }
@@ -182,7 +182,7 @@ mod tests {
         // Synthetic tests
 
         // Array: Not found
-        let parse_result = Array::parse(b"1 1.0 true null(A literal string)/Name");
+        let parse_result = OwnedArray::parse(b"1 1.0 true null(A literal string)/Name");
         let expected_error = ParseRecoverable {
             buffer: b"1 1.0 true null(A literal string)/Name",
             object: stringify!(Array),
@@ -191,7 +191,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Array: Missing closing square bracket
-        let parse_result = Array::parse(b"[1 1.0 true null(A literal string)/Name");
+        let parse_result = OwnedArray::parse(b"[1 1.0 true null(A literal string)/Name");
         let expected_error = ParseFailure {
             buffer: b"",
             object: stringify!(Array),

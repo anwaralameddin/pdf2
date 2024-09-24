@@ -6,8 +6,8 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-pub(crate) use self::hexadecimal::Hexadecimal;
-pub(crate) use self::literal::Literal;
+pub(crate) use self::hexadecimal::OwnedHexadecimal;
+pub(crate) use self::literal::OwnedLiteral;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
@@ -17,12 +17,12 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.4 String objects, p25]
 #[derive(Debug, Clone)]
-pub enum String_ {
-    Hexadecimal(Hexadecimal),
-    Literal(Literal),
+pub enum OwnedString {
+    Hexadecimal(OwnedHexadecimal),
+    Literal(OwnedLiteral),
 }
 
-impl Display for String_ {
+impl Display for OwnedString {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::Hexadecimal(hexadecimal) => write!(f, "{}", hexadecimal),
@@ -31,7 +31,7 @@ impl Display for String_ {
     }
 }
 
-impl PartialEq for String_ {
+impl PartialEq for OwnedString {
     fn eq(&self, other: &Self) -> bool {
         if let (Self::Hexadecimal(self_hex), Self::Hexadecimal(other_hex)) = (self, other) {
             self_hex == other_hex
@@ -44,10 +44,10 @@ impl PartialEq for String_ {
     }
 }
 
-impl Parser<'_> for String_ {
+impl Parser<'_> for OwnedString {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Literal::parse_suppress_recoverable(buffer)
-            .or_else(|| Hexadecimal::parse_suppress_recoverable(buffer))
+        OwnedLiteral::parse_suppress_recoverable(buffer)
+            .or_else(|| OwnedHexadecimal::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable {
                     buffer,
@@ -65,7 +65,7 @@ mod process {
     use crate::process::encoding::Decoder;
     use crate::process::error::ProcessResult;
 
-    impl String_ {
+    impl OwnedString {
         pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
             match self {
                 Self::Hexadecimal(hexadecimal) => hexadecimal.escape(),
@@ -91,11 +91,11 @@ mod convert {
     use super::*;
     use crate::impl_from;
 
-    impl_from!(Hexadecimal, Hexadecimal, String_);
-    impl_from!(Literal, Literal, String_);
+    impl_from!(OwnedHexadecimal, Hexadecimal, OwnedString);
+    impl_from!(OwnedLiteral, Literal, OwnedString);
 
-    impl String_ {
-        pub(crate) fn as_hexadecimal(&self) -> Option<&Hexadecimal> {
+    impl OwnedString {
+        pub(crate) fn as_hexadecimal(&self) -> Option<&OwnedHexadecimal> {
             if let Self::Hexadecimal(v) = self {
                 Some(v)
             } else {
@@ -103,7 +103,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_literal(&self) -> Option<&Literal> {
+        pub(crate) fn as_literal(&self) -> Option<&OwnedLiteral> {
             if let Self::Literal(v) = self {
                 Some(v)
             } else {
@@ -120,14 +120,20 @@ mod tests {
     #[test]
     fn string_valid() {
         // Synthetic tests
-        let (buffer, string_literal) = String_::parse(b"(A Hexadecimal String)").unwrap();
+        let (buffer, string_literal) = OwnedString::parse(b"(A Hexadecimal String)").unwrap();
         assert_eq!(buffer, &[]);
-        assert_eq!(string_literal, Literal::from("A Hexadecimal String").into());
+        assert_eq!(
+            string_literal,
+            OwnedLiteral::from("A Hexadecimal String").into()
+        );
 
         let (buffer, string_hex) =
-            String_::parse(b"<412048657861646563696D616C20537472696E67>").unwrap();
+            OwnedString::parse(b"<412048657861646563696D616C20537472696E67>").unwrap();
         assert_eq!(buffer, &[]);
-        assert_eq!(string_hex, Literal::from("A Hexadecimal String").into());
+        assert_eq!(
+            string_hex,
+            OwnedLiteral::from("A Hexadecimal String").into()
+        );
 
         assert_eq!(string_literal, string_hex);
     }

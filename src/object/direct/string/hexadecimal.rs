@@ -30,9 +30,9 @@ use crate::Bytes;
 
 /// REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
 #[derive(Clone)]
-pub struct Hexadecimal(Bytes);
+pub struct OwnedHexadecimal(Bytes);
 
-impl Display for Hexadecimal {
+impl Display for OwnedHexadecimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<")?;
         for &byte in self.0.iter() {
@@ -42,13 +42,13 @@ impl Display for Hexadecimal {
     }
 }
 
-impl Debug for Hexadecimal {
+impl Debug for OwnedHexadecimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<{}>", debug_bytes(&self.0))
     }
 }
 
-impl PartialEq for Hexadecimal {
+impl PartialEq for OwnedHexadecimal {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
             self_escaped == other_escaped
@@ -59,7 +59,7 @@ impl PartialEq for Hexadecimal {
     }
 }
 
-impl Parser<'_> for Hexadecimal {
+impl Parser<'_> for OwnedHexadecimal {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         // This check is unnecessary because the start of Names and hexadecimal
         // strings are mutually exclusive. However, this allows early return if
@@ -116,7 +116,8 @@ mod process {
     use crate::process::error::ProcessResult;
     use crate::process::filter::ascii_hex::AHx;
     use crate::process::filter::Filter;
-    impl Hexadecimal {
+
+    impl OwnedHexadecimal {
         pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
             let escaped = AHx.defilter(&*self.0)?;
             Ok(escaped)
@@ -138,13 +139,13 @@ mod convert {
 
     use super::*;
 
-    impl From<&str> for Hexadecimal {
+    impl From<&str> for OwnedHexadecimal {
         fn from(value: &str) -> Self {
             Self(value.as_bytes().into())
         }
     }
 
-    impl Deref for Hexadecimal {
+    impl Deref for OwnedHexadecimal {
         type Target = Bytes;
 
         fn deref(&self) -> &Self::Target {
@@ -166,17 +167,17 @@ mod tests {
         // Synthetic tests
         parse_assert_eq!(
             b"<41 20 48 65 78 61 64 65 63 69 6D 61 6C 20 53 74 72 69 6E 67>",
-            Hexadecimal::from("412048657861646563696D616C20537472696E67"),
+            OwnedHexadecimal::from("412048657861646563696D616C20537472696E67"),
             "".as_bytes(),
         );
-        parse_assert_eq!(b"<41 2>", Hexadecimal::from("4120"), "".as_bytes(),);
+        parse_assert_eq!(b"<41 2>", OwnedHexadecimal::from("4120"), "".as_bytes(),);
     }
 
     #[test]
     fn string_hexadecimal_invalid() {
         // Synthetic tests
         // Hexadecimal: Missing closing angle bracket
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67");
+        let parse_result = OwnedHexadecimal::parse(b"<412048657861646563696D616C20537472696E67");
         let expected_error = ParseFailure {
             buffer: b"",
             object: stringify!(Hexadecimal),
@@ -185,7 +186,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Dictionary opening
-        let parse_result = Hexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>");
+        let parse_result = OwnedHexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>");
         let expected_error = ParseRecoverable {
             buffer: b"<<412048657861646563696D616C20537472696E67>",
             object: stringify!(Hexadecimal),
@@ -194,7 +195,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Not found
-        let parse_result = Hexadecimal::parse(b"412048657861646563696D616C20537472696E67>");
+        let parse_result = OwnedHexadecimal::parse(b"412048657861646563696D616C20537472696E67>");
         let expected_error = ParseRecoverable {
             buffer: b"412048657861646563696D616C20537472696E67>",
             object: stringify!(Hexadecimal),
@@ -203,7 +204,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Missing end angle bracket
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67<");
+        let parse_result = OwnedHexadecimal::parse(b"<412048657861646563696D616C20537472696E67<");
         let expected_error = ParseFailure {
             buffer: b"<",
             object: stringify!(Hexadecimal),
@@ -212,7 +213,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Unsupported digits
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67XX>");
+        let parse_result = OwnedHexadecimal::parse(b"<412048657861646563696D616C20537472696E67XX>");
         let expected_error = ParseFailure {
             buffer: b"XX>",
             object: stringify!(Hexadecimal),
@@ -224,20 +225,20 @@ mod tests {
     #[test]
     fn string_hexadecimal_escape() {
         // Synthetic tests
-        let hexadecimal = Hexadecimal::from("412048657861646563696D616C20537472696E67");
+        let hexadecimal = OwnedHexadecimal::from("412048657861646563696D616C20537472696E67");
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"A Hexadecimal String");
 
-        let hexadecimal = Hexadecimal::from("412048");
+        let hexadecimal = OwnedHexadecimal::from("412048");
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"\x41\x20\x48");
 
-        let hexadecimal = Hexadecimal::from("41204");
+        let hexadecimal = OwnedHexadecimal::from("41204");
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"\x41\x20\x40");
 
-        let hexadecimal_upper = Hexadecimal::from("412048657861646563696D616C20537472696E67");
-        let hexadecimal_lower = Hexadecimal::from("412048657861646563696d616c20537472696e67");
+        let hexadecimal_upper = OwnedHexadecimal::from("412048657861646563696D616C20537472696E67");
+        let hexadecimal_lower = OwnedHexadecimal::from("412048657861646563696d616c20537472696e67");
         assert_eq!(hexadecimal_upper, hexadecimal_lower);
     }
 }

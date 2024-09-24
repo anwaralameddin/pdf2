@@ -14,7 +14,7 @@ mod convert {
 
     use super::Columns;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
@@ -24,12 +24,12 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue> for Columns {
+    impl TryFrom<&OwnedDirectValue> for Columns {
         type Error = ProcessErr;
 
-        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+        fn try_from(value: &OwnedDirectValue) -> Result<Self, Self::Error> {
             // TODO Replace with `as_usize`
-            if let DirectValue::Numeric(Numeric::Integer(value)) = value {
+            if let OwnedDirectValue::Numeric(Numeric::Integer(value)) = value {
                 let value = usize::try_from(**value)
                     .map_err(|_| PredictorError::Unsupported(stringify!(Columns), **value))?; // TODO (TEMP) Avoid overriding the error
                 Ok(Self(value))

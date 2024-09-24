@@ -3,9 +3,9 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::object::direct::name::Name;
-use crate::object::direct::string::String_;
-use crate::object::direct::DirectValue;
+use crate::object::direct::name::OwnedName;
+use crate::object::direct::string::OwnedString;
+use crate::object::direct::OwnedDirectValue;
 use crate::object::indirect::reference::Reference;
 use crate::IndexNumber;
 use crate::ObjectNumberOrZero;
@@ -47,50 +47,50 @@ pub(crate) struct Trailer {
     encrypt: Option<Reference>, // FIXME Reference to Dictionary
     // TODO(QUESTION): Can it be a direct object?
     info: Option<Reference>, // FIXME Reference to Dictionary
-    id: Option<[String_; 2]>,
+    id: Option<[OwnedString; 2]>,
     xref_stm: Option<Offset>,
-    r#type: Option<Name>,
+    r#type: Option<OwnedName>,
     index: Vec<(ObjectNumberOrZero, IndexNumber)>,
     w: Option<[usize; 3]>,
     // TODO(TEMP) Reconsider after finising NewProcessErr
     // others: HashMap<&'a Name, &'a DirectValue>,
-    others: HashMap<Name, DirectValue>,
+    others: HashMap<OwnedName, OwnedDirectValue>,
 }
 
 impl Display for Trailer {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         writeln!(f, "<<")?;
-        writeln!(f, "{} {}", Name::from(KEY_SIZE), self.size)?;
+        writeln!(f, "{} {}", OwnedName::from(KEY_SIZE), self.size)?;
         if let Some(prev) = self.prev {
-            writeln!(f, "{} {}", Name::from(KEY_PREV), prev)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_PREV), prev)?;
         }
         if let Some(root) = self.root {
-            writeln!(f, "{} {}", Name::from(KEY_ROOT), root)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_ROOT), root)?;
         }
         if let Some(encrypt) = self.encrypt.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_ENCRYPT), encrypt)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_ENCRYPT), encrypt)?;
         }
         if let Some(info) = self.info {
-            writeln!(f, "{} {}", Name::from(KEY_INFO), info)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_INFO), info)?;
         }
         if let Some([id1, id2]) = self.id.as_ref() {
-            writeln!(f, "{} [{}{}]", Name::from(KEY_ID), id1, id2)?;
+            writeln!(f, "{} [{}{}]", OwnedName::from(KEY_ID), id1, id2)?;
         }
         if let Some(xref_stm) = self.xref_stm {
-            writeln!(f, "{} {}", Name::from(KEY_XREF_STM), xref_stm)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_XREF_STM), xref_stm)?;
         }
         if let Some(r#type) = self.r#type.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_TYPE), r#type)?;
+            writeln!(f, "{} {}", OwnedName::from(KEY_TYPE), r#type)?;
         }
         if !self.index.is_empty() {
-            write!(f, "{} [ ", Name::from(KEY_INDEX))?;
+            write!(f, "{} [ ", OwnedName::from(KEY_INDEX))?;
             for (first_object_number, entry_count) in self.index.iter() {
                 write!(f, "{} {} ", first_object_number, entry_count)?;
             }
             writeln!(f, "]")?;
         }
         if let Some(w) = self.w {
-            write!(f, "{} [ ", Name::from(KEY_W))?;
+            write!(f, "{} [ ", OwnedName::from(KEY_W))?;
             for value in w.iter() {
                 write!(f, "{} ", value)?;
             }
@@ -109,9 +109,9 @@ mod convert {
     use super::*;
     use crate::object::direct::dictionary::error::DataTypeError;
     use crate::object::direct::dictionary::error::MissingEntryError;
-    use crate::object::direct::dictionary::Dictionary;
-    use crate::object::direct::string::String_;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::string::OwnedString;
+    use crate::object::direct::OwnedDirectValue;
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::KEY_DECODEPARMS;
     use crate::object::indirect::stream::KEY_DL;
@@ -125,10 +125,10 @@ mod convert {
     use crate::Offset;
 
     // TODO(TEMP) Convert Dictionary to Dictionary<'lifetime>
-    impl TryFrom<&Dictionary> for Trailer {
+    impl TryFrom<&OwnedDictionary> for Trailer {
         type Error = NewProcessErr;
 
-        fn try_from(value: &Dictionary) -> Result<Self, Self::Error> {
+        fn try_from(value: &OwnedDictionary) -> Result<Self, Self::Error> {
             let size = value.get_u64(KEY_SIZE)?.ok_or(MissingEntryError {
                 key: KEY_SIZE,
                 data_type: stringify!(u64),
@@ -145,7 +145,7 @@ mod convert {
             let id = value
                 .get_array(KEY_ID)?
                 .map(|array| match array.as_slice() {
-                    [DirectValue::String(id_1), DirectValue::String(id_2)] => {
+                    [OwnedDirectValue::String(id_1), OwnedDirectValue::String(id_2)] => {
                         // TODO Check the string lengths and report anomalies
                         // TODO(TEMP) Remove clone
                         Ok([id_1.clone(), id_2.clone()])
@@ -319,7 +319,7 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_id(mut self, id: [String_; 2]) -> Self {
+        pub(crate) fn set_id(mut self, id: [OwnedString; 2]) -> Self {
             self.id.replace(id);
             self
         }
@@ -329,7 +329,7 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_type(mut self, r#type: Name) -> Self {
+        pub(crate) fn set_type(mut self, r#type: OwnedName) -> Self {
             self.r#type.replace(r#type);
             self
         }
@@ -344,7 +344,7 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_others(mut self, others: HashMap<Name, DirectValue>) -> Self {
+        pub(crate) fn set_others(mut self, others: HashMap<OwnedName, OwnedDirectValue>) -> Self {
             self.others = others;
             self
         }
@@ -369,7 +369,7 @@ mod convert {
             self.info.as_ref()
         }
 
-        pub(crate) fn id(&self) -> Option<&[String_; 2]> {
+        pub(crate) fn id(&self) -> Option<&[OwnedString; 2]> {
             self.id.as_ref()
         }
 
@@ -377,7 +377,7 @@ mod convert {
             self.xref_stm
         }
 
-        pub(crate) fn r#type(&self) -> Option<&Name> {
+        pub(crate) fn r#type(&self) -> Option<&OwnedName> {
             self.r#type.as_ref()
         }
 
@@ -389,7 +389,7 @@ mod convert {
             self.w.as_ref()
         }
 
-        pub(crate) fn others(&self) -> &HashMap<Name, DirectValue> {
+        pub(crate) fn others(&self) -> &HashMap<OwnedName, OwnedDirectValue> {
             &self.others
         }
     }
@@ -401,9 +401,9 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::direct::dictionary::error::MissingEntryError;
-    use crate::object::direct::dictionary::Dictionary;
-    use crate::object::direct::string::Hexadecimal;
-    use crate::object::direct::string::Literal;
+    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::string::OwnedHexadecimal;
+    use crate::object::direct::string::OwnedLiteral;
     use crate::object::indirect::object::IndirectObject;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
@@ -414,28 +414,28 @@ mod tests {
         // Synthetic test
         let buffer = include_bytes!("../../../tests/data/SYNTHETIC_trailer.bin");
         let trailer = include!("../../../tests/code/SYNTHETIC_trailer.rs");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = OwnedDictionary::parse(buffer).unwrap();
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.bin");
         let trailer = include!("../../../tests/code/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.rs");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = OwnedDictionary::parse(buffer).unwrap();
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/8401FBC530C8AE9B8EC1425170A70921_trailer.bin");
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = OwnedDictionary::parse(buffer).unwrap();
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfunite from PDFs produced by LaTeX
         let buffer =
             include_bytes!("../../../tests/data/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.bin");
         let trailer = include!("../../../tests/code/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.rs");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = OwnedDictionary::parse(buffer).unwrap();
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
     }
 
@@ -452,13 +452,16 @@ mod tests {
             .set_index(vec![(0, 750)])
             .set_info(unsafe { Reference::new_unchecked(748, 0) })
             .set_id([
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                OwnedHexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                OwnedHexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
             ])
-            .set_type(Name::from(VAL_XREF))
+            .set_type(OwnedName::from(VAL_XREF))
             .set_others(HashMap::from_iter([
-                (Name::from(KEY_LENGTH), 1760.into()),
-                (Name::from(KEY_FILTER), Name::from("FlateDecode").into()),
+                (OwnedName::from(KEY_LENGTH), 1760.into()),
+                (
+                    OwnedName::from(KEY_FILTER),
+                    OwnedName::from("FlateDecode").into(),
+                ),
             ]));
         assert_eq!(trailer, Trailer::try_from(dictionary).unwrap());
 
@@ -471,7 +474,7 @@ mod tests {
 
         // Missing required key Size
         let buffer = b"<</Root 2 0 R /Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = OwnedDictionary::parse(buffer).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
         let expected_error = MissingEntryError {
             key: KEY_SIZE,

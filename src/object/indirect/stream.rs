@@ -10,7 +10,7 @@ use ::nom::Err as NomErr;
 use ::std::fmt::Debug;
 use ::std::fmt::Display;
 
-use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::dictionary::OwnedDictionary;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
@@ -36,12 +36,12 @@ pub(crate) const KEY_DL: &str = "DL";
 
 /// REFERENCE: [7.3.8 Stream objects, p31]
 #[derive(PartialEq, Default, Clone)]
-pub(crate) struct Stream {
-    pub(crate) dictionary: Dictionary,
+pub(crate) struct OwnedStream {
+    pub(crate) dictionary: OwnedDictionary,
     pub(crate) data: Bytes,
 }
 
-impl Display for Stream {
+impl Display for OwnedStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}\n{}\n", self.dictionary, KW_STREAM)?;
         for &byte in self.data.iter() {
@@ -51,7 +51,7 @@ impl Display for Stream {
     }
 }
 
-impl Debug for Stream {
+impl Debug for OwnedStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}\n{}", self.dictionary, KW_STREAM)?;
         for &byte in self.data.iter() {
@@ -61,10 +61,10 @@ impl Debug for Stream {
     }
 }
 
-impl Parser<'_> for Stream {
+impl Parser<'_> for OwnedStream {
     /// REFERENCE: [7.3.8 Stream objects, p31-32]
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (remains, dictionary) = Dictionary::parse(buffer)?;
+        let (remains, dictionary) = OwnedDictionary::parse(buffer)?;
 
         let (remains, _) = tuple((
             opt(white_space_or_comment),
@@ -148,7 +148,7 @@ mod process {
     use crate::process::filter::FilteringChain;
     use crate::Byte;
 
-    impl Stream {
+    impl OwnedStream {
         pub(crate) fn defilter(&self) -> ProcessResult<Vec<Byte>> {
             // TODO Store the filter Chain in the Stream struct
             FilteringChain::new(&self.dictionary)?.defilter(&*self.data)
@@ -179,11 +179,11 @@ mod process {
 mod convert {
 
     use super::*;
-    use crate::object::indirect::IndirectValue;
+    use crate::object::indirect::OwnedIndirectValue;
     use crate::parse::error::ParseFailure;
 
-    impl Stream {
-        pub(crate) fn new(dictionary: impl Into<Dictionary>, data: impl Into<Bytes>) -> Self {
+    impl OwnedStream {
+        pub(crate) fn new(dictionary: impl Into<OwnedDictionary>, data: impl Into<Bytes>) -> Self {
             Self {
                 dictionary: dictionary.into(),
                 data: data.into(),
@@ -191,11 +191,11 @@ mod convert {
         }
     }
 
-    impl TryFrom<IndirectValue> for Stream {
+    impl TryFrom<OwnedIndirectValue> for OwnedStream {
         type Error = ParseFailure<'static>;
 
-        fn try_from(value: IndirectValue) -> Result<Self, Self::Error> {
-            if let IndirectValue::Stream(stream) = value {
+        fn try_from(value: OwnedIndirectValue) -> Result<Self, Self::Error> {
+            if let OwnedIndirectValue::Stream(stream) = value {
                 Ok(stream)
             } else {
                 Err(ParseFailure {
@@ -214,10 +214,10 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::object::direct::array::Array;
+    use crate::object::direct::array::OwnedArray;
     use crate::object::direct::dictionary::error::DataTypeError;
-    use crate::object::direct::name::Name;
-    use crate::object::direct::string::Hexadecimal;
+    use crate::object::direct::name::OwnedName;
+    use crate::object::direct::string::OwnedHexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse::error::ParseFailure;
     use crate::parse_assert_eq;
@@ -227,27 +227,30 @@ mod tests {
     fn stream_valid() {
         // A synthetic test
         let buffer = b"<</Length 0>>\nstream\n\nendstream\nendobj";
-        let stream = Stream::new(Dictionary::from_iter([(KEY_LENGTH.into(), 0.into())]), []);
+        let stream = OwnedStream::new(
+            OwnedDictionary::from_iter([(KEY_LENGTH.into(), 0.into())]),
+            [],
+        );
         parse_assert_eq!(buffer, stream, "endobj".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.bin");
-        let stream: Stream =
+        let stream: OwnedStream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.rs");
         parse_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_stream.bin");
-        let stream: Stream =
+        let stream: OwnedStream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_stream.rs");
         parse_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
 
         // PDF produced by Microsoft Word for Office 365
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/B72168B54640B245A7CCF42DCDC8C026_stream.bin");
-        let stream: Stream =
+        let stream: OwnedStream =
             include!("../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_stream.rs");
         parse_assert_eq!(buffer, stream, "endobj\r\n".as_bytes());
 
@@ -258,7 +261,7 @@ mod tests {
     fn stream_invalid() {
         // Synthetic tests
         // Stream: Length not found in stream dictionary
-        let parse_result = Stream::parse(b"<<>>\nstream\nendstream");
+        let parse_result = OwnedStream::parse(b"<<>>\nstream\nendstream");
         let expected_error = ParseFailure {
             buffer: b"<<>>\nstream\nendstream", // TODO (TEMP) b"<<>>"
             object: stringify!(Stream),
@@ -268,7 +271,7 @@ mod tests {
 
         // Stream: Length has the wrong type. Only NonNegative values and References are
         // allowed for Length Stream: Length of invalid value: -1
-        let parse_result = Stream::parse(b"<</Length -1>>\nstream\nendstream");
+        let parse_result = OwnedStream::parse(b"<</Length -1>>\nstream\nendstream");
         let expected_error = ParseFailure {
             buffer: b"<</Length -1>>\nstream\nendstream", // TODO(TEMP) b"-1",
             object: stringify!(Stream),
@@ -286,7 +289,7 @@ mod tests {
         // where usize::MAX is less than u64::MAX, e.g. 32-bit systems
 
         // Stream: Data is too short
-        let parse_result = Stream::parse(b"<</Length 10>>\nstream\n0123456\nendstream");
+        let parse_result = OwnedStream::parse(b"<</Length 10>>\nstream\n0123456\nendstream");
         let expected_error = ParseFailure {
             buffer: b"dstream",
             object: stringify!(Stream),
@@ -295,7 +298,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Stream: Data is too long
-        let parse_result = Stream::parse(b"<</Length 5>>\nstream\n0123456789\nendstream");
+        let parse_result = OwnedStream::parse(b"<</Length 5>>\nstream\n0123456789\nendstream");
         let expected_error = ParseFailure {
             buffer: b"56789\nendstream",
             object: stringify!(Stream),

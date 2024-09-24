@@ -7,8 +7,8 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::stream::Stream;
-use crate::object::direct::DirectValue;
+use self::stream::OwnedStream;
+use crate::object::direct::OwnedDirectValue;
 use crate::object::indirect::reference::Reference;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
@@ -17,24 +17,24 @@ use crate::parse::Parser;
 use crate::Byte;
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum IndirectValue {
-    Stream(Stream),
-    Direct(DirectValue),
+pub(crate) enum OwnedIndirectValue {
+    Stream(OwnedStream),
+    Direct(OwnedDirectValue),
 }
 
-impl Display for IndirectValue {
+impl Display for OwnedIndirectValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            IndirectValue::Stream(stream) => write!(f, "{}", stream),
-            IndirectValue::Direct(direct) => write!(f, "{}", direct),
+            OwnedIndirectValue::Stream(stream) => write!(f, "{}", stream),
+            OwnedIndirectValue::Direct(direct) => write!(f, "{}", direct),
         }
     }
 }
 
-impl Parser<'_> for IndirectValue {
+impl Parser<'_> for OwnedIndirectValue {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse_suppress_recoverable(buffer)
-            .or_else(|| DirectValue::parse_suppress_recoverable(buffer))
+        OwnedStream::parse_suppress_recoverable(buffer)
+            .or_else(|| OwnedDirectValue::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable {
                     buffer,
@@ -51,11 +51,11 @@ mod process {
 
     use super::*;
 
-    impl IndirectValue {
+    impl OwnedIndirectValue {
         pub(crate) fn lookup<'a>(
             &self,
-            _parsed_objects: &'a HashMap<Reference, DirectValue>,
-        ) -> Option<&'a DirectValue> {
+            _parsed_objects: &'a HashMap<Reference, OwnedDirectValue>,
+        ) -> Option<&'a OwnedDirectValue> {
             todo!("Implement lookup and report unfound references")
             // REFERENCE: [7.3.9 Null object, p33]
             // TODO indirect references to non-existent objects should resolve to null
@@ -67,38 +67,38 @@ mod convert {
 
     use super::*;
     use crate::impl_from;
-    use crate::object::direct::array::Array;
+    use crate::object::direct::array::OwnedArray;
     use crate::object::direct::boolean::Boolean;
-    use crate::object::direct::dictionary::Dictionary;
-    use crate::object::direct::name::Name;
+    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::name::OwnedName;
     use crate::object::direct::null::Null;
     use crate::object::direct::numeric::Integer;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::numeric::Real;
-    use crate::object::direct::string::Hexadecimal;
-    use crate::object::direct::string::Literal;
-    use crate::object::direct::string::String_;
+    use crate::object::direct::string::OwnedHexadecimal;
+    use crate::object::direct::string::OwnedLiteral;
+    use crate::object::direct::string::OwnedString;
 
-    impl_from!(Stream, Stream, IndirectValue);
-    impl_from!(DirectValue, Direct, IndirectValue);
-    impl_from!(Reference, Direct, IndirectValue);
-    impl_from!(Array, Direct, IndirectValue);
-    impl_from!(Boolean, Direct, IndirectValue);
-    impl_from!(bool, Direct, IndirectValue);
-    impl_from!(Dictionary, Direct, IndirectValue);
-    impl_from!(Name, Direct, IndirectValue);
-    impl_from!(Null, Direct, IndirectValue);
-    impl_from!(Integer, Direct, IndirectValue);
-    impl_from!(u64, Direct, IndirectValue);
-    impl_from!(Real, Direct, IndirectValue);
-    impl_from!(f64, Direct, IndirectValue);
-    impl_from!(Numeric, Direct, IndirectValue);
-    impl_from!(Hexadecimal, Direct, IndirectValue);
-    impl_from!(Literal, Direct, IndirectValue);
-    impl_from!(String_, Direct, IndirectValue);
+    impl_from!(OwnedStream, Stream, OwnedIndirectValue);
+    impl_from!(OwnedDirectValue, Direct, OwnedIndirectValue);
+    impl_from!(Reference, Direct, OwnedIndirectValue);
+    impl_from!(OwnedArray, Direct, OwnedIndirectValue);
+    impl_from!(Boolean, Direct, OwnedIndirectValue);
+    impl_from!(bool, Direct, OwnedIndirectValue);
+    impl_from!(OwnedDictionary, Direct, OwnedIndirectValue);
+    impl_from!(OwnedName, Direct, OwnedIndirectValue);
+    impl_from!(Null, Direct, OwnedIndirectValue);
+    impl_from!(Integer, Direct, OwnedIndirectValue);
+    impl_from!(u64, Direct, OwnedIndirectValue);
+    impl_from!(Real, Direct, OwnedIndirectValue);
+    impl_from!(f64, Direct, OwnedIndirectValue);
+    impl_from!(Numeric, Direct, OwnedIndirectValue);
+    impl_from!(OwnedHexadecimal, Direct, OwnedIndirectValue);
+    impl_from!(OwnedLiteral, Direct, OwnedIndirectValue);
+    impl_from!(OwnedString, Direct, OwnedIndirectValue);
 
-    impl IndirectValue {
-        pub(crate) fn as_stream(&self) -> Option<&Stream> {
+    impl OwnedIndirectValue {
+        pub(crate) fn as_stream(&self) -> Option<&OwnedStream> {
             if let Self::Stream(v) = self {
                 Some(v)
             } else {
@@ -106,7 +106,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_direct(&self) -> Option<&DirectValue> {
+        pub(crate) fn as_direct(&self) -> Option<&OwnedDirectValue> {
             if let Self::Direct(v) = self {
                 Some(v)
             } else {

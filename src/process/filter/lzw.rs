@@ -3,7 +3,7 @@ use ::std::collections::HashMap;
 use self::error::LzwError;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::dictionary::OwnedDictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 use crate::DECODED_LIMIT;
@@ -313,13 +313,13 @@ mod convert {
 
     use super::*;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
     impl Lzw {
         pub(in crate::process::filter) fn new(
-            decode_parms: Option<&Dictionary>,
+            decode_parms: Option<&OwnedDictionary>,
         ) -> ProcessResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
@@ -344,11 +344,11 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue> for EarlyChange {
+    impl TryFrom<&OwnedDirectValue> for EarlyChange {
         type Error = ProcessErr;
 
-        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
-            if let DirectValue::Numeric(Numeric::Integer(value)) = value {
+        fn try_from(value: &OwnedDirectValue) -> Result<Self, Self::Error> {
+            if let OwnedDirectValue::Numeric(Numeric::Integer(value)) = value {
                 match **value {
                     0 => Ok(Self(false)),
                     1 => Ok(Self(true)),

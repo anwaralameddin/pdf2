@@ -57,12 +57,12 @@ mod convert {
     use super::error::PredictorError;
     use super::png::PngAlgorithm;
     use super::*;
-    use crate::object::direct::dictionary::Dictionary;
+    use crate::object::direct::dictionary::OwnedDictionary;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
 
     impl Predictor {
-        pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> ProcessResult<Self> {
+        pub(in crate::process::filter) fn new(decode_parms: &OwnedDictionary) -> ProcessResult<Self> {
             let bits_per_component = decode_parms
                 .get(KEY_BITS_PER_COMPONENT)
                 .map(BitsPerComponent::try_from)
@@ -85,7 +85,7 @@ mod convert {
             };
 
             match decode_parms.get(KEY_PREDICTOR) {
-                Some(DirectValue::Numeric(Numeric::Integer(value))) => match **value {
+                Some(OwnedDirectValue::Numeric(Numeric::Integer(value))) => match **value {
                     1 => Ok(Self::None),
                     2 => Ok(Self::Tiff(Tiff::new(parms))),
                     10 => Ok(Self::Png(Png::new(PngAlgorithm::None, parms))),
@@ -108,12 +108,12 @@ mod convert {
 pub(in crate::process) mod error {
     use ::thiserror::Error;
 
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
 
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum PredictorError {
         #[error("{0}: Invalid data type. Input: {1}")]
-        DataType(&'static str, DirectValue),
+        DataType(&'static str, OwnedDirectValue),
         #[error("{0}: Unsupport value. Input: {1}")]
         Unsupported(&'static str, i128),
     }

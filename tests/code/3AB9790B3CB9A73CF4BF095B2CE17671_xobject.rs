@@ -1,16 +1,16 @@
-Stream::new(
-    Dictionary::from_iter([
+OwnedStream::new(
+    OwnedDictionary::from_iter([
         (
             "Type".into(),
-            Name::from("XObject").into(),
+            OwnedName::from("XObject").into(),
         ),
         (
             "Subtype".into(),
-            Name::from("Form").into(),
+            OwnedName::from("Form").into(),
         ),
         (
             "BBox".into(),
-            Array::from_iter([
+            OwnedArray::from_iter([
                 0.into(),
                 0.into(),
                 100.into(),
@@ -24,7 +24,7 @@ Stream::new(
         ),
         (
             "Matrix".into(),
-            Array::from_iter([
+            OwnedArray::from_iter([
                 1.into(),
                 0.into(),
                 0.into(),
@@ -39,7 +39,7 @@ Stream::new(
             unsafe { Reference::new_unchecked(11, 0).into() },
         ),
         ("Length".into(), 15.into()),
-        ("Filter".into(), Name::from("FlateDecode").into()),
+        ("Filter".into(), OwnedName::from("FlateDecode").into()),
     ]),
     &buffer[155..170],
 )

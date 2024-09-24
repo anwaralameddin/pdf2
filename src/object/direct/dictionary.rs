@@ -8,8 +8,8 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use super::name::Name;
-use super::DirectValue;
+use super::name::OwnedName;
+use super::OwnedDirectValue;
 use crate::object::indirect::reference::Reference;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
@@ -23,9 +23,9 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.7 Dictionary objects, p30-31]
 #[derive(Debug, Default, Clone)]
-pub struct Dictionary(HashMap<Name, DirectValue>);
+pub struct OwnedDictionary(HashMap<OwnedName, OwnedDirectValue>);
 
-impl Display for Dictionary {
+impl Display for OwnedDictionary {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<<")?;
         for (i, (key, value)) in self.0.iter().enumerate() {
@@ -38,17 +38,17 @@ impl Display for Dictionary {
     }
 }
 
-impl PartialEq for Dictionary {
+impl PartialEq for OwnedDictionary {
     fn eq(&self, other: &Self) -> bool {
         self.escape() == other.escape()
     }
 }
 
-impl Parser<'_> for Dictionary {
+impl Parser<'_> for OwnedDictionary {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let mut dictionary = HashMap::default();
-        let mut key: Name;
-        let mut value: DirectValue;
+        let mut key: OwnedName;
+        let mut value: OwnedDirectValue;
         let (mut buffer, _) = terminated(tag(b"<<"), opt(white_space_or_comment))(buffer).map_err(
             parse_recoverable!(
                 e,
@@ -68,7 +68,7 @@ impl Parser<'_> for Dictionary {
                 break;
             }
             // Parse the key
-            (buffer, key) = Name::parse(buffer).map_err(|err| ParseFailure {
+            (buffer, key) = OwnedName::parse(buffer).map_err(|err| ParseFailure {
                 buffer: err.buffer(),
                 object: stringify!(Dictionary),
                 code: ParseErrorCode::RecMissingClosing(Box::new(err.code())),
@@ -79,7 +79,7 @@ impl Parser<'_> for Dictionary {
                 buffer = remains;
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse(buffer).map_err(|err| ParseFailure {
+            (buffer, value) = OwnedDirectValue::parse(buffer).map_err(|err| ParseFailure {
                 buffer: err.buffer(),
                 object: stringify!(Dictionary),
                 code: ParseErrorCode::RecMissingValue(
@@ -108,7 +108,7 @@ impl Parser<'_> for Dictionary {
             };
         }
 
-        let dictionary = Dictionary(dictionary);
+        let dictionary = OwnedDictionary(dictionary);
         Ok((buffer, dictionary))
     }
 }
@@ -117,9 +117,9 @@ mod process {
     use super::*;
     use crate::object::direct::null::Null;
 
-    impl Dictionary {
+    impl OwnedDictionary {
         /// REFERENCE: [7.3.7 Dictionary objects, p30] and [7.3.9 Null object, p33]
-        pub(crate) fn escape(&self) -> HashMap<&Name, &DirectValue> {
+        pub(crate) fn escape(&self) -> HashMap<&OwnedName, &OwnedDirectValue> {
             // FIXME Take into account values that are references to missing
             // objects, which is the same as having the value null. Also,
             // consider the effect of two references pointing to the same
@@ -138,48 +138,50 @@ mod convert {
 
     use self::error::DataTypeError;
     use super::*;
-    use crate::object::direct::array::Array;
+    use crate::object::direct::array::OwnedArray;
     use crate::object::direct::numeric::Integer;
     use crate::object::direct::numeric::Numeric;
 
-    impl From<HashMap<Name, DirectValue>> for Dictionary {
-        fn from(value: HashMap<Name, DirectValue>) -> Self {
+    impl From<HashMap<OwnedName, OwnedDirectValue>> for OwnedDictionary {
+        fn from(value: HashMap<OwnedName, OwnedDirectValue>) -> Self {
             Self(value)
         }
     }
 
-    impl FromIterator<(Name, DirectValue)> for Dictionary {
-        fn from_iter<T: IntoIterator<Item = (Name, DirectValue)>>(iter: T) -> Dictionary {
+    impl FromIterator<(OwnedName, OwnedDirectValue)> for OwnedDictionary {
+        fn from_iter<T: IntoIterator<Item = (OwnedName, OwnedDirectValue)>>(
+            iter: T,
+        ) -> OwnedDictionary {
             Self(HashMap::from_iter(iter))
         }
     }
 
-    impl Deref for Dictionary {
-        type Target = HashMap<Name, DirectValue>;
+    impl Deref for OwnedDictionary {
+        type Target = HashMap<OwnedName, OwnedDirectValue>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
         }
     }
 
-    impl IntoIterator for Dictionary {
-        type Item = (Name, DirectValue);
-        type IntoIter = <HashMap<Name, DirectValue> as IntoIterator>::IntoIter;
+    impl IntoIterator for OwnedDictionary {
+        type Item = (OwnedName, OwnedDirectValue);
+        type IntoIter = <HashMap<OwnedName, OwnedDirectValue> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()
         }
     }
 
-    impl Dictionary {
-        pub(crate) fn get(&self, key: &str) -> Option<&DirectValue> {
+    impl OwnedDictionary {
+        pub(crate) fn get(&self, key: &str) -> Option<&OwnedDirectValue> {
             self.0.get(&key.into())
         }
 
         pub(crate) fn get_array<'key>(
             &self,
             key: &'key str,
-        ) -> StdResult<Option<&Array>, DataTypeError<'key>> {
+        ) -> StdResult<Option<&OwnedArray>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
                     value.as_array().ok_or_else(|| DataTypeError {
@@ -195,7 +197,7 @@ mod convert {
         pub(crate) fn get_name<'key>(
             &self,
             key: &'key str,
-        ) -> StdResult<Option<&Name>, DataTypeError<'key>> {
+        ) -> StdResult<Option<&OwnedName>, DataTypeError<'key>> {
             self.get(key)
                 .map(|value| {
                     value.as_name().ok_or_else(|| DataTypeError {
@@ -306,7 +308,7 @@ mod tests {
         // Synthetic tests
 
         // Dictionary: Not found
-        let parsed_result = Dictionary::parse(b"/Type /Type1");
+        let parsed_result = OwnedDictionary::parse(b"/Type /Type1");
         let expected_error = ParseRecoverable {
             buffer: b"/Type /Type1",
             object: stringify!(Dictionary),
@@ -315,7 +317,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Single quotes
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1");
+        let parsed_result = OwnedDictionary::parse(b"<< /Type /Type1");
         let expected_error = ParseFailure {
             buffer: b"",
             object: stringify!(Dictionary),
@@ -326,12 +328,13 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Spaced quotes
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>");
+        let parsed_result =
+            OwnedDictionary::parse(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>");
         let expected_error = ParseFailure {
             buffer: b"> > >>",
             object: stringify!(Dictionary),
             code: ParseErrorCode::RecMissingValue(
-                Name::from("Subtype"),
+                OwnedName::from("Subtype"),
                 Box::new(ParseErrorCode::RecMissingClosing(Box::new(
                     ParseErrorCode::NotFound(ErrorKind::Char),
                 ))),
@@ -340,12 +343,12 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Missing value
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype >>");
+        let parsed_result = OwnedDictionary::parse(b"<< /Type /Type1 /Subtype >>");
         let expected_error = ParseFailure {
             buffer: b">>",
             object: stringify!(Dictionary),
             code: ParseErrorCode::RecMissingValue(
-                Name::from("Subtype"),
+                OwnedName::from("Subtype"),
                 Box::new(ParseErrorCode::NotFoundUnion),
             ),
         };
@@ -355,8 +358,8 @@ mod tests {
     #[test]
     fn dictionary_escape() {
         assert_eq!(
-            Dictionary::from_iter([("Key".into(), Null.into())]),
-            Dictionary::default()
+            OwnedDictionary::from_iter([("Key".into(), Null.into())]),
+            OwnedDictionary::default()
         );
 
         // TODO Add tests

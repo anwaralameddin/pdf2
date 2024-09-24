@@ -3,7 +3,7 @@ use ::thiserror::Error;
 
 use crate::fmt::debug_bytes;
 use crate::object::direct::dictionary::error::DataTypeError;
-use crate::object::direct::name::Name;
+use crate::object::direct::name::OwnedName;
 use crate::process::error::NewProcessErr;
 use crate::Byte;
 use crate::ObjectNumberOrZero;
@@ -64,7 +64,7 @@ pub enum ParseErrorCode {
     #[error("Missing key: Error: {0}")]
     RecMissingKey(&'static str),
     #[error("Missing value. Key {0}. Error: {1}")]
-    RecMissingValue(Name, Box<ParseErrorCode>),
+    RecMissingValue(OwnedName, Box<ParseErrorCode>),
     #[error("Missing closing. Error: {0}")]
     RecMissingClosing(Box<ParseErrorCode>),
     #[error(
