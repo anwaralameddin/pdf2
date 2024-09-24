@@ -7,7 +7,7 @@ use ::std::fmt::Result as FmtResult;
 
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
-use crate::object::indirect::object::IndirectObject;
+use crate::object::indirect::object::OwnedIndirectObject;
 use crate::object::indirect::stream::OwnedStream;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -36,7 +36,7 @@ impl Parser<'_> for XRefStream {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value }) = Parser::parse(buffer)?;
+        let (remains, OwnedIndirectObject { id, value }) = Parser::parse(buffer)?;
 
         let stream = OwnedStream::try_from(value)?;
 
@@ -285,7 +285,10 @@ mod tests {
             .set_type(OwnedName::from(VAL_XREF))
             .set_others(HashMap::from_iter([
                 (OwnedName::from(KEY_LENGTH), 1760.into()),
-                (OwnedName::from(KEY_FILTER), OwnedName::from("FlateDecode").into()),
+                (
+                    OwnedName::from(KEY_FILTER),
+                    OwnedName::from("FlateDecode").into(),
+                ),
             ]));
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },

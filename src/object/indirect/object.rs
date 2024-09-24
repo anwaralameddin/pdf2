@@ -8,7 +8,9 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use super::id::Id;
+use super::IndirectValue;
 use super::OwnedIndirectValue;
+use crate::object::BorrowedBuffer;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -24,19 +26,31 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.10 Indirect objects, p33]
 #[derive(Debug, PartialEq)]
-pub(crate) struct IndirectObject {
+pub(crate) struct IndirectObject<'buffer> {
+    pub(crate) id: Id,
+    pub(crate) value: IndirectValue<'buffer>,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct OwnedIndirectObject {
     pub(crate) id: Id,
     pub(crate) value: OwnedIndirectValue,
 }
 
-impl Display for IndirectObject {
+impl Display for IndirectObject<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.value, KW_ENDOBJ)
     }
 }
 
-impl Parser<'_> for IndirectObject {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl Display for OwnedIndirectObject {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&IndirectObject::from(self), f)
+    }
+}
+
+impl<'buffer> Parser<'buffer> for IndirectObject<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // REFERENCE: [7.3.10 Indirect objects, p33]
         let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
             buffer: err.buffer(),
@@ -55,7 +69,7 @@ impl Parser<'_> for IndirectObject {
         )?;
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
-        let (buffer, object) = OwnedIndirectValue::parse(buffer).map_err(|err| ParseFailure {
+        let (buffer, object) = IndirectValue::parse(buffer).map_err(|err| ParseFailure {
             buffer: err.buffer(),
             object: stringify!(IndirectObject),
             code: ParseErrorCode::RecMissingSubobject(
@@ -83,10 +97,46 @@ impl Parser<'_> for IndirectObject {
     }
 }
 
+impl Parser<'_> for OwnedIndirectObject {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        IndirectObject::parse(buffer).map(|(buffer, value)| (buffer, value.to_owned_buffer()))
+    }
+}
+
 mod convert {
     use super::*;
+    use crate::object::BorrowedBuffer;
 
-    impl IndirectObject {
+    impl BorrowedBuffer for IndirectObject<'_> {
+        type OwnedBuffer = OwnedIndirectObject;
+
+        fn to_owned_buffer(self) -> Self::OwnedBuffer {
+            OwnedIndirectObject {
+                id: self.id,
+                value: self.value.to_owned_buffer(),
+            }
+        }
+    }
+
+    impl<'buffer> From<&'buffer OwnedIndirectObject> for IndirectObject<'buffer> {
+        fn from(value: &'buffer OwnedIndirectObject) -> Self {
+            Self {
+                id: value.id,
+                value: (&value.value).into(),
+            }
+        }
+    }
+
+    impl<'buffer> IndirectObject<'buffer> {
+        pub(crate) fn new(id: Id, value: impl Into<IndirectValue<'buffer>>) -> Self {
+            Self {
+                id,
+                value: value.into(),
+            }
+        }
+    }
+
+    impl OwnedIndirectObject {
         pub(crate) fn new(id: Id, value: impl Into<OwnedIndirectValue>) -> Self {
             Self {
                 id,
@@ -102,10 +152,10 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::object::direct::dictionary::OwnedDictionary;
-    use crate::object::direct::name::OwnedName;
+    use crate::object::direct::dictionary::Dictionary;
+    use crate::object::direct::name::Name;
     use crate::object::indirect::reference::Reference;
-    use crate::object::indirect::stream::OwnedStream;
+    use crate::object::indirect::stream::Stream;
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::parse_assert_eq;
 
@@ -117,7 +167,7 @@ mod tests {
             buffer,
             IndirectObject {
                 id: unsafe { Id::new_unchecked(1, 0) },
-                value: OwnedName::from("Name").into(),
+                value: Name::from("Name").into(),
             },
             "".as_bytes()
         );
@@ -132,8 +182,8 @@ mod tests {
 
         let buffer =
             b"1 0 obj\n<</Length 29>>\nstream\nA stream with a direct length\nendstream\nendobj";
-        let value = OwnedStream::new(
-            OwnedDictionary::from_iter([(KEY_LENGTH.into(), 29.into())]),
+        let value = Stream::new(
+            Dictionary::from_iter([(KEY_LENGTH.into(), 29.into())]),
             "A stream with a direct length".as_bytes(),
         );
         let object = IndirectObject {

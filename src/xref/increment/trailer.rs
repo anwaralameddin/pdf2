@@ -404,7 +404,7 @@ mod tests {
     use crate::object::direct::dictionary::OwnedDictionary;
     use crate::object::direct::string::OwnedHexadecimal;
     use crate::object::direct::string::OwnedLiteral;
-    use crate::object::indirect::object::IndirectObject;
+    use crate::object::indirect::object::OwnedIndirectObject;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::parse::Parser;
@@ -444,7 +444,7 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let (_, object) = IndirectObject::parse(buffer).unwrap();
+        let (_, object) = OwnedIndirectObject::parse(buffer).unwrap();
         let dictionary = &object.value.as_stream().unwrap().dictionary;
         let trailer = Trailer::new(750)
             .set_root(unsafe { Reference::new_unchecked(747, 0) })

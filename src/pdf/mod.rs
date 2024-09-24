@@ -78,7 +78,7 @@ mod process {
     use super::error::PdfErr;
     use super::error::PdfResult;
     use super::*;
-    use crate::object::indirect::object::IndirectObject;
+    use crate::object::indirect::object::OwnedIndirectObject;
     use crate::parse::Parser;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
@@ -104,7 +104,7 @@ mod process {
             // collect all errors and report them at the end.
             let mut objects = HashMap::default();
             for (offset, id) in table.in_use.iter() {
-                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
+                let (remains, object) = match OwnedIndirectObject::parse(&self.buffer[*offset..]) {
                     Ok((remains, object)) => (remains, object),
                     Err(err) => {
                         errors.push(ObjectRecoverable::Parse(*id, *offset, err));
@@ -113,7 +113,7 @@ mod process {
                 };
                 // At this point, we have a valid indirect object, and there is
                 // no need to skip the object on errors
-                let IndirectObject {
+                let OwnedIndirectObject {
                     id: parsed_id,
                     value,
                 } = object;
