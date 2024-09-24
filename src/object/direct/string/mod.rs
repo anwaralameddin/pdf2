@@ -144,9 +144,9 @@ mod convert {
         fn to_owned_buffer(self) -> Self::OwnedBuffer {
             match self {
                 Self::Hexadecimal(hexadecimal) => {
-                    OwnedString::Hexadecimal(hexadecimal.to_owned_buffer())
+                    Self::OwnedBuffer::Hexadecimal(hexadecimal.to_owned_buffer())
                 }
-                Self::Literal(literal) => OwnedString::Literal(literal.to_owned_buffer()),
+                Self::Literal(literal) => Self::OwnedBuffer::Literal(literal.to_owned_buffer()),
             }
         }
     }
