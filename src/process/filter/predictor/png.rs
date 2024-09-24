@@ -277,7 +277,8 @@ mod process {
         for x in 0..scanline.len() {
             let left = scanline.get(x - bytes_per_pixel).unwrap_or(&0);
             let up = prior_scanline.get(x).unwrap_or(&0);
-            diff[x + 1] = scanline[x].wrapping_sub(((*left as u16 + *up as u16) >> 1) as Byte);
+            diff[x + 1] =
+                scanline[x].wrapping_sub(((u16::from(*left) + u16::from(*up)) >> 1) as Byte);
         }
         prior_scanline.copy_from_slice(scanline);
     }
@@ -294,7 +295,8 @@ mod process {
         for x in 0..scanline.len() {
             let left = scanline.get(x - bytes_per_pixel).unwrap_or(&0);
             let up = prior_scanline.get(x).unwrap_or(&0);
-            scanline[x] = diff[x + 1].wrapping_add(((*up as u16 + *left as u16) >> 1) as Byte);
+            scanline[x] =
+                diff[x + 1].wrapping_add(((u16::from(*up) + u16::from(*left)) >> 1) as Byte);
         }
         prior_scanline.copy_from_slice(scanline);
     }
@@ -338,10 +340,10 @@ mod process {
     /// REFERENCE: [[https://www.w3.org/TR/PNG-Filters.html] 66.6. Filter type
     /// 4: Paeth]
     fn paeth_predictor(left: Byte, up: Byte, up_left: Byte) -> Byte {
-        let p = left as i16 + up as i16 - up_left as i16;
-        let p_left = (p - left as i16).abs();
-        let p_up = (p - up as i16).abs();
-        let p_up_left = (p - up_left as i16).abs();
+        let p = i16::from(left) + i16::from(up) - i16::from(up_left);
+        let p_left = (p - i16::from(left)).abs();
+        let p_up = (p - i16::from(up)).abs();
+        let p_up_left = (p - i16::from(up_left)).abs();
         if p_left <= p_up && p_left <= p_up_left {
             left
         } else if p_up <= p_up_left {

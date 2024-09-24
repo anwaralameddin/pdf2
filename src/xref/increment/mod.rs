@@ -6,11 +6,10 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::IncrementRecoverable;
 use self::section::Section;
 use self::stream::XRefStream;
-use crate::fmt::debug_bytes;
-use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::Byte;
@@ -31,26 +30,31 @@ impl Display for Increment {
     }
 }
 
-impl Parser for Increment {
+impl Parser<'_> for Increment {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Section::parse_semi_quiet::<Self>(buffer)
-            .or_else(|| XRefStream::parse_semi_quiet::<Self>(buffer))
+        Section::parse_suppress_recoverable::<Self>(buffer)
+            .or_else(|| XRefStream::parse_suppress_recoverable::<Self>(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    IncrementRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                // Except for Subsection, Section and XRefStream, NotFound
+                // errors for xref objects should be propagated as failures.
+                Err(ParseFailure {
+                    buffer,
+                    object: stringify!(Increment),
+                    code: ParseErrorCode::NotFoundUnion,
+                }
+                .into())
             })
     }
 }
 
 mod process {
     use super::*;
-    use crate::process::error::ProcessResult;
+    use crate::process::error::NewProcessResult;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for Increment {
-        fn to_table(&self) -> ProcessResult<Table> {
+        fn to_table(&self) -> NewProcessResult<Table> {
             match self {
                 Self::Section(section) => section.to_table(),
                 Self::Stream(stream) => stream.to_table(),
@@ -87,13 +91,15 @@ mod convert {
 }
 
 pub(crate) mod error {
-
+    use ::std::num::TryFromIntError;
     use ::thiserror::Error;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IncrementRecoverable {
-        #[error("Not found: {0}")]
-        NotFound(String),
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum IncrementError {
+        #[error("Generation number. Error: {1}. Input: {0}")]
+        EntryGenerationNumber(u64, TryFromIntError),
+        #[error("Duplicate object number: {0}")]
+        DuplicateObjectNumber(u64),
     }
 }
 

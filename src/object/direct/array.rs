@@ -8,16 +8,15 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::ops::Deref;
 
-use self::error::ArrayFailure;
-use self::error::ArrayRecoverable;
-use crate::fmt::debug_bytes;
 use crate::object::direct::DirectValue;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.3.6 Array objects, p29]
@@ -51,39 +50,40 @@ impl PartialEq for Array {
     }
 }
 
-impl Parser for Array {
+impl Parser<'_> for Array {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let mut array = vec![];
         let mut value: DirectValue;
-        let (mut buffer, _) =
-            terminated(char('['), opt(white_space_or_comment))(buffer).map_err(parse_error!(
+        let (mut buffer, _) = terminated(char('['), opt(white_space_or_comment))(buffer).map_err(
+            parse_recoverable!(
                 e,
-                ArrayRecoverable::NotFound {
-                    code: e.code,
-                    input: debug_bytes(buffer)
+                ParseRecoverable {
+                    buffer: e.input,
+                    object: stringify!(Array),
+                    code: ParseErrorCode::NotFound(e.code)
                 }
-            ))?;
+            ),
+        )?;
         // Here, we know that the buffer starts with an array, and the following
         // errors should be propagated as ArrayFailure
         loop {
             // Check for the end of the array (closing square bracket)
-            if let Ok((remaining, _)) = char::<_, NomError<_>>(']')(buffer) {
-                buffer = remaining;
+            if let Ok((remains, _)) = char::<_, NomError<_>>(']')(buffer) {
+                buffer = remains;
                 break;
             }
             // Parse the value
-            (buffer, value) =
-                DirectValue::parse_semi_quiet::<DirectValue>(buffer).unwrap_or_else(|| {
-                    Err(ParseErr::Failure(
-                        ArrayFailure::MissingClosing(debug_bytes(buffer)).into(),
-                    ))
-                })?;
+            (buffer, value) = DirectValue::parse(buffer).map_err(|err| ParseFailure {
+                buffer: err.buffer(),
+                object: stringify!(Array),
+                code: ParseErrorCode::RecMissingClosing(Box::new(err.code())),
+            })?;
 
             array.push(value);
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remaining, _)) = opt(white_space_or_comment)(buffer) {
-                buffer = remaining;
+            if let Ok((remains, _)) = opt(white_space_or_comment)(buffer) {
+                buffer = remains;
             }
         }
 
@@ -125,24 +125,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum ArrayRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum ArrayFailure {
-        #[error("Missing Closing: Expected a name or closing angle brackets. Input: {0}")]
-        MissingClosing(String),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -153,7 +135,6 @@ mod tests {
     use crate::object::direct::null::Null;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
-    use crate::parse::error::ParseFailure;
     use crate::parse_assert_eq;
 
     #[test]
@@ -202,20 +183,20 @@ mod tests {
 
         // Array: Not found
         let parse_result = Array::parse(b"1 1.0 true null(A literal string)/Name");
-        let expected_error = ParseErr::Error(
-            ArrayRecoverable::NotFound {
-                code: ErrorKind::Char,
-                input: "1 1.0 true null(A literal string)/Name".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"1 1.0 true null(A literal string)/Name",
+            object: stringify!(Array),
+            code: ParseErrorCode::NotFound(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Array: Missing closing square bracket
         let parse_result = Array::parse(b"[1 1.0 true null(A literal string)/Name");
-        let expected_error = ParseErr::Failure(ParseFailure::Array(ArrayFailure::MissingClosing(
-            "".to_string(),
-        )));
+        let expected_error = ParseFailure {
+            buffer: b"",
+            object: stringify!(Array),
+            code: ParseErrorCode::RecMissingClosing(Box::new(ParseErrorCode::NotFoundUnion)),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

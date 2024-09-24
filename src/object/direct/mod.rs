@@ -13,14 +13,13 @@ use ::std::fmt::Result as FmtResult;
 use self::array::Array;
 use self::boolean::Boolean;
 use self::dictionary::Dictionary;
-use self::error::DirectValueRecoverable;
 use self::name::Name;
 use self::null::Null;
 use self::numeric::Numeric;
 use self::string::String_;
-use crate::fmt::debug_bytes;
 use crate::object::indirect::reference::Reference;
-use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::Byte;
@@ -59,20 +58,23 @@ impl Display for DirectValue {
     }
 }
 
-impl Parser for DirectValue {
+impl Parser<'_> for DirectValue {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Reference::parse_semi_quiet(buffer)
-            .or_else(|| Null::parse_semi_quiet(buffer))
-            .or_else(|| Boolean::parse_semi_quiet(buffer))
-            .or_else(|| Numeric::parse_semi_quiet(buffer))
-            .or_else(|| Name::parse_semi_quiet(buffer))
-            .or_else(|| String_::parse_semi_quiet(buffer))
-            .or_else(|| Array::parse_semi_quiet(buffer))
-            .or_else(|| Dictionary::parse_semi_quiet(buffer))
+        Reference::parse_suppress_recoverable(buffer)
+            .or_else(|| Null::parse_suppress_recoverable(buffer))
+            .or_else(|| Boolean::parse_suppress_recoverable(buffer))
+            .or_else(|| Numeric::parse_suppress_recoverable(buffer))
+            .or_else(|| Name::parse_suppress_recoverable(buffer))
+            .or_else(|| String_::parse_suppress_recoverable(buffer))
+            .or_else(|| Array::parse_suppress_recoverable(buffer))
+            .or_else(|| Dictionary::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    DirectValueRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                Err(ParseRecoverable {
+                    buffer,
+                    object: stringify!(DirectValue),
+                    code: ParseErrorCode::NotFoundUnion,
+                }
+                .into())
             })
     }
 }
@@ -202,16 +204,6 @@ mod convert {
                 .and_then(Numeric::as_integer)
                 .and_then(Integer::as_usize)
         }
-    }
-}
-
-pub(crate) mod error {
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum DirectValueRecoverable {
-        #[error("Not found. Input: {0}")]
-        NotFound(String),
     }
 }
 

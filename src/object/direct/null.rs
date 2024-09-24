@@ -5,14 +5,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::NullRecoverable;
-use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_NULL;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.3.9 Null object, p33]
@@ -25,28 +24,18 @@ impl Display for Null {
     }
 }
 
-impl Parser for Null {
+impl Parser<'_> for Null {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, _) = tag::<_, _, NomError<_>>(KW_NULL)(buffer).map_err(parse_error!(
+        let (buffer, _) = tag::<_, _, NomError<_>>(KW_NULL)(buffer).map_err(parse_recoverable!(
             e,
-            NullRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(e.input),
+            ParseRecoverable {
+                buffer: e.input,
+                object: stringify!(Null),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
 
         Ok((buffer, Self))
-    }
-}
-
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum NullRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
     }
 }
 
@@ -71,13 +60,12 @@ mod tests {
     fn null_invalid() {
         // Null: Not found
         let parse_result = Null::parse(b"nul");
-        let expected_error = ParseErr::Error(
-            NullRecoverable::NotFound {
-                code: ErrorKind::Tag,
-                input: "nul".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"nul",
+            object: stringify!(Null),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
+        };
+
         assert_err_eq!(parse_result, expected_error);
     }
 }

@@ -6,11 +6,10 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::StringRecoverable;
 pub(crate) use self::hexadecimal::Hexadecimal;
 pub(crate) use self::literal::Literal;
-use crate::fmt::debug_bytes;
-use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::process::encoding::Encoding;
@@ -45,14 +44,17 @@ impl PartialEq for String_ {
     }
 }
 
-impl Parser for String_ {
+impl Parser<'_> for String_ {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Literal::parse_semi_quiet(buffer)
-            .or_else(|| Hexadecimal::parse_semi_quiet(buffer))
+        Literal::parse_suppress_recoverable(buffer)
+            .or_else(|| Hexadecimal::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    StringRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                Err(ParseRecoverable {
+                    buffer,
+                    object: stringify!(String),
+                    code: ParseErrorCode::NotFoundUnion,
+                }
+                .into())
             })
     }
 }
@@ -108,17 +110,6 @@ mod convert {
                 None
             }
         }
-    }
-}
-
-pub(crate) mod error {
-
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum StringRecoverable {
-        #[error("Not found. Input: {0}")]
-        NotFound(String),
     }
 }
 

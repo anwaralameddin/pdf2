@@ -5,9 +5,9 @@ pub(crate) mod startxref;
 use ::std::collections::BTreeSet;
 use ::std::collections::HashMap;
 
-use self::error::TableError;
+use self::error::XRefError;
 use crate::object::indirect::id::Id;
-use crate::process::error::ProcessResult;
+use crate::process::error::NewProcessResult;
 use crate::GenerationNumber;
 use crate::IndexNumber;
 use crate::ObjectNumber;
@@ -15,7 +15,8 @@ use crate::ObjectNumberOrZero;
 use crate::Offset;
 
 pub(crate) trait ToTable {
-    fn to_table(&self) -> ProcessResult<Table>;
+    // TODO(TEMP) Consider consuming the object
+    fn to_table(&self) -> NewProcessResult<Table>;
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -50,8 +51,9 @@ impl Table {
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
         offset: Offset,
-    ) -> ProcessResult<()> {
-        let object_number = ObjectNumber::new(object_number).ok_or(TableError::ObjectNumber {
+    ) -> Result<(), XRefError> {
+        // TODO use 'static if a lifetime is introduced
+        let object_number = ObjectNumber::new(object_number).ok_or(XRefError::XRefInUseObject {
             object_number,
             generation_number,
             offset,
@@ -67,12 +69,14 @@ impl Table {
         object_number: ObjectNumberOrZero,
         stream_id: Id,
         index: IndexNumber,
-    ) -> ProcessResult<Option<(Id, IndexNumber)>> {
-        let object_number = ObjectNumber::new(object_number).ok_or(TableError::ObjectNumber {
-            object_number,
-            generation_number: GenerationNumber::default(),
-            offset: Offset::default(),
-        })?;
+    ) -> Result<Option<(Id, IndexNumber)>, XRefError> {
+        // TODO use 'static if a lifetime is introduced
+        let object_number =
+            ObjectNumber::new(object_number).ok_or(XRefError::XRefCompressedObject {
+                object_number,
+                stream_id,
+                index,
+            })?;
         let id = Id::new(object_number, GenerationNumber::default());
         Ok(self.compressed.insert(id, (stream_id, index)))
     }
@@ -90,28 +94,42 @@ impl Table {
 pub(crate) mod error {
     use ::thiserror::Error;
 
-    use super::*;
+    use crate::object::indirect::id::Id;
+    use crate::GenerationNumber;
+    use crate::IndexNumber;
+    use crate::ObjectNumberOrZero;
+    use crate::Offset;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum TableError {
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum XRefError {
         #[error(
-            "Object number: {object_number}, Generation number: {generation_number}, Offset: \
-             {offset}"
+            "In-use Object. Number: {}, Generation: {}, Offset: {}",
+            object_number,
+            generation_number,
+            offset
         )]
-        ObjectNumber {
+        XRefInUseObject {
             object_number: ObjectNumberOrZero,
             generation_number: GenerationNumber,
             offset: Offset,
         },
-        #[error("Duplicate object number: {0}")]
-        DuplicateObjectNumber(u64),
+        #[error(
+            "Compressed Object. Number: {}, Stream: {}, index: {}",
+            object_number,
+            stream_id,
+            index
+        )]
+        XRefCompressedObject {
+            object_number: ObjectNumberOrZero,
+            stream_id: Id,
+            index: IndexNumber,
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-
+    use ::std::collections::VecDeque;
     use ::std::fs::read_dir;
     use ::std::fs::File;
     use ::std::io::BufReader;
@@ -119,8 +137,8 @@ mod tests {
     use ::std::path::PathBuf;
 
     use super::pretable::PreTable;
-    use super::*;
     use crate::parse::Parser;
+    use crate::xref::ToTable;
 
     #[test]
     fn xref_valid() {
@@ -158,7 +176,7 @@ mod tests {
                             }
                             Err(err) => {
                                 eprintln!("{}: Error: {}", path.display(), err);
-                                err_msgs.push(path.display().to_string());
+                                err_msgs.push(path);
                             }
                         }
                     }
@@ -206,7 +224,7 @@ mod tests {
                         match pretable {
                             Ok((_, pretable)) if pretable.to_table().is_ok() => {
                                 eprintln!("{}: # Increments {:?}", path.display(), pretable.len());
-                                err_msgs.push(path.display().to_string());
+                                err_msgs.push(path);
                             }
                             Ok(_) => {
                                 println!(

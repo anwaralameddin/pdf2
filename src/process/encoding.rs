@@ -33,7 +33,7 @@ impl Decoder for Encoding {
             }
             Self::PdfDoc => {
                 todo!("Implement Encoding::decode for PdfDoc")
-                // Ok(self.0.iter().map(|&b| b as char).collect())
+                // Ok(self.0.iter().map(|&b| char::from(b)).collect())
             }
             Self::Utf8 => {
                 // REFERENCE: [7.9.2.2.1 General, p116]

@@ -6,7 +6,7 @@ unsafe {
         Hexadecimal::from("8401FBC530C8AE9B8EC1425170A70921").into(),
         Hexadecimal::from("8401FBC530C8AE9B8EC1425170A70921").into(),
     ])
-    .set_others(Dictionary::from_iter([
+    .set_others(HashMap::from_iter([
         (
             "rgid".into(),
             Literal::from("PB:318039020_AS:510882528206848@1498815294792").into(),

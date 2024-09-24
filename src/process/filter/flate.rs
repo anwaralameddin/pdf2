@@ -26,7 +26,7 @@ impl Filter for Fl {
             ZlibEncoder::new(bytes.as_ref(), Compression::default());
         filter
             .read_to_end(&mut filtered)
-            .map_err(|err| FlateError::Filter(err.to_string()))?;
+            .map_err(|err| FlateError::Filter(err.to_string()))?; // TODO (TEMP) Avoid to_string
 
         Ok(filtered)
     }
@@ -38,7 +38,7 @@ impl Filter for Fl {
         let mut defilter = ZlibDecoder::new(bytes.as_ref());
         defilter
             .read_to_end(&mut defiltered)
-            .map_err(|err| FlateError::Defilter(err.to_string()))?;
+            .map_err(|err| FlateError::Defilter(err.to_string()))?; // TODO (TEMP) Avoid to_string
 
         let defiltered = self.predictor.defilter(defiltered)?;
         Ok(defiltered)
@@ -80,7 +80,6 @@ mod tests {
     // use super::Fl;
     // use crate::assert_err_eq;
     // use crate::object::indirect::stream::Stream;
-    // use crate::parse::Parser;
     // use crate::process::filter::flate::error::FlateError;
     use crate::process::filter::tests::lax_stream_defilter_filter;
 

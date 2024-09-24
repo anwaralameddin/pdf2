@@ -1,10 +1,12 @@
+pub(crate) mod error;
+
 use ::std::collections::HashMap;
 use ::std::fs::File;
 use ::std::io::BufReader;
-use ::std::path::PathBuf;
+use ::std::path::Path;
 
-use self::error::PdfError;
-use self::error::PdfResult;
+use self::error::PdfErr;
+use self::error::PdfRecoverable;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::IndirectValue;
 use crate::xref::increment::trailer::Trailer;
@@ -21,16 +23,16 @@ pub struct Span {
 }
 
 #[derive(Debug)]
-pub struct PdfBuilder {
-    path: PathBuf,
+pub struct PdfBuilder<'path> {
+    path: &'path Path,
     buffer: Vec<Byte>,
 }
 
 /// REFERENCE: [7.5.1 General, p53]
 #[derive(Debug)]
-pub struct Pdf {
-    path: PathBuf,
-    buffer: Vec<Byte>,
+pub struct Pdf<'path> {
+    path: &'path Path,
+    buffer: &'path [Byte],
     /// • The trailer
     trailer: Trailer,
     /// • The cross-reference table
@@ -47,23 +49,23 @@ pub struct Pdf {
     // - Compressed objects
     // - comments: Vec<Comment>,
     // - spans: BTreeSet<Span>,
-    errors: Vec<PdfError>,
+    errors: PdfRecoverable<'path>,
 }
 
-impl Pdf {
-    pub fn status(&self) -> PdfResult<()> {
+impl Pdf<'_> {
+    pub fn status(&self) -> Result<(), &PdfRecoverable> {
         if self.errors.is_empty() {
             Ok(())
         } else {
-            Err(PdfError::Multiple(self.errors.clone()))
+            Err(&self.errors)
         }
     }
 
     // TODO A temporary debugging method
     pub fn summary(&self) -> String {
         format!(
-            "PDF: {:?} # Objects: {:?} # Errors: {:?}",
-            self.path,
+            "PDF: {} # Objects: {} # Errors: {}",
+            self.path.display(),
             self.objects_in_use.len(),
             self.errors.len()
         )
@@ -72,7 +74,8 @@ impl Pdf {
 
 mod process {
 
-    use super::error::PdfError;
+    use super::error::ObjectRecoverable;
+    use super::error::PdfErr;
     use super::error::PdfResult;
     use super::*;
     use crate::object::indirect::object::IndirectObject;
@@ -80,35 +83,31 @@ mod process {
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
 
-    impl PdfBuilder {
-        fn get_trailer(&self, pretable: &PreTable) -> PdfResult<Trailer> {
-            if let Some(increment) = pretable.back() {
+    impl<'path> PdfBuilder<'path> {
+        fn get_trailer(&'path self, pretable: &PreTable) -> PdfResult<Trailer> {
+            if let Some(increment) = pretable.last() {
+                // TODO (TEMP) currently, `PdfBuilder::build` does not use
+                // `pretable` after calling this function, and we can change
+                // this function and consume `pretable`
                 Ok(increment.trailer().clone())
             } else {
-                Err(PdfError::EmptyPreTable(self.path.clone()))
+                Err(PdfErr::EmptyPreTable(self.path))
             }
         }
 
         fn parse_objects_in_use(
-            &mut self,
+            &'path self,
             table: &Table,
-        ) -> PdfResult<(ObjectsInUse, Vec<PdfError>)> {
+            errors: &mut Vec<ObjectRecoverable<'path>>,
+        ) -> PdfResult<ObjectsInUse> {
             // At this point, we should not immediately fail. Instead, we
             // collect all errors and report them at the end.
-            let mut errors = Vec::default();
             let mut objects = HashMap::default();
             for (offset, id) in table.in_use.iter() {
-                let start = match usize::try_from(*offset) {
-                    Ok(offset) => offset,
+                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
+                    Ok((remains, object)) => (remains, object),
                     Err(err) => {
-                        errors.push(PdfError::OffsetAsUsize(*id, *offset, err));
-                        continue;
-                    }
-                };
-                let (remaining, object) = match IndirectObject::parse(&self.buffer[start..]) {
-                    Ok((remaining, object)) => (remaining, object),
-                    Err(err) => {
-                        errors.push(PdfError::Object(*id, *offset, err));
+                        errors.push(ObjectRecoverable::Parse(*id, *offset, err));
                         continue;
                     }
                 };
@@ -119,32 +118,37 @@ mod process {
                     value,
                 } = object;
                 if parsed_id != *id {
-                    errors.push(PdfError::MismatchedId(*id, parsed_id));
+                    errors.push(ObjectRecoverable::MismatchedId(*id, parsed_id));
                     // continue;
                 }
                 let span = Span {
-                    start,
-                    len: self.buffer[start..].len() - remaining.len(),
+                    start: *offset,
+                    len: self.buffer[*offset..].len() - remains.len(),
                 };
 
                 objects.insert(*id, (value, span));
             }
 
-            Ok((objects, errors))
+            Ok(objects)
         }
 
-        pub fn build(mut self) -> PdfResult<Pdf> {
+        pub fn build(&'path self) -> PdfResult<'path, Pdf<'path>> {
             // REFERENCE: [7.5.1 General, p54]
             // Apart from linearised PDFs, files should be read from the end
             // using the trailer and cross-reference table.
-            let (_, pretable) = PreTable::parse(&self.buffer)?;
+            let (_, pretable) =
+                PreTable::parse(&self.buffer).map_err(|err| PdfErr::Parse(self.path, err))?;
+            let table = pretable
+                .to_table()
+                .map_err(|err| PdfErr::Process(self.path, err))?;
             let trailer = self.get_trailer(&pretable)?;
-            let table = pretable.to_table()?;
-            let (objects_in_use, errors) = self.parse_objects_in_use(&table)?;
+            let mut errors = Vec::default();
+            let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
+            let errors = PdfRecoverable::new(self.path, errors);
 
             Ok(Pdf {
                 path: self.path,
-                buffer: self.buffer,
+                buffer: &self.buffer,
                 trailer,
                 table,
                 objects_in_use,
@@ -155,6 +159,7 @@ mod process {
 }
 
 mod convert {
+
     use ::std::io::Read;
     use ::std::io::Seek;
     use ::std::io::SeekFrom;
@@ -162,65 +167,19 @@ mod convert {
     use super::error::PdfResult;
     use super::*;
 
-    impl PdfBuilder {
-        pub fn new(path: impl Into<PathBuf>) -> PdfResult<Self> {
-            let path = path.into();
-            let file = File::open(&path).map_err(|err| {
-                PdfError::Io(format!("Failed to open {}: {}", path.display(), err))
-            })?;
+    impl<'path> PdfBuilder<'path> {
+        pub fn new(path: &'path Path) -> PdfResult<Self> {
+            let file = File::open(path).map_err(|err| PdfErr::OpenFile(path, err.kind()))?;
             let mut reader = BufReader::new(file);
-            reader.seek(SeekFrom::Start(0)).map_err(|err| {
-                PdfError::Io(format!(
-                    "Failed to seek the start of {}: {}",
-                    path.display(),
-                    err
-                ))
-            })?;
+            reader
+                .seek(SeekFrom::Start(0))
+                .map_err(|err| PdfErr::Seek(path, err.kind()))?;
             let mut buffer = Vec::default();
-            reader.read_to_end(&mut buffer).map_err(|err| {
-                PdfError::Io(format!("Failed to read {}: {}", path.display(), err))
-            })?;
+            reader
+                .read_to_end(&mut buffer)
+                .map_err(|err| PdfErr::ReadFile(path, err.kind()))?;
             Ok(Self { path, buffer })
         }
-    }
-}
-
-pub(crate) mod error {
-    use ::std::num::TryFromIntError;
-    use ::std::path::PathBuf;
-    use ::thiserror::Error;
-
-    use crate::object::indirect::id::Id;
-    use crate::parse::error::ParseErr;
-    use crate::process::error::ProcessErr;
-    use crate::Offset;
-
-    pub type PdfResult<T> = Result<T, PdfError>;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum PdfError {
-        // TODO Split into different variants
-        #[error("IoError: {0}")]
-        Io(String),
-
-        #[error("Parse {0}")]
-        Parse(#[from] ParseErr),
-        #[error("Process {0}")]
-        Process(#[from] ProcessErr),
-
-        #[error("Failed to convert offset {1} for id {0}: {2}")]
-        OffsetAsUsize(Id, Offset, TryFromIntError),
-        #[error("Empty cross-reference table in {0}")]
-        EmptyPreTable(PathBuf),
-        #[error("Reached end of file while parsing indirect object {0} at offset {1}")]
-        EndOfFile(Id, Offset),
-        #[error("Mismatched id: {0} != {1}")]
-        MismatchedId(Id, Id),
-        #[error("Parse: {0} at offset {1}: {2}")]
-        Object(Id, u64, ParseErr),
-        // TODO Implement Display for a wrapper around Vec<PdfError>
-        #[error("Multiple errors: {0:?}")]
-        Multiple(Vec<PdfError>),
     }
 }
 

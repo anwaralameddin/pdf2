@@ -1,7 +1,25 @@
+use ::nom::branch::alt;
+use ::nom::bytes::complete::tag;
+use ::nom::bytes::complete::take_while_m_n;
+use ::nom::character::complete::char;
+use ::nom::error::Error as NomError;
+use ::nom::sequence::pair;
+use ::nom::sequence::separated_pair;
+use ::nom::sequence::terminated;
+use ::nom::AsChar;
+use ::nom::Err as NomErr;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
+use crate::parse::character_set::is_white_space;
+use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseResult;
+use crate::parse::Parser;
+use crate::parse_failure;
+use crate::Byte;
 use crate::GenerationNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
@@ -38,53 +56,88 @@ impl Display for Entry {
     }
 }
 
-mod convert {
-    use self::error::EntryFailure;
-    use super::*;
-    use crate::fmt::debug_bytes;
-    use crate::parse::error::ParseFailure;
-    use crate::parse::num::ascii_to_u16;
-    use crate::parse::num::ascii_to_u64;
-    use crate::Byte;
-
-    impl TryFrom<((&[Byte], &[Byte]), char)> for Entry {
-        type Error = ParseFailure;
-
-        fn try_from(value: ((&[Byte], &[Byte]), char)) -> Result<Self, Self::Error> {
-            let ((num_64, num_16), entry_type) = value;
-            match entry_type {
-                'f' => {
-                    let next_free = ascii_to_u64(num_64)
-                        .ok_or_else(|| EntryFailure::NextFree(debug_bytes(num_64)))?;
-                    let generation_number = ascii_to_u16(num_16)
-                        .ok_or_else(|| EntryFailure::GenerationNumber(debug_bytes(num_16)))?;
-                    Ok(Self::Free(next_free, generation_number))
-                }
-                'n' => {
-                    let offset = ascii_to_u64(num_64)
-                        .ok_or_else(|| EntryFailure::OffSet(debug_bytes(num_64)))?;
-                    let generation_number = ascii_to_u16(num_16)
-                        .ok_or_else(|| EntryFailure::GenerationNumber(debug_bytes(num_16)))?;
-                    Ok(Self::InUse(offset, generation_number))
-                }
-                _ => Err(EntryFailure::EntryType(entry_type.to_string()).into()),
+impl Parser<'_> for Entry {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        let (buffer, entry) = terminated(
+            separated_pair(
+                separated_pair(
+                    take_while_m_n(BIG_LEN, BIG_LEN, AsChar::is_dec_digit),
+                    char::<_, NomError<_>>(' '),
+                    take_while_m_n(SMALL_LEN, SMALL_LEN, AsChar::is_dec_digit),
+                ),
+                char(' '),
+                alt((tag(b"f"), tag(b"n"))),
+            ),
+            pair(
+                // The below uses `many_m_n` instead of `eol` to parse exactly
+                // 20 bytes per entry.
+                take_while_m_n(1, 1, is_white_space),
+                take_while_m_n(1, 1, |byte| byte == b'\n' || byte == b'\r'),
+            ),
+        )(buffer)
+        .map_err(parse_failure!(
+            e,
+            // Except for Subsection, Section and XRefStream, NotFound errors
+            // for xref objects should be propagated as failures.
+            ParseFailure {
+                buffer: e.input,
+                object: stringify!(Entry),
+                code: ParseErrorCode::NotFound(e.code)
             }
-        }
+        ))?;
+        let entry = Entry::try_from(entry)?;
+        Ok((buffer, entry))
     }
 }
 
-pub(crate) mod error {
-    use ::thiserror::Error;
+mod convert {
+    use super::*;
+    use crate::parse::error::ParseFailure;
+    use crate::parse::num::ascii_to_u16;
+    use crate::parse::num::ascii_to_u64;
+    use crate::parse::num::ascii_to_usize;
+    use crate::Byte;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum EntryFailure {
-        #[error("Invalid offset. Input: {0}")]
-        OffSet(String),
-        #[error("Invalid next free object number. Input: {0}")]
-        NextFree(String),
-        #[error("Invalid generation number. Input: {0}")]
-        GenerationNumber(String),
-        #[error("Invalid entry type. Input: {0}")]
-        EntryType(String),
+    impl<'buffer> TryFrom<((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte])> for Entry {
+        type Error = ParseFailure<'buffer>;
+
+        fn try_from(
+            value: ((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte]),
+        ) -> Result<Self, Self::Error> {
+            let ((num_64, num_16), entry_type) = value;
+            match entry_type {
+                b"f" => {
+                    let next_free = ascii_to_u64(num_64).ok_or(Self::Error {
+                        buffer: num_64,
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::NextFree,
+                    })?;
+                    let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
+                        buffer: num_16,
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::GenerationNumber,
+                    })?;
+                    Ok(Self::Free(next_free, generation_number))
+                }
+                b"n" => {
+                    let offset = ascii_to_usize(num_64).ok_or(Self::Error {
+                        buffer: num_64,
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::OffSet,
+                    })?;
+                    let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
+                        buffer: num_16,
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::GenerationNumber,
+                    })?;
+                    Ok(Self::InUse(offset, generation_number))
+                }
+                _ => Err(Self::Error {
+                    buffer: entry_type,
+                    object: stringify!(Entry),
+                    code: ParseErrorCode::EntryType,
+                }),
+            }
+        }
     }
 }

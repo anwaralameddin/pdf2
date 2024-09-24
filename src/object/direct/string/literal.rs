@@ -17,16 +17,15 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::LiteralFailure;
-use self::error::LiteralRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
-use crate::parse_error;
 use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::process::encoding::Encoding;
 use crate::Byte;
 use crate::Bytes;
@@ -41,7 +40,7 @@ impl Display for Literal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "(")?;
         for &byte in self.0.iter() {
-            write!(f, "{}", byte as char)?;
+            write!(f, "{}", char::from(byte))?;
         }
         write!(f, ")")
     }
@@ -64,7 +63,7 @@ impl PartialEq for Literal {
     }
 }
 
-impl Parser for Literal {
+impl Parser<'_> for Literal {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
@@ -75,20 +74,22 @@ impl Parser for Literal {
                 many0(pair(parse::inner_parentheses, parse::not_parentheses)),
             )),
         )(buffer)
-        .map_err(parse_error!(
+        .map_err(parse_recoverable!(
             e,
-            LiteralRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(buffer)
+            ParseRecoverable {
+                buffer: e.input,
+                object: stringify!(Literal),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
         // Here, we know that the buffer starts with a literal string, and
         // the following errors should be propagated as LiteralFailure
         let (buffer, _) = char::<_, NomError<_>>(')')(buffer).map_err(parse_failure!(
             e,
-            LiteralFailure::MissingClosing {
-                code: e.code,
-                input: debug_bytes(buffer)
+            ParseFailure {
+                buffer: e.input,
+                object: stringify!(Literal),
+                code: ParseErrorCode::MissingClosing(e.code),
             }
         ))?;
 
@@ -323,23 +324,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum LiteralRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum LiteralFailure {
-        #[error("Missing Clossing: {code:?}. Input: {input}")]
-        MissingClosing { code: ErrorKind, input: String },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -379,35 +363,29 @@ string)",
         // Synthetic tests
         // Literal: Missing end parenthesis
         let parse_result = Literal::parse(b"(Unbalanced parentheses");
-        let expected_error = ParseErr::Failure(
-            LiteralFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"",
+            object: stringify!(Literal),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
         let parse_result = Literal::parse(br"(Escaped parentheses\)");
-        let expected_error = ParseErr::Failure(
-            LiteralFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"",
+            object: stringify!(Literal),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
         let parse_result = Literal::parse(b"Unbalanced parentheses)");
-        let expected_error = ParseErr::Error(
-            LiteralRecoverable::NotFound {
-                code: ErrorKind::Char,
-                input: "Unbalanced parentheses)".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"Unbalanced parentheses)",
+            object: stringify!(Literal),
+            code: ParseErrorCode::NotFound(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 

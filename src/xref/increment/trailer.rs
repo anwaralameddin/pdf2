@@ -1,10 +1,11 @@
+use ::std::collections::HashMap;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::object::direct::dictionary::Dictionary;
 use crate::object::direct::name::Name;
 use crate::object::direct::string::String_;
+use crate::object::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
 use crate::IndexNumber;
 use crate::ObjectNumberOrZero;
@@ -51,7 +52,9 @@ pub(crate) struct Trailer {
     r#type: Option<Name>,
     index: Vec<(ObjectNumberOrZero, IndexNumber)>,
     w: Option<[usize; 3]>,
-    others: Dictionary,
+    // TODO(TEMP) Reconsider after finising NewProcessErr
+    // others: HashMap<&'a Name, &'a DirectValue>,
+    others: HashMap<Name, DirectValue>,
 }
 
 impl Display for Trailer {
@@ -101,8 +104,11 @@ impl Display for Trailer {
 }
 
 mod convert {
-    use super::error::TrailerFailure;
+    use ::std::collections::HashMap;
+
     use super::*;
+    use crate::object::direct::dictionary::error::DataTypeError;
+    use crate::object::direct::dictionary::error::MissingEntryError;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::string::String_;
     use crate::object::direct::DirectValue;
@@ -114,66 +120,67 @@ mod convert {
     use crate::object::indirect::stream::KEY_FFILTER;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
-    use crate::parse::error::ParseFailure;
+    use crate::process::error::NewProcessErr;
     use crate::ObjectNumberOrZero;
     use crate::Offset;
 
+    // TODO(TEMP) Convert Dictionary to Dictionary<'lifetime>
     impl TryFrom<&Dictionary> for Trailer {
-        type Error = ParseFailure;
+        type Error = NewProcessErr;
 
         fn try_from(value: &Dictionary) -> Result<Self, Self::Error> {
-            let size = value
-                .get_u64(KEY_SIZE)?
-                .ok_or(TrailerFailure::MissingEntry {
-                    key: KEY_SIZE,
-                    data_type: stringify!(u64),
-                })?;
+            let size = value.get_u64(KEY_SIZE)?.ok_or(MissingEntryError {
+                key: KEY_SIZE,
+                data_type: stringify!(u64),
+            })?;
 
-            let prev = value.get_u64(KEY_PREV)?;
+            let prev = value.get_usize(KEY_PREV)?;
 
-            let root = value.get_reference(KEY_ROOT)?;
+            let root = value.get_reference(KEY_ROOT)?.cloned(); // TODO (TEMP) Remove cloned
 
-            let encrypt = value.get_reference(KEY_ENCRYPT)?;
+            let encrypt = value.get_reference(KEY_ENCRYPT)?.cloned(); // TODO (TEMP) Remove cloned
 
-            let info = value.get_reference(KEY_INFO)?;
+            let info = value.get_reference(KEY_INFO)?.cloned(); // TODO (TEMP) Remove cloned
 
             let id = value
                 .get_array(KEY_ID)?
-                .map(|value| match value.as_slice() {
+                .map(|array| match array.as_slice() {
                     [DirectValue::String(id_1), DirectValue::String(id_2)] => {
                         // TODO Check the string lengths and report anomalies
+                        // TODO(TEMP) Remove clone
                         Ok([id_1.clone(), id_2.clone()])
                     }
-                    _ => Err(TrailerFailure::WrongDataType {
-                        key: KEY_ID,
-                        data_type: stringify!([PdfString; 2]),
-                        value: value.to_string(),
+                    _ => Err(DataTypeError {
+                        entry: KEY_ID,
+                        expected_type: stringify!([String_; 2]),
+                        value: array.to_string(), // TODO (TEMP) Remove to_string()
+                        object: value.to_string(), // TODO (TEMP) Remove to_string()
                     }),
                 })
                 .transpose()?;
-            let xref_stm = value.get_u64(KEY_XREF_STM)?;
+            let xref_stm = value.get_usize(KEY_XREF_STM)?;
 
-            let r#type = value.get_name(KEY_TYPE)?;
+            let r#type = value.get_name(KEY_TYPE)?.cloned(); // TODO (TEMP) Remove cloned
 
             let w = value
                 .get_array(KEY_W)?
                 .map(|array| match array.as_slice() {
                     [value1, value2, value3] => {
                         let [field1, field2, field3] = [value1, value2, value3].map(|field| {
-                            field
-                                .as_usize()
-                                .ok_or_else(|| TrailerFailure::WrongDataType {
-                                    key: KEY_W,
-                                    data_type: stringify!(usize),
-                                    value: field.to_string(),
-                                })
+                            field.as_usize().ok_or(DataTypeError {
+                                entry: KEY_W,
+                                expected_type: stringify!(usize),
+                                value: field.to_string(), // TODO (TEMP) Remove to_string()
+                                object: value.to_string(), // TODO (TEMP) Remove to_string()
+                            })
                         });
                         Ok([field1?, field2?, field3?])
                     }
-                    _ => Err(TrailerFailure::WrongValue {
-                        key: KEY_W,
-                        expected: "an array of three integers",
-                        value: array.to_string(),
+                    _ => Err(DataTypeError {
+                        entry: KEY_W,
+                        expected_type: stringify!(an array of three integers),
+                        value: array.to_string(), // TODO (TEMP) Remove to_string()
+                        object: value.to_string(), // TODO (TEMP) Remove to_string()
                     }),
                 })
                 .transpose()?;
@@ -183,29 +190,28 @@ mod convert {
                 .map(|array| {
                     let chunks = array.chunks_exact(2);
                     if !chunks.remainder().is_empty() {
-                        return Err(TrailerFailure::WrongValue {
-                            key: KEY_INDEX,
-                            expected: "an array of pairs of integers",
-                            value: array.to_string(),
+                        return Err(DataTypeError {
+                            entry: KEY_INDEX,
+                            expected_type: stringify!(an array of pairs of integers),
+                            value: array.to_string(), // TODO (TEMP) Remove to_string()
+                            object: value.to_string(), // TODO (TEMP) Remove to_string()
                         });
                     }
                     let mut index = Vec::with_capacity(array.len() / 2);
                     for chunk in chunks {
                         if let [first_object_number, entry_count] = chunk {
                             let first_object_number =
-                                first_object_number.as_u64().ok_or_else(|| {
-                                    TrailerFailure::WrongDataType {
-                                        key: KEY_INDEX,
-                                        data_type: stringify!(ObjectNumberOrZero),
-                                        value: first_object_number.to_string(),
-                                    }
+                                first_object_number.as_u64().ok_or(DataTypeError {
+                                    entry: KEY_INDEX,
+                                    expected_type: stringify!(ObjectNumberOrZero),
+                                    value: array.to_string(), // TODO (TEMP) Remove to_string()
+                                    object: value.to_string(), // TODO (TEMP) Remove to_string()
                                 })?;
-                            let entry_count = entry_count.as_u64().ok_or_else(|| {
-                                TrailerFailure::WrongDataType {
-                                    key: KEY_INDEX,
-                                    data_type: stringify!(IndexNumber),
-                                    value: entry_count.to_string(),
-                                }
+                            let entry_count = entry_count.as_u64().ok_or(DataTypeError {
+                                entry: KEY_INDEX,
+                                expected_type: stringify!(IndexNumber),
+                                value: array.to_string(), // TODO (TEMP) Remove to_string()
+                                object: value.to_string(), // TODO (TEMP) Remove to_string()
                             })?;
                             index.push((first_object_number, entry_count));
                         } else {
@@ -219,21 +225,21 @@ mod convert {
                 .transpose()?
                 .unwrap_or_default();
 
-            let others: Dictionary = value
-                .iter()
+            let others: HashMap<_, _> = value
+                .clone() // TODO(TEMP)) Remove clone
+                .into_iter() // TODO(TEMP) Use iter() instead
                 .filter(|(key, _)| {
-                    key != &KEY_SIZE
-                        && key != &KEY_PREV
-                        && key != &KEY_ROOT
-                        && key != &KEY_ENCRYPT
-                        && key != &KEY_INFO
-                        && key != &KEY_ID
-                        && key != &KEY_XREF_STM
-                        && key != &KEY_TYPE
-                        && key != &KEY_INDEX
-                        && key != &KEY_W
+                    key.ne(KEY_SIZE)
+                        && key.ne(KEY_PREV)
+                        && key.ne(KEY_ROOT)
+                        && key.ne(KEY_ENCRYPT)
+                        && key.ne(KEY_INFO)
+                        && key.ne(KEY_ID)
+                        && key.ne(KEY_XREF_STM)
+                        && key.ne(KEY_TYPE)
+                        && key.ne(KEY_INDEX)
+                        && key.ne(KEY_W)
                 })
-                .map(|(key, value)| (key.clone(), value.clone()))
                 .collect();
 
             // Report non-expected additional/missing entries in the trailer dictionar
@@ -243,13 +249,13 @@ mod convert {
             for (key, value) in others.iter() {
                 // REFERENCE: [Table 5 — Entries common to all stream
                 // dictionaries, p32-33]
-                if key != KEY_LENGTH
-                    && key != KEY_FILTER
-                    && key != KEY_DECODEPARMS
-                    && key != KEY_F
-                    && key != KEY_FFILTER
-                    && key != KEY_FDECODEPARMS
-                    && key != KEY_DL
+                if key.ne(KEY_LENGTH)
+                    && key.ne(KEY_FILTER)
+                    && key.ne(KEY_DECODEPARMS)
+                    && key.ne(KEY_F)
+                    && key.ne(KEY_FFILTER)
+                    && key.ne(KEY_FDECODEPARMS)
+                    && key.ne(KEY_DL)
                 {
                     eprintln!("Trailer contains additional entry: {} {}", key, value);
                 }
@@ -338,7 +344,7 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_others(mut self, others: Dictionary) -> Self {
+        pub(crate) fn set_others(mut self, others: HashMap<Name, DirectValue>) -> Self {
             self.others = others;
             self
         }
@@ -383,43 +389,19 @@ mod convert {
             self.w.as_ref()
         }
 
-        pub(crate) fn others(&self) -> &Dictionary {
+        pub(crate) fn others(&self) -> &HashMap<Name, DirectValue> {
             &self.others
         }
-    }
-}
-
-pub(crate) mod error {
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum TrailerFailure {
-        #[error("Wrong value. Key {key}. Expected a {expected} value, found {value}")]
-        WrongValue {
-            key: &'static str,
-            expected: &'static str,
-            value: String,
-        },
-        #[error("Wrong data type. Key {key}. Expected a {data_type} value, found {value}")]
-        WrongDataType {
-            key: &'static str,
-            data_type: &'static str,
-            value: String,
-        },
-        #[error("Missing required key {key}. Expected a {data_type} value")]
-        MissingEntry {
-            key: &'static str,
-            data_type: &'static str,
-        },
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use super::error::TrailerFailure;
     use super::*;
     use crate::assert_err_eq;
+    use crate::object::direct::dictionary::error::MissingEntryError;
+    use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::object::indirect::object::IndirectObject;
@@ -474,7 +456,7 @@ mod tests {
                 Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
             ])
             .set_type(Name::from(VAL_XREF))
-            .set_others(Dictionary::from_iter([
+            .set_others(HashMap::from_iter([
                 (Name::from(KEY_LENGTH), 1760.into()),
                 (Name::from(KEY_FILTER), Name::from("FlateDecode").into()),
             ]));
@@ -491,9 +473,9 @@ mod tests {
         let buffer = b"<</Root 2 0 R /Info 1 0 R>>\nstartxref\n99999\n%%EOF";
         let (_, dictionary) = Dictionary::parse(buffer).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
-        let expected_error = TrailerFailure::MissingEntry {
-            key: "Size",
-            data_type: "u64",
+        let expected_error = MissingEntryError {
+            key: KEY_SIZE,
+            data_type: stringify!(u64),
         };
         assert_err_eq!(parse_result, expected_error);
 
@@ -503,10 +485,10 @@ mod tests {
         // let (_, dictionary) = Dictionary::parse(buffer).unwrap();
         // let parse_result = Trailer::try_from(&dictionary);
         // let expected_error = DataTypeErr {
-        //     key: KEY_SIZE.to_string(),
+        //     key: KEY_SIZE,
         //     expected_type: stringify!(u64),
-        //     value: "1.1".to_string(),
-        //     dictionary: "<</Size 1.1/Root 2 0 R/Info 1 0 R>>".to_string(),
+        //     value: "1.1",
+        //     dictionary: "<</Size 1.1/Root 2 0 R/Info 1 0 R>>",
         // };
         // assert_err_eq!(parse_result, expected_error);
 

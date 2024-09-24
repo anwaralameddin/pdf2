@@ -7,15 +7,14 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::BooleanRecoverable;
-use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_FALSE;
 use crate::parse::KW_TRUE;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE:  [7.3.2 Boolean objects, p24]
@@ -28,32 +27,22 @@ impl Display for Boolean {
     }
 }
 
-impl Parser for Boolean {
+impl Parser<'_> for Boolean {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, value) = alt((
-            map(tag::<_, _, NomError<_>>(KW_TRUE), |_| Self(true)),
-            map(tag(KW_FALSE), |_| Self(false)),
+            map(tag::<_, _, NomError<_>>(KW_TRUE), |_true| Self(true)),
+            map(tag(KW_FALSE), |_false| Self(false)),
         ))(buffer)
-        .map_err(parse_error!(
+        .map_err(parse_recoverable!(
             e,
-            BooleanRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(e.input),
+            ParseRecoverable {
+                buffer: e.input,
+                object: stringify!(Boolean),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
 
         Ok((buffer, value))
-    }
-}
-
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum BooleanRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
     }
 }
 
@@ -104,13 +93,11 @@ mod tests {
     fn boolean_invalid() {
         // Boolean: Not found
         let parse_result = Boolean::parse(b"tr");
-        let expected_error = ParseErr::Error(
-            BooleanRecoverable::NotFound {
-                code: ErrorKind::Tag,
-                input: "tr".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"tr",
+            object: stringify!(Boolean),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

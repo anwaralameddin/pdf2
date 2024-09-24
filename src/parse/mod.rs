@@ -24,8 +24,8 @@ pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
 
-pub(crate) trait Parser {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)>
+pub(crate) trait Parser<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
     where
         Self: Sized;
 
@@ -35,7 +35,7 @@ pub(crate) trait Parser {
     /// recovery
     /// - None: if the parser returned another error, which could be recovered
     /// by another parser
-    fn parse_semi_quiet<O>(buffer: &[Byte]) -> Option<ParseResult<(&[Byte], O)>>
+    fn parse_suppress_recoverable<O>(buffer: &'buffer [Byte]) -> Option<ParseResult<(&[Byte], O)>>
     where
         Self: Sized,
         O: From<Self>,
@@ -52,17 +52,17 @@ pub(crate) trait Parser {
 mod tests {
     #[macro_export]
     macro_rules! parse_assert_eq {
-        ($buffer:expr, $expected_parsed:expr, $expected_remaining:expr) => {
+        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
             assert_eq!(
                 Parser::parse($buffer).unwrap(),
-                ($expected_remaining, $expected_parsed)
+                ($expected_remains, $expected_parsed)
             );
         };
         // The two patterns differ only in the trailing comma
-        ($buffer:expr, $expected_parsed:expr, $expected_remaining:expr,) => {
+        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
             assert_eq!(
                 Parser::parse($buffer).unwrap(),
-                ($expected_remaining, $expected_parsed)
+                ($expected_remains, $expected_parsed)
             );
         };
     }

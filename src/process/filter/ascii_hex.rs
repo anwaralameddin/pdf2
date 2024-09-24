@@ -46,7 +46,7 @@ impl Filter for AHx {
                 continue;
             }
             if eod {
-                return Err(ASCIIHexError::AfterEod(byte as char).into());
+                return Err(ASCIIHexError::AfterEod(char::from(byte)).into());
             }
             if byte == b'>' {
                 eod = true;
@@ -54,8 +54,8 @@ impl Filter for AHx {
             }
             if let Some(a) = prev {
                 defiltered.push(
-                    hex_val(a).ok_or(ASCIIHexError::InvalidHexDigit(a as char))? << 4
-                        | hex_val(byte).ok_or(ASCIIHexError::InvalidHexDigit(byte as char))?,
+                    hex_val(a).ok_or(ASCIIHexError::InvalidHexDigit(char::from(a)))? << 4
+                        | hex_val(byte).ok_or(ASCIIHexError::InvalidHexDigit(char::from(byte)))?,
                 );
 
                 prev = None;
@@ -64,7 +64,7 @@ impl Filter for AHx {
             }
         }
         if let Some(a) = prev {
-            defiltered.push(hex_val(a).ok_or(ASCIIHexError::AfterEod(a as char))? << 4);
+            defiltered.push(hex_val(a).ok_or(ASCIIHexError::AfterEod(char::from(a)))? << 4);
         }
 
         Ok(defiltered)

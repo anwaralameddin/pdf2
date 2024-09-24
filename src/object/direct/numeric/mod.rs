@@ -5,11 +5,10 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::NumericRecoverable;
 pub(crate) use self::integer::Integer;
 pub(crate) use self::real::Real;
-use crate::fmt::debug_bytes;
-use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::Byte;
@@ -30,14 +29,17 @@ impl Display for Numeric {
     }
 }
 
-impl Parser for Numeric {
+impl Parser<'_> for Numeric {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Integer::parse_semi_quiet(buffer)
-            .or_else(|| Real::parse_semi_quiet(buffer))
+        Integer::parse_suppress_recoverable(buffer)
+            .or_else(|| Real::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    NumericRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                Err(ParseRecoverable {
+                    buffer,
+                    object: stringify!(Numeric),
+                    code: ParseErrorCode::NotFoundUnion,
+                }
+                .into())
             })
     }
 }
@@ -64,23 +66,12 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum NumericRecoverable {
-        #[error("Not found. Input: {0}")]
-        NotFound(String),
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
-    use super::real::error::RealFailure;
     use super::*;
     use crate::assert_err_eq;
+    use crate::parse::error::ParseFailure;
     use crate::parse_assert_eq;
 
     #[test]
@@ -124,30 +115,48 @@ mod tests {
     #[test]
     fn numeric_invalid() {
         let parse_result = Numeric::parse(b" <");
-        let expected_error = ParseErr::Error(NumericRecoverable::NotFound(" <".to_string()).into());
+        let expected_error = ParseRecoverable {
+            buffer: b" <",
+            object: stringify!(Numeric),
+            code: ParseErrorCode::NotFoundUnion,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         let parse_result = Numeric::parse(b"+<");
-        let expected_error = ParseErr::Error(NumericRecoverable::NotFound("+<".to_string()).into());
+        let expected_error = ParseRecoverable {
+            buffer: b"+<",
+            object: stringify!(Numeric),
+            code: ParseErrorCode::NotFoundUnion,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         let parse_result = Numeric::parse(b"+.");
-        let expected_error = ParseErr::Error(NumericRecoverable::NotFound("+.".to_string()).into());
+        let expected_error = ParseRecoverable {
+            buffer: b"+.",
+            object: stringify!(Numeric),
+            code: ParseErrorCode::NotFoundUnion,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // TODO(QUESTION) Is there a need to allow such large numbers?
         // Too large for the i128 but within the f64 range
         let buffer = b"-170141183460469231731687303715884105729";
         let parse_result = Numeric::parse(buffer);
-        let expected_error =
-            ParseErr::Failure(RealFailure::ParseFloatError(debug_bytes(buffer)).into());
+        let expected_error = ParseFailure {
+            buffer,
+            object: stringify!(Real),
+            code: ParseErrorCode::ParseFloatError,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Too large for the i128 but within the f64 range
         let buffer = b"170141183460469231731687303715884105728";
         let parse_result = Numeric::parse(buffer);
-        let expected_error =
-            ParseErr::Failure(RealFailure::ParseFloatError(debug_bytes(buffer)).into());
+        let expected_error = ParseFailure {
+            buffer,
+            object: stringify!(Real),
+            code: ParseErrorCode::ParseFloatError,
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

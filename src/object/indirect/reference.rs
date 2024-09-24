@@ -1,20 +1,18 @@
 use ::nom::bytes::complete::tag;
 use ::nom::error::Error as NomError;
-use ::nom::error::ErrorKind;
 use ::nom::Err as NomErr;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::ReferenceRecoverable;
 use super::id::Id;
-use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_R;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.3.10 Indirect Objects, p33]
@@ -27,27 +25,24 @@ impl Display for Reference {
     }
 }
 
-impl Parser for Reference {
+impl Parser<'_> for Reference {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, id) = Id::parse_semi_quiet(buffer).unwrap_or_else(|| {
-            Err(ParseErr::Error(
-                ReferenceRecoverable::NotFound {
-                    code: ErrorKind::Digit,
-                    input: debug_bytes(buffer),
-                }
-                .into(),
-            ))
+        let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
+            buffer: err.buffer(),
+            object: stringify!(Reference),
+            code: ParseErrorCode::RecNotFound(Box::new(err.code())),
         })?;
         // At this point, even though we have an Id, it is unclear if it is a
         // reference or a sequence of integers. For example, `12 0` appearing in
         // an array can be part of the indirect reference `12 0 R` or simply a
         // pair of integers in that array.
         let (buffer, _) =
-            tag::<_, _, NomError<_>>(KW_R.as_bytes())(buffer).map_err(parse_error!(
+            tag::<_, _, NomError<_>>(KW_R.as_bytes())(buffer).map_err(parse_recoverable!(
                 e,
-                ReferenceRecoverable::NotFound {
-                    code: e.code,
-                    input: debug_bytes(e.input),
+                ParseRecoverable {
+                    buffer: e.input,
+                    object: stringify!(Reference),
+                    code: ParseErrorCode::NotFound(e.code),
                 }
             ))?;
 
@@ -76,20 +71,9 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum ReferenceRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-}
-
 #[cfg(test)]
 mod tests {
+
     use ::nom::error::ErrorKind;
 
     use super::*;
@@ -125,46 +109,39 @@ mod tests {
         // Synthetic tests
         // Reference: Incomplete
         let parse_result = Reference::parse(b"1 0");
-        let expected_error = ParseErr::Error(
-            ReferenceRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "1 0".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"",
+            object: stringify!(Reference),
+            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Char))),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id not found
         let parse_result = Reference::parse(b"/Name");
-        let expected_error = ParseErr::Error(
-            ReferenceRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "/Name".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"/Name",
+            object: stringify!(Reference),
+            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Digit))),
+        };
+
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id error
         let parse_result = Reference::parse(b"0 65535 R other objects");
-        let expected_error = ParseErr::Error(
-            ReferenceRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "0 65535 R other objects".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"0",
+            object: stringify!(Reference),
+            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::ObjectNumber)),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Not found
         let parse_result = Reference::parse(b"12345 65535 <");
-        let expected_error = ParseErr::Error(
-            ReferenceRecoverable::NotFound {
-                code: ErrorKind::Tag,
-                input: "<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"<",
+            object: stringify!(Reference),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }
