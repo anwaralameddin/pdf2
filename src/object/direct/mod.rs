@@ -9,6 +9,7 @@ pub(crate) mod string;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use array::Array;
 
 use self::array::OwnedArray;
 use self::boolean::Boolean;
@@ -36,7 +37,7 @@ use crate::Byte;
 #[derive(Debug, PartialEq, Clone)] // TODO (TEMP) Add Copy
 pub enum DirectValue<'buffer> {
     Reference(Reference),
-    Array(&'buffer OwnedArray), // TODO (TEMP) Replace with Array
+    Array(Array<'buffer>),
     Boolean(Boolean),
     Dictionary(&'buffer OwnedDictionary), // TODO (TEMP) Replace with Dictionary
     Name(Name<'buffer>),
@@ -88,7 +89,7 @@ impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
             .or_else(|| Numeric::parse_suppress_recoverable(buffer))
             .or_else(|| Name::parse_suppress_recoverable(buffer))
             .or_else(|| String_::parse_suppress_recoverable(buffer))
-            // .or_else(|| OwnedArray::parse_suppress_recoverable(buffer)) // TODO (TEMP) Replace with array.parse_suppress_recoverable(buffer)
+            .or_else(|| Array::parse_suppress_recoverable(buffer))
             // .or_else(|| OwnedDictionary::parse_suppress_recoverable(buffer)) // TODO (TEMP) Replace with dictionary.parse_suppress_recoverable(buffer)
             .unwrap_or_else(|| {
                 Err(ParseRecoverable {
@@ -161,7 +162,7 @@ mod convert {
         fn to_owned_buffer(self) -> Self::OwnedBuffer {
             match self {
                 DirectValue::Reference(reference) => Self::OwnedBuffer::Reference(reference),
-                DirectValue::Array(array) => Self::OwnedBuffer::Array(array.clone()), /* TODO (TEMP) Replace with array.to_owned_buffer() */
+                DirectValue::Array(array) => Self::OwnedBuffer::Array(array.to_owned_buffer()),
                 DirectValue::Boolean(boolean) => Self::OwnedBuffer::Boolean(boolean),
                 DirectValue::Dictionary(dictionary) => {
                     Self::OwnedBuffer::Dictionary(dictionary.clone())
@@ -178,7 +179,7 @@ mod convert {
         fn from(value: &'buffer OwnedDirectValue) -> Self {
             match &value {
                 OwnedDirectValue::Reference(reference) => Self::Reference(*reference),
-                OwnedDirectValue::Array(array) => Self::Array(array),
+                OwnedDirectValue::Array(array) => Self::Array(array.into()),
                 OwnedDirectValue::Boolean(boolean) => Self::Boolean(*boolean),
                 OwnedDirectValue::Dictionary(dictionary) => Self::Dictionary(dictionary),
                 OwnedDirectValue::Name(owned_name) => Self::Name(owned_name.into()),
@@ -190,7 +191,7 @@ mod convert {
     }
 
     impl_from_ref!('buffer, Reference, Reference, DirectValue<'buffer>);
-    impl_from_ref!('buffer, &'buffer OwnedArray, Array, DirectValue<'buffer>);
+    impl_from_ref!('buffer, Array<'buffer>, Array, DirectValue<'buffer>);
     impl_from_ref!('buffer, Boolean, Boolean, DirectValue<'buffer>);
     impl_from_ref!('buffer, bool, Boolean, DirectValue<'buffer>);
     impl_from_ref!('buffer, &'buffer OwnedDictionary, Dictionary, DirectValue<'buffer>);
@@ -230,7 +231,7 @@ mod convert {
             }
         }
 
-        pub(crate) fn as_array(&self) -> Option<&OwnedArray> {
+        pub(crate) fn as_array(&self) -> Option<&Array> {
             if let Self::Array(v) = self {
                 Some(v)
             } else {
