@@ -47,6 +47,7 @@ impl Display for Literal<'_> {
         write!(f, ")")
     }
 }
+
 impl Display for OwnedLiteral {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         Display::fmt(&Literal::from(self), f)
@@ -75,6 +76,7 @@ impl PartialEq for Literal<'_> {
         }
     }
 }
+
 impl PartialEq for OwnedLiteral {
     fn eq(&self, other: &Self) -> bool {
         Literal::from(self) == Literal::from(other)
@@ -365,6 +367,7 @@ mod convert {
             Self(value)
         }
     }
+
     impl From<&[Byte]> for OwnedLiteral {
         fn from(value: &[Byte]) -> Self {
             Literal::from(value).to_owned_buffer()
