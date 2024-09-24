@@ -7,13 +7,14 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::hash::Hash;
 
-use self::error::NameRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::character_set::printable_token;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 use crate::Bytes;
 
@@ -30,7 +31,7 @@ impl Display for Name {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "/")?;
         for &byte in self.0.iter() {
-            write!(f, "{}", byte as char)?;
+            write!(f, "{}", char::from(byte))?;
         }
         Ok(())
     }
@@ -74,14 +75,15 @@ impl Hash for Name {
     }
 }
 
-impl Parser for Name {
+impl Parser<'_> for Name {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, value) =
-            preceded(char('/'), printable_token)(buffer).map_err(parse_error!(
+            preceded(char('/'), printable_token)(buffer).map_err(parse_recoverable!(
                 e,
-                NameRecoverable::NotFound {
-                    code: e.code,
-                    input: debug_bytes(e.input),
+                ParseRecoverable {
+                    buffer: e.input,
+                    object: stringify!(Name),
+                    code: ParseErrorCode::NotFound(e.code),
                 }
             ))?;
 
@@ -122,15 +124,19 @@ mod process {
                         prev = PrevByte::NumberSign;
                     }
                     (_, PrevByte::NumberSign) if is_hex_digit(byte) => {
-                        let hex_digit = hex_val(byte)
-                            .ok_or(NameEscape::InvalidHexDigit(self.to_string(), byte as char))?;
+                        let hex_digit = hex_val(byte).ok_or(NameEscape::InvalidHexDigit(
+                            self.to_string(),
+                            char::from(byte),
+                        ))?; // TODO (TEMP) Refactor to avoid to_string
                         prev = PrevByte::FistHexDigit(hex_digit);
                     }
                     (_, PrevByte::FistHexDigit(prev_hex_digit))
                         if is_hex_digit(byte) && prev_hex_digit < 16 =>
                     {
-                        let hex_digit = hex_val(byte)
-                            .ok_or(NameEscape::InvalidHexDigit(self.to_string(), byte as char))?;
+                        let hex_digit = hex_val(byte).ok_or(NameEscape::InvalidHexDigit(
+                            self.to_string(),
+                            char::from(byte),
+                        ))?; // TODO (TEMP) Refactor to avoid to_string
                         let value = prev_hex_digit * 16 + hex_digit;
                         escaped.push(value);
                         prev = PrevByte::Other;
@@ -143,13 +149,16 @@ mod process {
                         );
                     }
                     (c, PrevByte::NumberSign) => {
-                        return Err(NameEscape::InvalidHexDigit(self.to_string(), c as char).into());
+                        return Err(
+                            NameEscape::InvalidHexDigit(self.to_string(), char::from(c)).into()
+                        );
+                        // TODO (TEMP) Refactor to avoid to_string
                     }
                     (c, PrevByte::FistHexDigit(prev_hex_digit)) => {
                         return Err(NameEscape::IncompleteHexCode(
-                            self.to_string(),
+                            self.to_string(), // TODO (TEMP) Refactor to avoid to_string
                             prev_hex_digit,
-                            c as char,
+                            char::from(c),
                         )
                         .into());
                     }
@@ -162,9 +171,11 @@ mod process {
             match prev {
                 PrevByte::NumberSign => {
                     return Err(NameEscape::TraillingNumberSign(self.to_string()).into());
+                    // TODO (TEMP) Refactor to avoid to_string
                 }
                 PrevByte::FistHexDigit(value) => {
                     return Err(NameEscape::TraillingHexDigit(self.to_string(), value).into());
+                    // TODO (TEMP) Refactor to avoid to_string
                 }
                 PrevByte::Other => {}
             }
@@ -210,16 +221,9 @@ mod convert {
 }
 
 pub(crate) mod error {
-    use ::nom::error::ErrorKind;
     use ::thiserror::Error;
 
     use crate::Byte;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum NameRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
 
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum NameEscape {
@@ -261,13 +265,11 @@ mod tests {
         // Synthetic tests
         // Name: Not found
         let parse_result = Name::parse(b"Name");
-        let expected_error = ParseErr::Error(
-            NameRecoverable::NotFound {
-                code: ErrorKind::Char,
-                input: "Name".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"Name",
+            object: stringify!(Name),
+            code: ParseErrorCode::NotFound(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 

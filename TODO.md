@@ -4,7 +4,6 @@
 
 - The recent change from <code>ReaderParser</code> to <code>Parser</code> seems to have slowed the parsing. Investigate and fix.
 - Reconsider the order of calls in <code>parse_semi_quiet</code> so that simple types are tried first.
-- Remove <code>debug_bytes</code> from error handling as it slows down parsing. Instead, only use it for the error message.
 - Given the recent change into a single read, replace cloning with references.
 - Cache created filters.
 
@@ -45,6 +44,7 @@
 
 ## Refactor
 
+- Use <code>num_traits</code> to refactor the <code>num</code> module
 - Replace <code>println!</code> and <code>eprintln!</code> with <code>log</code> calls.
 - Consider converting the different instances of the <code>escape</code> methods into implementations of a trait <code>Escape</code>.
 - Remove <code>::std::str::from_utf8</code> especially in the context of converting <code>&[Byte]</code> to numeric types.
@@ -52,10 +52,13 @@
 
 ### Error Handling
 
-- Reconsider <code>Failure</code>s and <code>Warn</code>s. Fail as soon as possible, and only warn when further processing is possible.
-- Consider adopting <code>nom</code> errors to be able to use <code>nom</code> combinators alongside the <code>Parser</code> trait.
-- Some <code>String</code> in errors can be changed to <code>&'static str</code>.
-- Standardise tests.
+- Combine parse and process error codes.
+- Reconsider <code>Failure</code>s and <code>Recoverable</code>s. Fail as soon as possible, and only warn when further processing is possible.
+- [O] Standardise tests.
+    - [X] Pdf errors.
+    - [X] Parse errors.
+    - [ ] Process errors.
+    - [ ] Other sporadic errors.
 
 ## Future Work
 

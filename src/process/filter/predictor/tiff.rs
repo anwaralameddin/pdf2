@@ -27,7 +27,7 @@ impl Filter for Tiff {
         // REFERENCE: [[TIFF 6.0 Specification] Section 14: Differencing
         // Predictor, p64]
         while let Some(row) = bit_reader.next_row()? {
-            let mut prev_colors = vec![0; self.parms.colors as usize];
+            let mut prev_colors = vec![0; *self.parms.colors];
             for colors in row.into_iter() {
                 for (prev_component, component) in prev_colors.iter().zip(colors.iter()) {
                     if prev_colors.len() != colors.len() {
@@ -62,7 +62,7 @@ impl Filter for Tiff {
         let mut bit_writer = BitsWriter::new(&mut defiltered, self.parms);
 
         while let Some(row) = bit_reader.next_row()? {
-            let mut prev_colors = vec![0; self.parms.colors as usize];
+            let mut prev_colors = vec![0; *self.parms.colors];
             for diffs in row.into_iter() {
                 let mut colors = Vec::with_capacity(diffs.len());
                 for (prev_component, diff) in prev_colors.iter().zip(diffs.iter()) {
@@ -163,8 +163,8 @@ impl BitsReader<'_> {
         if self.location % 8 != 0 {
             let padding = 8 - self.location % 8;
             if let Some(byte) = self.bytes.get(self.location / 8) {
-                let remaining = byte & ((1 << padding) - 1);
-                if remaining != 0 {
+                let remains = byte & ((1 << padding) - 1);
+                if remains != 0 {
                     return Err(TiffError::RowMissingPadding(padding, *byte).into());
                 }
             }

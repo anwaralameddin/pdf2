@@ -21,19 +21,15 @@ impl Filter for A85 {
             }
             let mut value = 0u32;
             for &byte in prev.iter() {
-                value =
-                    (value << 8)
-                        .checked_add(byte as u32)
-                        .ok_or(ASCII85Error::ValueTooLarge(
-                            stringify!(Byte),
-                            debug_bytes(&prev),
-                        ))?;
+                value = (value << 8).checked_add(u32::from(byte)).ok_or(
+                    ASCII85Error::ValueTooLarge(stringify!(Byte), debug_bytes(&prev)),
+                )?;
             }
             if value == 0 {
                 encoded.push(b'z');
             } else {
-                for i in (0..5).rev() {
-                    encoded.push((value / 85u32.pow(i as u32) % 85 + b'!' as u32) as Byte);
+                for i in (0u32..5).rev() {
+                    encoded.push((value / 85u32.pow(i) % 85 + u32::from(b'!')) as Byte);
                 }
             }
             prev.clear();
@@ -41,16 +37,12 @@ impl Filter for A85 {
         if !prev.is_empty() {
             let mut value = 0u32;
             for &byte in prev.iter().chain(&vec![0; 4 - prev.len()]) {
-                value =
-                    (value << 8)
-                        .checked_add(byte as u32)
-                        .ok_or(ASCII85Error::ValueTooLarge(
-                            stringify!(Byte),
-                            debug_bytes(&prev),
-                        ))?;
+                value = (value << 8).checked_add(u32::from(byte)).ok_or(
+                    ASCII85Error::ValueTooLarge(stringify!(Byte), debug_bytes(&prev)),
+                )?;
             }
-            for i in (0..5).rev().take(prev.len() + 1) {
-                encoded.push((value / 85u32.pow(i as u32) % 85 + b'!' as u32) as Byte);
+            for i in (0u32..5).rev().take(prev.len() + 1) {
+                encoded.push((value / 85u32.pow(i) % 85 + u32::from(b'!')) as Byte);
             }
         }
         // Add the EOD marker
@@ -70,14 +62,14 @@ impl Filter for A85 {
                 continue;
             }
             if eod {
-                return Err(ASCII85Error::AfterEod(byte as char).into());
+                return Err(ASCII85Error::AfterEod(char::from(byte)).into());
             }
             if tilde {
                 if byte == b'>' {
                     eod = true;
                     continue;
                 } else {
-                    return Err(ASCII85Error::CorruptEod(byte as char).into());
+                    return Err(ASCII85Error::CorruptEod(char::from(byte)).into());
                 }
             }
             if byte == b'~' {
@@ -93,7 +85,7 @@ impl Filter for A85 {
                 }
             }
             if !(b'!'..=b'u').contains(&byte) {
-                return Err(ASCII85Error::InvalidBase85Digit(byte as char).into());
+                return Err(ASCII85Error::InvalidBase85Digit(char::from(byte)).into());
             }
             prev.push(byte);
             if prev.len() < 5 {
@@ -105,7 +97,7 @@ impl Filter for A85 {
                 value = value
                     .checked_mul(85)
                     .ok_or(ASCII85Error::ValueTooLarge("Base85", debug_bytes(&prev)))?
-                    .checked_add((byte - b'!') as u32)
+                    .checked_add(u32::from(byte - b'!'))
                     .ok_or(ASCII85Error::ValueTooLarge("Base85", debug_bytes(&prev)))?;
             }
             defiltered.extend_from_slice(&value.to_be_bytes());
@@ -121,7 +113,7 @@ impl Filter for A85 {
                 value = value
                     .checked_mul(85)
                     .ok_or(ASCII85Error::ValueTooLarge("Base85", debug_bytes(&prev)))?
-                    .checked_add((byte - b'!') as u32)
+                    .checked_add(u32::from(byte - b'!'))
                     .ok_or(ASCII85Error::ValueTooLarge("Base85", debug_bytes(&prev)))?;
             }
             defiltered.extend_from_slice(&value.to_be_bytes()[..prev.len() - 1]);
@@ -134,6 +126,7 @@ impl Filter for A85 {
 pub(in crate::process) mod error {
     use ::thiserror::Error;
 
+    // FIXME (TEMP) Restrict the use of debug_bytes to error display
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum ASCII85Error {
         #[error("Invalid ASCII base-85 digit: {0}")]

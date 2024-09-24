@@ -79,14 +79,16 @@ mod process {
     use super::error::PdfResult;
     use super::*;
     use crate::object::indirect::object::IndirectObject;
-    use crate::parse::NewParser;
     use crate::parse::Parser;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
 
     impl<'path> PdfBuilder<'path> {
         fn get_trailer(&'path self, pretable: &PreTable) -> PdfResult<Trailer> {
-            if let Some(increment) = pretable.back() {
+            if let Some(increment) = pretable.last() {
+                // TODO (TEMP) currently, `PdfBuilder::build` does not use
+                // `pretable` after calling this function, and we can change
+                // this function and consume `pretable`
                 Ok(increment.trailer().clone())
             } else {
                 Err(PdfErr::EmptyPreTable(self.path))
@@ -94,23 +96,16 @@ mod process {
         }
 
         fn parse_objects_in_use(
-            &self,
+            &'path self,
             table: &Table,
-            errors: &mut Vec<ObjectRecoverable>,
+            errors: &mut Vec<ObjectRecoverable<'path>>,
         ) -> PdfResult<ObjectsInUse> {
             // At this point, we should not immediately fail. Instead, we
             // collect all errors and report them at the end.
             let mut objects = HashMap::default();
             for (offset, id) in table.in_use.iter() {
-                let start = match usize::try_from(*offset) {
-                    Ok(offset) => offset,
-                    Err(err) => {
-                        errors.push(ObjectRecoverable::OffsetAsUsize(*id, *offset, err));
-                        continue;
-                    }
-                };
-                let (remaining, object) = match IndirectObject::parse(&self.buffer[start..]) {
-                    Ok((remaining, object)) => (remaining, object),
+                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
+                    Ok((remains, object)) => (remains, object),
                     Err(err) => {
                         errors.push(ObjectRecoverable::Parse(*id, *offset, err));
                         continue;
@@ -127,8 +122,8 @@ mod process {
                     // continue;
                 }
                 let span = Span {
-                    start,
-                    len: self.buffer[start..].len() - remaining.len(),
+                    start: *offset,
+                    len: self.buffer[*offset..].len() - remains.len(),
                 };
 
                 objects.insert(*id, (value, span));
@@ -143,10 +138,10 @@ mod process {
             // using the trailer and cross-reference table.
             let (_, pretable) =
                 PreTable::parse(&self.buffer).map_err(|err| PdfErr::Parse(self.path, err))?;
-            let trailer = self.get_trailer(&pretable)?;
             let table = pretable
                 .to_table()
                 .map_err(|err| PdfErr::Process(self.path, err))?;
+            let trailer = self.get_trailer(&pretable)?;
             let mut errors = Vec::default();
             let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
             let errors = PdfRecoverable::new(self.path, errors);

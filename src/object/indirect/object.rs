@@ -1,6 +1,5 @@
 use ::nom::bytes::complete::tag;
 use ::nom::combinator::opt;
-use ::nom::error::ErrorKind;
 use ::nom::sequence::delimited;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
@@ -8,19 +7,19 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::IndirectObjectFailure;
-use self::error::IndirectObjectRecoverable;
 use super::id::Id;
 use super::IndirectValue;
-use super::Parser;
-use crate::fmt::debug_bytes;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
+use crate::parse::Parser;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
-use crate::parse_error;
 use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::Byte;
 
 /// REFERENCE: [7.3.10 Indirect objects, p33]
@@ -36,32 +35,33 @@ impl Display for IndirectObject {
     }
 }
 
-impl Parser for IndirectObject {
+impl Parser<'_> for IndirectObject {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         // REFERENCE: [7.3.10 Indirect objects, p33]
-        let (buffer, id) = Id::parse_semi_quiet(buffer).unwrap_or_else(|| {
-            Err(ParseErr::Error(
-                IndirectObjectRecoverable::NotFound {
-                    code: ErrorKind::Digit,
-                    input: debug_bytes(buffer),
-                }
-                .into(),
-            ))
+        let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
+            buffer: err.buffer(),
+            object: stringify!(Id),
+            code: ParseErrorCode::RecNotFound(Box::new(err.code())),
         })?;
-        let (buffer, _) =
-            terminated(tag(KW_OBJ), opt(white_space_or_comment))(buffer).map_err(parse_error!(
+        let (buffer, _) = terminated(tag(KW_OBJ), opt(white_space_or_comment))(buffer).map_err(
+            parse_recoverable!(
                 e,
-                IndirectObjectRecoverable::NotFound {
-                    code: e.code,
-                    input: debug_bytes(e.input),
+                ParseRecoverable {
+                    buffer: e.input,
+                    object: stringify!(IndirectObject),
+                    code: ParseErrorCode::NotFound(e.code),
                 }
-            ))?;
+            ),
+        )?;
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
-        let (buffer, object) = IndirectValue::parse_semi_quiet(buffer).unwrap_or_else(|| {
-            Err(ParseErr::Failure(
-                IndirectObjectFailure::MissingValue(debug_bytes(buffer)).into(),
-            ))
+        let (buffer, object) = IndirectValue::parse(buffer).map_err(|err| ParseFailure {
+            buffer: err.buffer(),
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::RecMissingSubobject(
+                stringify!(IndirectValue),
+                Box::new(err.code()),
+            ),
         })?;
         // REFERENCE: [7.3.8.1 General, p31]
         let (buffer, _) = delimited(
@@ -71,9 +71,10 @@ impl Parser for IndirectObject {
         )(buffer)
         .map_err(parse_failure!(
             e,
-            IndirectObjectFailure::MissingClosing {
-                code: e.code,
-                input: debug_bytes(e.input),
+            ParseFailure {
+                buffer: e.input,
+                object: stringify!(IndirectObject),
+                code: ParseErrorCode::MissingClosing(e.code),
             }
         ))?;
 
@@ -95,25 +96,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IndirectObjectRecoverable {
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IndirectObjectFailure {
-        #[error("Missing Value. Input: {0}")]
-        MissingValue(String),
-        #[error("Missing Closing: {code:?}. Input: {input}")]
-        MissingClosing { code: ErrorKind, input: String },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -122,7 +104,6 @@ mod tests {
     use crate::assert_err_eq;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
-    use crate::object::direct::string::literal::error::LiteralFailure;
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::Stream;
     use crate::object::indirect::stream::KEY_LENGTH;
@@ -172,52 +153,53 @@ mod tests {
         // Synthetic tests
         // Indirect Object: Incomplete
         let parse_result = IndirectObject::parse(b"1 0 obj /Name e");
-        let expected_error = ParseErr::Failure(
-            IndirectObjectFailure::MissingClosing {
-                code: ErrorKind::Tag,
-                input: "e".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"e",
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the endobj keyword
         let parse_result = IndirectObject::parse(b"1 0 obj /Name <");
-        let expected_error = ParseErr::Failure(
-            IndirectObjectFailure::MissingClosing {
-                code: ErrorKind::Tag,
-                input: "<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"<",
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Incomplete object
         let parse_result = IndirectObject::parse(b"1 0 obj (A partial literal string");
-        let expected_error = ParseErr::Failure(
-            LiteralFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"",
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::RecMissingSubobject(
+                stringify!(IndirectValue),
+                Box::new(ParseErrorCode::MissingClosing(ErrorKind::Char)),
+            ),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the object keyword
         let parse_result = IndirectObject::parse(b"1 0 /Name<");
-        let expected_error = ParseErr::Error(
-            IndirectObjectRecoverable::NotFound {
-                code: ErrorKind::Tag,
-                input: "/Name<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"/Name<",
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing value
         let parse_result = IndirectObject::parse(b"1 0 obj endobj");
-        let expected_error =
-            ParseErr::Failure(IndirectObjectFailure::MissingValue("endobj".to_string()).into());
+        let expected_error = ParseFailure {
+            buffer: b"endobj",
+            object: stringify!(IndirectObject),
+            code: ParseErrorCode::RecMissingSubobject(
+                stringify!(IndirectValue),
+                Box::new(ParseErrorCode::NotFoundUnion),
+            ),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

@@ -39,7 +39,7 @@ impl Filter for Lzw {
         for &byte in bytes.iter() {
             filter.seq.push(byte);
             if let [b] = filter.seq.as_slice() {
-                code = *b as u16;
+                code = u16::from(*b);
                 continue;
             }
             if let Some(&c) = filter.table.get(&filter.seq) {
@@ -57,7 +57,7 @@ impl Filter for Lzw {
 
             filter.update_table(self.early_change, &mut filtered);
             filter.seq = vec![byte];
-            code = byte as u16;
+            code = u16::from(byte);
         }
 
         if !filter.seq.is_empty() {
@@ -93,7 +93,7 @@ impl Filter for Lzw {
             // bytes
             if *defilter.code_size > 8 + defilter.leftover_bits {
                 defilter.prev_byte <<= 8;
-                defilter.prev_byte |= byte as u16;
+                defilter.prev_byte |= u16::from(byte);
                 defilter.leftover_bits += 8;
                 continue;
             }
@@ -131,7 +131,7 @@ impl Filter for Lzw {
 
             let first = if code < CLEAR_CODE {
                 code as Byte
-            } else if let [first, ..] = defilter.table[(code - FIRST_CODE) as usize].as_slice() {
+            } else if let [first, ..] = defilter.table[usize::from(code - FIRST_CODE)].as_slice() {
                 *first
             } else {
                 unreachable!(
@@ -147,7 +147,7 @@ impl Filter for Lzw {
             let output = if code < CLEAR_CODE {
                 vec![code as Byte]
             } else {
-                defilter.table[(code - FIRST_CODE) as usize].clone()
+                defilter.table[usize::from(code - FIRST_CODE)].clone()
             };
 
             defiltered.extend_from_slice(&output);
@@ -197,7 +197,7 @@ struct LzwFilter {
 impl Default for LzwFilter {
     fn default() -> Self {
         Self {
-            table: HashMap::with_capacity((1 << MAX_CODE_SIZE) - FIRST_CODE as usize),
+            table: HashMap::with_capacity((1 << MAX_CODE_SIZE) - usize::from(FIRST_CODE)),
             len: FIRST_CODE,
             seq: Default::default(),
             code_size: Default::default(),
@@ -233,7 +233,7 @@ impl LzwFilter {
         } else if self.len == (1 << MAX_CODE_SIZE) {
             self.output_code(CLEAR_CODE, filtered);
 
-            self.table = HashMap::with_capacity((1 << MAX_CODE_SIZE) - FIRST_CODE as usize);
+            self.table = HashMap::with_capacity((1 << MAX_CODE_SIZE) - usize::from(FIRST_CODE));
             self.len = FIRST_CODE;
             self.code_size = Default::default();
         } else {
@@ -256,7 +256,7 @@ struct LzwDefilter {
 impl Default for LzwDefilter {
     fn default() -> Self {
         Self {
-            table: Vec::with_capacity((1 << MAX_CODE_SIZE) - FIRST_CODE as usize),
+            table: Vec::with_capacity((1 << MAX_CODE_SIZE) - usize::from(FIRST_CODE)),
             len: FIRST_CODE,
             code_size: Default::default(),
             eod: Default::default(),
@@ -275,9 +275,9 @@ impl LzwDefilter {
         let new_leftover_bits = 8 + self.leftover_bits - *self.code_size;
         let code = (((self.prev_byte) & ((1 << self.leftover_bits) - 1))
             << (*self.code_size - self.leftover_bits))
-            | ((byte as u16) >> (new_leftover_bits));
+            | (u16::from(byte) >> (new_leftover_bits));
         self.leftover_bits = new_leftover_bits;
-        self.prev_byte = byte as u16;
+        self.prev_byte = u16::from(byte);
         code
     }
 

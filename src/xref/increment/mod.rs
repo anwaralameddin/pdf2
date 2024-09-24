@@ -8,11 +8,10 @@ use ::std::fmt::Result as FmtResult;
 
 use self::section::Section;
 use self::stream::XRefStream;
-use crate::parse::error::NewParseErr;
-use crate::parse::error::NewParseRecoverable;
-use crate::parse::error::NewParseResult;
 use crate::parse::error::ParseErrorCode;
-use crate::parse::NewParser;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseResult;
+use crate::parse::Parser;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55]
@@ -31,14 +30,17 @@ impl Display for Increment {
     }
 }
 
-impl NewParser<'_> for Increment {
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
-        Section::parse_semi_quiet::<Self>(buffer)
-            .or_else(|| XRefStream::parse_semi_quiet::<Self>(buffer))
+impl Parser<'_> for Increment {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        Section::parse_suppress_recoverable::<Self>(buffer)
+            .or_else(|| XRefStream::parse_suppress_recoverable::<Self>(buffer))
             .unwrap_or_else(|| {
-                Err(NewParseRecoverable {
+                // Except for Subsection, Section and XRefStream, NotFound
+                // errors for xref objects should be propagated as failures.
+                Err(ParseFailure {
                     buffer,
-                    code: ParseErrorCode::NotFound(stringify!(Increment), None),
+                    object: stringify!(Increment),
+                    code: ParseErrorCode::NotFoundUnion,
                 }
                 .into())
             })
@@ -91,15 +93,6 @@ mod convert {
 pub(crate) mod error {
     use ::std::num::TryFromIntError;
     use ::thiserror::Error;
-
-    use crate::process::error::NewProcessErr;
-
-    // NewProcessErr do not implement Copy
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IncrementCode {
-        #[error("{0}. Trailer dictionary. Error: {1}")]
-        TrailerDictionary(&'static str, NewProcessErr),
-    }
 
     #[derive(Debug, Error, PartialEq, Clone, Copy)]
     pub enum IncrementError {

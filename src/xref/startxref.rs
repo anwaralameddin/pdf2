@@ -9,18 +9,17 @@ use ::nom::sequence::delimited;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
 use ::std::fmt::Display;
-use error::StartXRefCode;
 
-use crate::new_parse_failure;
 use crate::parse::character_set::eol;
-use crate::parse::error::NewParseErr;
-use crate::parse::error::NewParseFailure;
-use crate::parse::error::NewParseResult;
+use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
-use crate::parse::num::ascii_to_u64;
-use crate::parse::NewParser;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseResult;
+use crate::parse::num::ascii_to_usize;
+use crate::parse::Parser;
 use crate::parse::EOF;
 use crate::parse::KW_STARTXREF;
+use crate::parse_failure;
 use crate::Byte;
 use crate::Offset;
 
@@ -51,14 +50,15 @@ impl Display for StartXRef {
     }
 }
 
-impl NewParser<'_> for StartXRef {
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+impl Parser<'_> for StartXRef {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
             offset
         } else {
-            return Err(NewParseFailure {
+            return Err(ParseFailure {
                 buffer,
-                code: StartXRefCode::TooSmallBuffer.into(),
+                object: stringify!(StartXRef),
+                code: ParseErrorCode::TooSmallBuffer,
             }
             .into());
         };
@@ -74,19 +74,22 @@ impl NewParser<'_> for StartXRef {
             digit1,
             delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
         )(buffer)
-        .map_err(new_parse_failure!(
+        .map_err(parse_failure!(
             e,
-            NewParseFailure {
-                buffer,
-                code: ParseErrorCode::NotFound(stringify!(StartXRef), Some(e.code)),
+            // Except for Subsection, Section and XRefStream, NotFound errors
+            // for xref objects should be propagated as failures.
+            ParseFailure {
+                buffer: e.input,
+                object: stringify!(StartXRef),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
 
-        let start_xref_offset: Offset =
-            ascii_to_u64(start_xref_offset).ok_or_else(|| NewParseFailure {
-                buffer: start_xref_offset,
-                code: ParseErrorCode::OffSet(stringify!(StartXRef)),
-            })?;
+        let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| ParseFailure {
+            buffer: start_xref_offset,
+            object: stringify!(StartXRef),
+            code: ParseErrorCode::OffSet,
+        })?;
 
         Ok((&[], Self(start_xref_offset)))
     }
@@ -109,17 +112,6 @@ mod convert {
         fn deref(&self) -> &Self::Target {
             &self.0
         }
-    }
-}
-
-pub(crate) mod error {
-
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum StartXRefCode {
-        #[error("TooSmallBuffer")]
-        TooSmallBuffer,
     }
 }
 
@@ -168,9 +160,10 @@ mod tests {
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_byte_offset.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let parse_result = StartXRef::parse(&buffer[offset..]);
-        let expected_error = NewParseFailure {
-            buffer: b"startxref\r\n%%EOF\r\n",
-            code: ParseErrorCode::NotFound(stringify!(StartXRef), Some(ErrorKind::Digit)),
+        let expected_error = ParseFailure {
+            buffer: b"%%EOF\r\n",
+            object: stringify!(StartXRef),
+            code: ParseErrorCode::NotFound(ErrorKind::Digit),
         };
         assert_err_eq!(parse_result, expected_error);
 
@@ -179,9 +172,10 @@ mod tests {
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eof.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let parse_result = StartXRef::parse(&buffer[offset..]);
-        let expected_error = NewParseFailure {
-            buffer: b"startxref\r\n999999\r\n%%PDF-1.4\r\n",
-            code: ParseErrorCode::NotFound(stringify!(StartXRef), Some(ErrorKind::Tag)),
+        let expected_error = ParseFailure {
+            buffer: b"%%PDF-1.4\r\n",
+            object: stringify!(StartXRef),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
 
@@ -190,9 +184,10 @@ mod tests {
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eol.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let parse_result = StartXRef::parse(&buffer[offset..]);
-        let expected_error = NewParseFailure {
+        let expected_error = ParseFailure {
             buffer: b"dobj\r\nstartxre\r\nf999999%%EOF\r\n",
-            code: ParseErrorCode::NotFound(stringify!(StartXRef), Some(ErrorKind::Tag)),
+            object: stringify!(StartXRef),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
 
@@ -201,9 +196,10 @@ mod tests {
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_startxref.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let parse_result = StartXRef::parse(&buffer[offset..]);
-        let expected_error = NewParseFailure {
+        let expected_error = ParseFailure {
             buffer: b"tream\r\nendobj\r\n999999\r\n%%EOF\r\n",
-            code: ParseErrorCode::NotFound(stringify!(StartXRef), Some(ErrorKind::Tag)),
+            object: stringify!(StartXRef),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
 

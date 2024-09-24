@@ -10,13 +10,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::IntegerRecoverable;
-use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_i128;
 use crate::parse::Parser;
-use crate::parse_error;
+use crate::parse_recoverable;
 use crate::Byte;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -28,28 +28,33 @@ impl Display for Integer {
     }
 }
 
-impl Parser for Integer {
+impl Parser<'_> for Integer {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, value) = recognize::<_, _, NomError<_>, _>(pair(
+        let (remains, value) = recognize::<_, _, NomError<_>, _>(pair(
             opt(alt((char('-'), (char('+'))))),
             digit1,
         ))(buffer)
-        .map_err(parse_error!(
+        .map_err(parse_recoverable!(
             e,
-            IntegerRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(e.input),
+            ParseRecoverable {
+                buffer: e.input,
+                object: stringify!(Integer),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
 
         // REFERENCE: [7.3.3 Numeric objects, p 24]
         // Real numbers cannot be used where integers are expected. Hence, the
         // next character should not be '.'
-        if char::<_, NomError<_>>('.')(buffer).is_ok() {
-            return Err(ParseErr::Error(
-                IntegerRecoverable::FoundReal(debug_bytes(value), debug_bytes(buffer)).into(),
-            ));
+        if char::<_, NomError<_>>('.')(remains).is_ok() {
+            return Err(ParseRecoverable {
+                buffer,
+                object: stringify!(Integer),
+                code: ParseErrorCode::ObjectType,
+            }
+            .into());
         }
+        let buffer = remains;
         // Here, we know that the buffer starts with an integer, and the
         // following errors should be propagated as IntegerFailure
 
@@ -58,8 +63,10 @@ impl Parser for Integer {
         // While, initially, the error here seems to be a ParseErr::Failure, it
         // is propagated as ParseErr::Error that some numbers may be too large
         // for i128 yet fit within the f64 range.
-        let value = ascii_to_i128(value).ok_or_else(|| {
-            ParseErr::Error(IntegerRecoverable::ParseIntError(debug_bytes(value)).into())
+        let value = ascii_to_i128(value).ok_or_else(|| ParseRecoverable {
+            buffer: value,
+            object: stringify!(Integer),
+            code: ParseErrorCode::ParseIntError,
         })?;
 
         let value = Self(value);
@@ -112,21 +119,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IntegerRecoverable {
-        #[error("ParseIntError: Failed to parse as i128. Input: {0}")]
-        ParseIntError(String),
-        #[error("Found Real: {0} is part of a real number with a decimal part {1}")]
-        FoundReal(String, String),
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -159,73 +151,65 @@ mod tests {
     fn numeric_integer_invalid() {
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"+");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"",
+            object: stringify!(Integer),
+            code: ParseErrorCode::NotFound(ErrorKind::Digit),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"- <");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: " <".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b" <",
+            object: stringify!(Integer),
+            code: ParseErrorCode::NotFound(ErrorKind::Digit),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"+<");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"<",
+            object: stringify!(Integer),
+            code: ParseErrorCode::NotFound(ErrorKind::Digit),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"<");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::NotFound {
-                code: ErrorKind::Digit,
-                input: "<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"<",
+            object: stringify!(Integer),
+            code: ParseErrorCode::NotFound(ErrorKind::Digit),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Found real number
         let parse_result = Integer::parse(b"-1.0 ");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::FoundReal("-1".to_string(), ".0 ".to_string()).into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"-1.0 ",
+            object: stringify!(Integer),
+            code: ParseErrorCode::ObjectType,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
         let parse_result = Integer::parse(b"-170141183460469231731687303715884105729<");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::ParseIntError(
-                "-170141183460469231731687303715884105729".to_string(),
-            )
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"-170141183460469231731687303715884105729",
+            object: stringify!(Integer),
+            code: ParseErrorCode::ParseIntError,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
         let parse_result = Integer::parse(b"+170141183460469231731687303715884105728<");
-        let expected_error = ParseErr::Error(
-            IntegerRecoverable::ParseIntError(
-                "+170141183460469231731687303715884105728".to_string(),
-            )
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"+170141183460469231731687303715884105728",
+            object: stringify!(Integer),
+            code: ParseErrorCode::ParseIntError,
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 }

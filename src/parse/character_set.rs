@@ -4,15 +4,11 @@ use ::nom::bytes::complete::take_till;
 use ::nom::bytes::complete::take_while;
 use ::nom::bytes::complete::take_while1;
 use ::nom::character::complete::char;
-use ::nom::character::complete::digit1;
 use ::nom::combinator::opt;
 use ::nom::combinator::recognize;
-use ::nom::error::Error as NomError;
-use ::nom::error::ErrorKind;
 use ::nom::multi::many1;
 use ::nom::sequence::delimited;
 use ::nom::sequence::preceded;
-use ::nom::Err as NomErr;
 use ::nom::IResult;
 
 use crate::fmt::debug_bytes;
@@ -97,22 +93,12 @@ pub(crate) fn printable_token(buffer: &[Byte]) -> IResult<&[Byte], &[Byte]> {
     take_while1(is_printable_regular)(buffer)
 }
 
-// TODO Replace with digit1
-pub(crate) fn number1(buffer: &[Byte]) -> IResult<&[Byte], &str> {
-    let (buffer, number) = digit1(buffer)?;
-    let number = if let Ok(number) = ::std::str::from_utf8(number) {
-        number
-    } else {
-        return Err(NomErr::Failure(NomError {
-            input: number,
-            code: ErrorKind::Digit,
-        }));
-    };
-    Ok((buffer, number))
-}
-
 #[cfg(test)]
 mod tests {
+    use ::nom::error::Error as NomError;
+    use ::nom::error::ErrorKind;
+    use ::nom::Err as NomErr;
+
     use super::*;
 
     #[test]
@@ -370,29 +356,6 @@ mod tests {
         let expected_error = Err(NomErr::Error(NomError::new(
             [0x80, 0x81, 0x82, 0x83].as_slice(),
             ErrorKind::TakeWhile1,
-        )));
-        assert_eq!(parse_result, expected_error);
-    }
-
-    #[test]
-    fn number1_valid() {
-        assert_eq!(number1(b"123 ").unwrap(), (b" ".as_slice(), "123"));
-        assert_eq!(number1(b"0<").unwrap(), (b"<".as_slice(), "0"));
-    }
-
-    #[test]
-    fn number1_invalid() {
-        let parse_result = number1(b".123");
-        let expected_error = Err(NomErr::Error(NomError::new(
-            ".123".as_bytes(),
-            ErrorKind::Digit,
-        )));
-        assert_eq!(parse_result, expected_error);
-
-        let parse_result = number1(b"R");
-        let expected_error = Err(NomErr::Error(NomError::new(
-            "R".as_bytes(),
-            ErrorKind::Digit,
         )));
         assert_eq!(parse_result, expected_error);
     }

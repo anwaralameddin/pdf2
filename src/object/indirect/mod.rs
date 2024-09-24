@@ -7,12 +7,11 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::IndirectValueRecoverable;
 use self::stream::Stream;
-use crate::fmt::debug_bytes;
 use crate::object::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
-use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::Byte;
@@ -32,14 +31,17 @@ impl Display for IndirectValue {
     }
 }
 
-impl Parser for IndirectValue {
+impl Parser<'_> for IndirectValue {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse_semi_quiet(buffer)
-            .or_else(|| DirectValue::parse_semi_quiet(buffer))
+        Stream::parse_suppress_recoverable(buffer)
+            .or_else(|| DirectValue::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
-                Err(ParseErr::Error(
-                    IndirectValueRecoverable::NotFound(debug_bytes(buffer)).into(),
-                ))
+                Err(ParseRecoverable {
+                    buffer,
+                    object: stringify!(IndirectValue),
+                    code: ParseErrorCode::NotFoundUnion,
+                }
+                .into())
             })
     }
 }
@@ -111,16 +113,6 @@ mod convert {
                 None
             }
         }
-    }
-}
-
-pub(crate) mod error {
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum IndirectValueRecoverable {
-        #[error("Not found: {0}")]
-        NotFound(String),
     }
 }
 

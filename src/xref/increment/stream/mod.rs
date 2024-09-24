@@ -5,14 +5,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use super::error::IncrementCode;
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
-use crate::parse::error::NewParseFailure;
-use crate::parse::error::NewParseResult;
-use crate::parse::NewParser;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
@@ -32,26 +31,28 @@ impl Display for XRefStream {
     }
 }
 
-impl NewParser<'_> for XRefStream {
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+impl Parser<'_> for XRefStream {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remaining, IndirectObject { id, value }) = Parser::parse(buffer)?;
+        let (remains, IndirectObject { id, value }) = Parser::parse(buffer)?;
 
         let stream = Stream::try_from(value)?;
 
-        let trailer = Trailer::try_from(&stream.dictionary).map_err(|err| NewParseFailure {
-            buffer,
-            code: IncrementCode::TrailerDictionary(stringify!(XRefStream), err).into(),
+        let trailer = Trailer::try_from(&stream.dictionary).map_err(|err| ParseFailure {
+            buffer, // TODO (TEMP) Remove with stream.dictionary.as_bytes() when implemented
+            object: stringify!(XRefStream),
+            code: ParseErrorCode::InvalidTrailerDictionary(err),
         })?;
+        let buffer = remains;
 
         let xref_stream = XRefStream {
             id,
             stream,
             trailer,
         };
-        Ok((remaining, xref_stream))
+        Ok((buffer, xref_stream))
     }
 }
 
@@ -155,7 +156,7 @@ mod process {
                         Err(XRefStreamError::WrongValue {
                             key: KEY_TYPE,
                             expected: VAL_XREF,
-                            value: type_.clone(), // TODO (TEMP)
+                            value: type_.clone(), // TODO (TEMP) Remove clone
                         }
                         .into())
                     } else {
@@ -178,7 +179,7 @@ mod process {
             )));
 
             let (buffer, entries) = parser(buffer).map_err(process_err!(e, {
-                XRefStreamError::ParseDecoded(e.input.to_vec(), e.code) // TODO (TEMP)
+                XRefStreamError::ParseDecoded(e.input.to_vec(), e.code) // TODO (TEMP) Remove .to_vec()
             }))?;
             if !buffer.is_empty() {
                 return Err(XRefStreamError::DecodedLength(
@@ -201,12 +202,11 @@ mod convert {
     use crate::process::error::NewProcessResult;
 
     impl XRefStream {
-        // TODO(TEMP) Should this be a processing error?
         pub(crate) fn new(id: Id, stream: &Stream) -> NewProcessResult<Self> {
             let trailer = Trailer::try_from(&stream.dictionary)?;
             Ok(Self {
                 id,
-                stream: stream.clone(), // TODO(TEMP)
+                stream: stream.clone(), // TODO(TEMP) Remove clone
                 trailer,
             })
         }
@@ -233,7 +233,7 @@ pub(crate) mod error {
             value: Name, // TODO(TEMP) &'buffer [Byte]
         },
         #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
-        ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) &'buffer [Byte]
+        ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) Remove Vec<Byte> with &'buffer [Byte]
         #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
         DecodedLength([usize; 3], usize),
         #[error(
@@ -255,7 +255,6 @@ mod tests {
     use ::std::collections::HashMap;
 
     use super::*;
-    use crate::new_parse_assert_eq;
     use crate::object::direct::array::Array;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
@@ -263,6 +262,7 @@ mod tests {
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
+    use crate::parse_assert_eq;
     use crate::xref::increment::trailer::VAL_XREF;
 
     #[test]
@@ -292,7 +292,7 @@ mod tests {
             stream: Stream::new(dictionary, &buffer[215..1975]),
             trailer,
         };
-        new_parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
+        parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -305,7 +305,7 @@ mod tests {
             &Stream::new(dictionary, &buffer[215..1304]),
         )
         .unwrap();
-        new_parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
+        parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -318,7 +318,7 @@ mod tests {
             &Stream::new(dictionary, &buffer[215..717]),
         )
         .unwrap();
-        new_parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
+        parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }
 
     // TODO Add tests

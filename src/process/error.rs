@@ -23,9 +23,8 @@ pub(crate) type NewProcessResult<T> = Result<T, NewProcessErr>;
 pub(crate) type ProcessResult<T> = Result<T, ProcessErr>;
 
 #[derive(Debug, Error, PartialEq, Clone)]
-
 pub enum NewProcessErr {
-    // TODO (TEMP)
+    // TODO (TEMP) Remove this error variant after refactoring ProcessErr
     #[error("Old: {0}")]
     Old(#[from] ProcessErr),
     //
@@ -33,7 +32,6 @@ pub enum NewProcessErr {
     DataType(#[from] DataTypeError<'static>),
     #[error("MissingEntry: {0}")]
     MissingEntry(#[from] MissingEntryError),
-    //
     #[error("Entry: {0}")]
     Entry(#[from] EntryError),
     #[error("XRefStream: {0}")]
@@ -50,7 +48,7 @@ pub enum ProcessErr {
     Encoding(#[from] EncodingError),
     #[error("Escape: {0}")]
     Escape(#[from] EscapeError),
-    // TODO (TEMP)
+    // TODO (TEMP) Remove this error variant after refactoring escape and encoding
     #[error("Utf8: {0}")]
     Utf8(#[from] Utf8Error),
     // Filter errors

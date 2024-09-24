@@ -2,11 +2,27 @@ use crate::Byte;
 
 // TODO Refactor the repetitive functions below using num-traits
 
+pub(crate) fn bytes_to_u16(bytes: &[Byte]) -> Option<u16> {
+    bytes.iter().try_fold(0u16, |number, byte| {
+        number
+            .checked_shl(8)
+            .and_then(|number| number.checked_add(u16::from(*byte)))
+    })
+}
+
 pub(crate) fn bytes_to_u64(bytes: &[Byte]) -> Option<u64> {
     bytes.iter().try_fold(0u64, |number, byte| {
         number
             .checked_shl(8)
-            .and_then(|number| number.checked_add(*byte as u64))
+            .and_then(|number| number.checked_add(u64::from(*byte)))
+    })
+}
+
+pub(crate) fn bytes_to_usize(bytes: &[Byte]) -> Option<usize> {
+    bytes.iter().try_fold(0usize, |number, byte| {
+        number
+            .checked_shl(8)
+            .and_then(|number| number.checked_add(usize::from(*byte)))
     })
 }
 
@@ -15,7 +31,7 @@ pub(crate) fn ascii_to_u16(bytes: &[Byte]) -> Option<u16> {
         if let b'0'..=b'9' = byte {
             number
                 .checked_mul(10)
-                .and_then(|number| number.checked_add((byte - b'0') as u16))
+                .and_then(|number| number.checked_add(u16::from(byte - b'0')))
         } else {
             None
         }
@@ -27,7 +43,7 @@ pub(crate) fn ascii_to_u64(bytes: &[Byte]) -> Option<u64> {
         if let b'0'..=b'9' = byte {
             number
                 .checked_mul(10)
-                .and_then(|number| number.checked_add((byte - b'0') as u64))
+                .and_then(|number| number.checked_add(u64::from(byte - b'0')))
         } else {
             None
         }
@@ -39,7 +55,7 @@ pub(crate) fn ascii_to_usize(bytes: &[Byte]) -> Option<usize> {
         if let b'0'..=b'9' = byte {
             number
                 .checked_mul(10)
-                .and_then(|number| number.checked_add((byte - b'0') as usize))
+                .and_then(|number| number.checked_add(usize::from(byte - b'0')))
         } else {
             None
         }
@@ -55,17 +71,17 @@ pub(crate) fn ascii_to_i128(bytes: &[Byte]) -> Option<i128> {
 
     bytes
         .iter()
-        .skip(negative_sign.is_some() as usize)
+        .skip(usize::from(negative_sign.is_some()))
         .try_fold(0i128, |number, &byte| {
             if let b'0'..=b'9' = byte {
                 if let Some(true) = negative_sign {
                     number
                         .checked_mul(10)
-                        .and_then(|number| number.checked_sub((byte - b'0') as i128))
+                        .and_then(|number| number.checked_sub(i128::from(byte - b'0')))
                 } else {
                     number
                         .checked_mul(10)
-                        .and_then(|number| number.checked_add((byte - b'0') as i128))
+                        .and_then(|number| number.checked_add(i128::from(byte - b'0')))
                 }
             } else {
                 None
@@ -86,14 +102,14 @@ pub(crate) fn ascii_to_f64(bytes: &[Byte]) -> Option<f64> {
     let mut fraction = 0u64;
     let mut fraction_digits = 0;
     let mut decimal = false;
-    for &byte in bytes.iter().skip(negative_sign.is_some() as usize) {
+    for &byte in bytes.iter().skip(usize::from(negative_sign.is_some())) {
         match byte {
             b'0'..=b'9' => {
                 let digit = byte - b'0';
                 if decimal {
                     if let Some(value) = fraction
                         .checked_mul(10)
-                        .and_then(|fraction| fraction.checked_add(digit as u64))
+                        .and_then(|fraction| fraction.checked_add(u64::from(digit)))
                     {
                         fraction = value;
                         fraction_digits += 1;
@@ -106,11 +122,11 @@ pub(crate) fn ascii_to_f64(bytes: &[Byte]) -> Option<f64> {
                 if let Some(true) = negative_sign {
                     integer = integer
                         .and_then(|integer| integer.checked_mul(10))
-                        .and_then(|integer| integer.checked_sub(digit as i64));
+                        .and_then(|integer| integer.checked_sub(i64::from(digit)));
                 } else {
                     integer = integer
                         .and_then(|integer| integer.checked_mul(10))
-                        .and_then(|integer| integer.checked_add(digit as i64));
+                        .and_then(|integer| integer.checked_add(i64::from(digit)));
                 }
             }
             b'.' if !decimal => {
@@ -120,6 +136,9 @@ pub(crate) fn ascii_to_f64(bytes: &[Byte]) -> Option<f64> {
         }
     }
 
+    // FIXME (TEMP) Refactor the above to avoid the following error when using
+    // f64::from(integer?): the trait `std::convert::From<i64>` is not
+    // implemented for `f64`
     let integer = integer? as f64;
     // TODO(QUESTION): Can This division overflow?
     let fraction = fraction as f64 / 10u64.pow(fraction_digits) as f64;

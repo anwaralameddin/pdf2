@@ -134,33 +134,33 @@ mod convert {
                 data_type: stringify!(u64),
             })?;
 
-            let prev = value.get_u64(KEY_PREV)?;
+            let prev = value.get_usize(KEY_PREV)?;
 
-            let root = value.get_reference(KEY_ROOT)?.cloned(); // TODO (TEMP)
+            let root = value.get_reference(KEY_ROOT)?.cloned(); // TODO (TEMP) Remove cloned
 
-            let encrypt = value.get_reference(KEY_ENCRYPT)?.cloned(); // TODO (TEMP)
+            let encrypt = value.get_reference(KEY_ENCRYPT)?.cloned(); // TODO (TEMP) Remove cloned
 
-            let info = value.get_reference(KEY_INFO)?.cloned(); // TODO (TEMP)
+            let info = value.get_reference(KEY_INFO)?.cloned(); // TODO (TEMP) Remove cloned
 
             let id = value
                 .get_array(KEY_ID)?
                 .map(|array| match array.as_slice() {
                     [DirectValue::String(id_1), DirectValue::String(id_2)] => {
                         // TODO Check the string lengths and report anomalies
-                        // TODO(TEMP)
+                        // TODO(TEMP) Remove clone
                         Ok([id_1.clone(), id_2.clone()])
                     }
                     _ => Err(DataTypeError {
-                        key: KEY_ID,
+                        entry: KEY_ID,
                         expected_type: stringify!([String_; 2]),
-                        value: array.to_string(),      // TODO (TEMP)
-                        dictionary: value.to_string(), // TODO (TEMP)
+                        value: array.to_string(), // TODO (TEMP) Remove to_string()
+                        object: value.to_string(), // TODO (TEMP) Remove to_string()
                     }),
                 })
                 .transpose()?;
-            let xref_stm = value.get_u64(KEY_XREF_STM)?;
+            let xref_stm = value.get_usize(KEY_XREF_STM)?;
 
-            let r#type = value.get_name(KEY_TYPE)?.cloned(); // TODO (TEMP)
+            let r#type = value.get_name(KEY_TYPE)?.cloned(); // TODO (TEMP) Remove cloned
 
             let w = value
                 .get_array(KEY_W)?
@@ -168,19 +168,19 @@ mod convert {
                     [value1, value2, value3] => {
                         let [field1, field2, field3] = [value1, value2, value3].map(|field| {
                             field.as_usize().ok_or(DataTypeError {
-                                key: KEY_W,
+                                entry: KEY_W,
                                 expected_type: stringify!(usize),
-                                value: field.to_string(),      // TODO (TEMP)
-                                dictionary: value.to_string(), // TODO (TEMP)
+                                value: field.to_string(), // TODO (TEMP) Remove to_string()
+                                object: value.to_string(), // TODO (TEMP) Remove to_string()
                             })
                         });
                         Ok([field1?, field2?, field3?])
                     }
                     _ => Err(DataTypeError {
-                        key: KEY_W,
+                        entry: KEY_W,
                         expected_type: stringify!(an array of three integers),
-                        value: array.to_string(),      // TODO (TEMP)
-                        dictionary: value.to_string(), // TODO (TEMP)
+                        value: array.to_string(), // TODO (TEMP) Remove to_string()
+                        object: value.to_string(), // TODO (TEMP) Remove to_string()
                     }),
                 })
                 .transpose()?;
@@ -191,10 +191,10 @@ mod convert {
                     let chunks = array.chunks_exact(2);
                     if !chunks.remainder().is_empty() {
                         return Err(DataTypeError {
-                            key: KEY_INDEX,
+                            entry: KEY_INDEX,
                             expected_type: stringify!(an array of pairs of integers),
-                            value: array.to_string(),      // TODO (TEMP)
-                            dictionary: value.to_string(), // TODO (TEMP)
+                            value: array.to_string(), // TODO (TEMP) Remove to_string()
+                            object: value.to_string(), // TODO (TEMP) Remove to_string()
                         });
                     }
                     let mut index = Vec::with_capacity(array.len() / 2);
@@ -202,16 +202,16 @@ mod convert {
                         if let [first_object_number, entry_count] = chunk {
                             let first_object_number =
                                 first_object_number.as_u64().ok_or(DataTypeError {
-                                    key: KEY_INDEX,
+                                    entry: KEY_INDEX,
                                     expected_type: stringify!(ObjectNumberOrZero),
-                                    value: array.to_string(), // TODO (TEMP)
-                                    dictionary: value.to_string(), // TODO (TEMP)
+                                    value: array.to_string(), // TODO (TEMP) Remove to_string()
+                                    object: value.to_string(), // TODO (TEMP) Remove to_string()
                                 })?;
                             let entry_count = entry_count.as_u64().ok_or(DataTypeError {
-                                key: KEY_INDEX,
+                                entry: KEY_INDEX,
                                 expected_type: stringify!(IndexNumber),
-                                value: array.to_string(),      // TODO (TEMP)
-                                dictionary: value.to_string(), // TODO (TEMP)
+                                value: array.to_string(), // TODO (TEMP) Remove to_string()
+                                object: value.to_string(), // TODO (TEMP) Remove to_string()
                             })?;
                             index.push((first_object_number, entry_count));
                         } else {
@@ -226,8 +226,8 @@ mod convert {
                 .unwrap_or_default();
 
             let others: HashMap<_, _> = value
-                .clone() // TODO(TEMP))
-                .into_iter() // TODO(TEMP)
+                .clone() // TODO(TEMP)) Remove clone
+                .into_iter() // TODO(TEMP) Use iter() instead
                 .filter(|(key, _)| {
                     key.ne(KEY_SIZE)
                         && key.ne(KEY_PREV)

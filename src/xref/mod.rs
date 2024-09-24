@@ -4,8 +4,8 @@ pub(crate) mod startxref;
 
 use ::std::collections::BTreeSet;
 use ::std::collections::HashMap;
-use error::XRefError;
 
+use self::error::XRefError;
 use crate::object::indirect::id::Id;
 use crate::process::error::NewProcessResult;
 use crate::GenerationNumber;
@@ -52,7 +52,7 @@ impl Table {
         generation_number: GenerationNumber,
         offset: Offset,
     ) -> Result<(), XRefError> {
-        // TODO 'static
+        // TODO use 'static if a lifetime is introduced
         let object_number = ObjectNumber::new(object_number).ok_or(XRefError::XRefInUseObject {
             object_number,
             generation_number,
@@ -70,7 +70,7 @@ impl Table {
         stream_id: Id,
         index: IndexNumber,
     ) -> Result<Option<(Id, IndexNumber)>, XRefError> {
-        // TODO 'static
+        // TODO use 'static if a lifetime is introduced
         let object_number =
             ObjectNumber::new(object_number).ok_or(XRefError::XRefCompressedObject {
                 object_number,
@@ -137,7 +137,7 @@ mod tests {
     use ::std::path::PathBuf;
 
     use super::pretable::PreTable;
-    use crate::parse::NewParser;
+    use crate::parse::Parser;
     use crate::xref::ToTable;
 
     #[test]

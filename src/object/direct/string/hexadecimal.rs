@@ -14,15 +14,16 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use self::error::HexadecimalFailure;
-use self::error::HexadecimalRecoverable;
 use crate::fmt::debug_bytes;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
-use crate::parse_error;
 use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::process::encoding::Encoding;
 use crate::Byte;
 use crate::Bytes;
@@ -35,7 +36,7 @@ impl Display for Hexadecimal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<")?;
         for &byte in self.0.iter() {
-            write!(f, "{}", byte as char)?;
+            write!(f, "{}", char::from(byte))?;
         }
         write!(f, ">")
     }
@@ -58,16 +59,19 @@ impl PartialEq for Hexadecimal {
     }
 }
 
-impl Parser for Hexadecimal {
+impl Parser<'_> for Hexadecimal {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         // This check is unnecessary because the start of Names and hexadecimal
         // strings are mutually exclusive. However, this allows early return if
         // a dictionary start is found
         let is_dictionary = tag::<_, _, NomError<_>>(b"<<")(buffer);
         if is_dictionary.is_ok() {
-            return Err(ParseErr::Error(
-                HexadecimalRecoverable::DictionaryOpening(debug_bytes(buffer)).into(),
-            ));
+            return Err(ParseRecoverable {
+                buffer,
+                object: stringify!(Hexadecimal),
+                code: ParseErrorCode::ObjectType,
+            }
+            .into());
         }
         // REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
         // White-space characters are allowed and ignored in a hexadecimal
@@ -81,20 +85,22 @@ impl Parser for Hexadecimal {
                 many0(terminated(hex_digit1, opt(white_space_or_comment))),
             )),
         )(buffer)
-        .map_err(parse_error!(
+        .map_err(parse_recoverable!(
             e,
-            HexadecimalRecoverable::NotFound {
-                code: e.code,
-                input: debug_bytes(buffer)
+            ParseRecoverable {
+                buffer: e.input,
+                object: stringify!(Hexadecimal),
+                code: ParseErrorCode::NotFound(e.code),
             }
         ))?;
         // Here, we know that the buffer starts with a hexadecimal string, and
         // the following errors should be propagated as HexadecimalFailure
         let (buffer, _) = char::<_, NomError<_>>('>')(buffer).map_err(parse_failure!(
             e,
-            HexadecimalFailure::MissingClosing {
-                code: e.code,
-                input: debug_bytes(buffer)
+            ParseFailure {
+                buffer: e.input,
+                object: stringify!(Hexadecimal),
+                code: ParseErrorCode::MissingClosing(e.code),
             }
         ))?;
 
@@ -147,25 +153,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum HexadecimalRecoverable {
-        #[error("Dictionary Found. Input: {0}")]
-        DictionaryOpening(String),
-        #[error("Not found: {code:?}. Input: {input}")]
-        NotFound { code: ErrorKind, input: String },
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum HexadecimalFailure {
-        #[error("Missing Clossing: {code:?}. Input: {input}")]
-        MissingClosing { code: ErrorKind, input: String },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -190,56 +177,47 @@ mod tests {
         // Synthetic tests
         // Hexadecimal: Missing closing angle bracket
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67");
-        let expected_error = ParseErr::Failure(
-            HexadecimalFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"",
+            object: stringify!(Hexadecimal),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Dictionary opening
         let parse_result = Hexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>");
-        let expected_error = ParseErr::Error(
-            HexadecimalRecoverable::DictionaryOpening(
-                "<<412048657861646563696D616C20537472696E67>".to_string(),
-            )
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"<<412048657861646563696D616C20537472696E67>",
+            object: stringify!(Hexadecimal),
+            code: ParseErrorCode::ObjectType,
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Not found
         let parse_result = Hexadecimal::parse(b"412048657861646563696D616C20537472696E67>");
-        let expected_error = ParseErr::Error(
-            HexadecimalRecoverable::NotFound {
-                code: ErrorKind::Char,
-                input: "412048657861646563696D616C20537472696E67>".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseRecoverable {
+            buffer: b"412048657861646563696D616C20537472696E67>",
+            object: stringify!(Hexadecimal),
+            code: ParseErrorCode::NotFound(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Missing end angle bracket
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67<");
-        let expected_error = ParseErr::Failure(
-            HexadecimalFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "<".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"<",
+            object: stringify!(Hexadecimal),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Unsupported digits
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67XX>");
-        let expected_error = ParseErr::Failure(
-            HexadecimalFailure::MissingClosing {
-                code: ErrorKind::Char,
-                input: "XX>".to_string(),
-            }
-            .into(),
-        );
+        let expected_error = ParseFailure {
+            buffer: b"XX>",
+            object: stringify!(Hexadecimal),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
+        };
         assert_err_eq!(parse_result, expected_error);
     }
 

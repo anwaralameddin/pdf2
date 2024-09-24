@@ -18,8 +18,10 @@ const DECODED_LIMIT: usize = 1 << 30;
 
 /// Although u32 would suffice for most cases, allowing for ~.5 GiB files,
 /// [7.5.4 Cross-reference table, p56] only restricts bytes offsets to 10
-/// digits, allowing for ~9.3 GiB files. Hence, it can be represented as a u64.
-type Offset = u64;
+/// digits, allowing for ~9.3 GiB files. Hence, it can be represented as a u64
+/// if the operating system supports it. However, in any case, we need to
+/// convert to `usize` to index the buffer.
+type Offset = usize;
 /// REFERENCE: [3.33 indirect object, p10]
 /// - Object numbers are positive integer objects.
 /// - The object number cannot exceed allowed offsets.

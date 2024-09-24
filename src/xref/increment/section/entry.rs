@@ -2,7 +2,6 @@ use ::nom::branch::alt;
 use ::nom::bytes::complete::tag;
 use ::nom::bytes::complete::take_while_m_n;
 use ::nom::character::complete::char;
-use ::nom::combinator::map;
 use ::nom::error::Error as NomError;
 use ::nom::sequence::pair;
 use ::nom::sequence::separated_pair;
@@ -13,13 +12,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::new_parse_failure;
 use crate::parse::character_set::is_white_space;
-use crate::parse::error::NewParseErr;
-use crate::parse::error::NewParseFailure;
-use crate::parse::error::NewParseResult;
+use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
-use crate::parse::NewParser;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseResult;
+use crate::parse::Parser;
+use crate::parse_failure;
 use crate::Byte;
 use crate::GenerationNumber;
 use crate::ObjectNumberOrZero;
@@ -57,20 +56,17 @@ impl Display for Entry {
     }
 }
 
-impl NewParser<'_> for Entry {
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+impl Parser<'_> for Entry {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, entry) = terminated(
-            map(
+            separated_pair(
                 separated_pair(
-                    separated_pair(
-                        take_while_m_n(BIG_LEN, BIG_LEN, AsChar::is_dec_digit),
-                        char::<_, NomError<_>>(' '),
-                        take_while_m_n(SMALL_LEN, SMALL_LEN, AsChar::is_dec_digit),
-                    ),
-                    char(' '),
-                    alt((tag(b"f"), tag(b"n"))),
+                    take_while_m_n(BIG_LEN, BIG_LEN, AsChar::is_dec_digit),
+                    char::<_, NomError<_>>(' '),
+                    take_while_m_n(SMALL_LEN, SMALL_LEN, AsChar::is_dec_digit),
                 ),
-                |value| -> NewParseResult<Entry> { Entry::try_from(value).map_err(Into::into) },
+                char(' '),
+                alt((tag(b"f"), tag(b"n"))),
             ),
             pair(
                 // The below uses `many_m_n` instead of `eol` to parse exactly
@@ -79,27 +75,31 @@ impl NewParser<'_> for Entry {
                 take_while_m_n(1, 1, |byte| byte == b'\n' || byte == b'\r'),
             ),
         )(buffer)
-        .map_err(new_parse_failure!(
+        .map_err(parse_failure!(
             e,
-            NewParseFailure {
+            // Except for Subsection, Section and XRefStream, NotFound errors
+            // for xref objects should be propagated as failures.
+            ParseFailure {
                 buffer: e.input,
-                code: ParseErrorCode::NotFound(stringify!(Entry), Some(e.code))
+                object: stringify!(Entry),
+                code: ParseErrorCode::NotFound(e.code)
             }
         ))?;
-        Ok((buffer, entry?))
+        let entry = Entry::try_from(entry)?;
+        Ok((buffer, entry))
     }
 }
 
 mod convert {
-    use super::error::EntryCode;
     use super::*;
-    use crate::parse::error::NewParseFailure;
+    use crate::parse::error::ParseFailure;
     use crate::parse::num::ascii_to_u16;
     use crate::parse::num::ascii_to_u64;
+    use crate::parse::num::ascii_to_usize;
     use crate::Byte;
 
     impl<'buffer> TryFrom<((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte])> for Entry {
-        type Error = NewParseFailure<'buffer>;
+        type Error = ParseFailure<'buffer>;
 
         fn try_from(
             value: ((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte]),
@@ -109,45 +109,35 @@ mod convert {
                 b"f" => {
                     let next_free = ascii_to_u64(num_64).ok_or(Self::Error {
                         buffer: num_64,
-                        code: EntryCode::NextFree.into(),
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::NextFree,
                     })?;
                     let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
                         buffer: num_16,
-                        code: EntryCode::GenerationNumber.into(),
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::GenerationNumber,
                     })?;
                     Ok(Self::Free(next_free, generation_number))
                 }
                 b"n" => {
-                    let offset = ascii_to_u64(num_64).ok_or(Self::Error {
+                    let offset = ascii_to_usize(num_64).ok_or(Self::Error {
                         buffer: num_64,
-                        code: ParseErrorCode::OffSet(stringify!(Entry)),
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::OffSet,
                     })?;
                     let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
                         buffer: num_16,
-                        code: EntryCode::GenerationNumber.into(),
+                        object: stringify!(Entry),
+                        code: ParseErrorCode::GenerationNumber,
                     })?;
                     Ok(Self::InUse(offset, generation_number))
                 }
                 _ => Err(Self::Error {
                     buffer: entry_type,
-                    code: EntryCode::EntryType.into(),
+                    object: stringify!(Entry),
+                    code: ParseErrorCode::EntryType,
                 }),
             }
         }
-    }
-}
-
-pub(crate) mod error {
-
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum EntryCode {
-        #[error("Next free object number")]
-        NextFree,
-        #[error("Generation number")]
-        GenerationNumber,
-        #[error("Entry type")]
-        EntryType,
     }
 }

@@ -10,25 +10,22 @@ use ::std::collections::VecDeque;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
-use error::SectionCode;
 
 use self::subsection::Subsection;
-use super::error::IncrementCode;
 use super::trailer::Trailer;
-use crate::new_parse_failure;
 use crate::object::direct::dictionary::Dictionary;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space;
 use crate::parse::character_set::white_space_or_comment;
-use crate::parse::error::NewParseErr;
-use crate::parse::error::NewParseFailure;
-use crate::parse::error::NewParseRecoverable;
-use crate::parse::error::NewParseResult;
+use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
-use crate::parse::NewParser;
+use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseRecoverable;
+use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse::KW_TRAILER;
 use crate::parse::KW_XREF;
+use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
 
@@ -49,14 +46,15 @@ impl Display for Section {
     }
 }
 
-impl NewParser<'_> for Section {
+impl Parser<'_> for Section {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (mut buffer, _) = terminated(tag(KW_XREF), eol)(buffer).map_err(parse_recoverable!(
             e,
-            NewParseRecoverable {
+            ParseRecoverable {
                 buffer: e.input,
-                code: ParseErrorCode::NotFound(stringify!(Section), Some(e.code))
+                object: stringify!(Section),
+                code: ParseErrorCode::NotFound(e.code)
             }
         ))?;
         // Here, we know that the buffer starts with a cross-reference section,
@@ -64,7 +62,7 @@ impl NewParser<'_> for Section {
         // propagated as SectionFail
         let mut subsections = VecDeque::new();
         let mut subsection: Subsection;
-        while let Some(result) = Subsection::parse_semi_quiet::<Subsection>(buffer) {
+        while let Some(result) = Subsection::parse_suppress_recoverable::<Subsection>(buffer) {
             // try_parse propagates only Failure errors
             (buffer, subsection) = result?;
             subsections.push_back(subsection);
@@ -77,28 +75,27 @@ impl NewParser<'_> for Section {
             tag(KW_TRAILER),
             opt(white_space_or_comment),
         )(buffer)
-        .map_err(new_parse_failure!(
+        .map_err(parse_failure!(
             e,
-            NewParseFailure {
+            ParseFailure {
                 buffer: e.input,
-                code: ParseErrorCode::MissingClosing(stringify!(Section), e.code)
+                object: stringify!(Section),
+                code: ParseErrorCode::MissingClosing(e.code)
             }
         ))?;
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (buffer, trailer) = Dictionary::parse(buffer).map_err(|err| {
-            NewParseFailure {
-                buffer,
-                code: SectionCode::MissingTrailerDictionary(
-                    Box::new(err.code().clone()), // TODO(TEMP)
-                )
-                .into(),
-            }
+        let (remains, trailer) = Dictionary::parse(buffer).map_err(|err| ParseFailure {
+            buffer: err.buffer(),
+            object: stringify!(Section),
+            code: ParseErrorCode::RecMissingSubobject(stringify!(Trailer), Box::new(err.code())),
         })?;
 
-        let trailer = Trailer::try_from(&trailer).map_err(|err| NewParseFailure {
-            buffer,
-            code: IncrementCode::TrailerDictionary(stringify!(Section), err).into(),
+        let trailer = Trailer::try_from(&trailer).map_err(|err| ParseFailure {
+            buffer, // TODO (TEMP) Replace with trailer.as_bytes() when implemented
+            object: stringify!(Section),
+            code: ParseErrorCode::InvalidTrailerDictionary(err),
         })?;
+        let buffer = remains;
 
         let section = Section {
             subsections,
@@ -128,6 +125,9 @@ mod process {
                 Table::default(),
                 |mut table, subsection| -> NewProcessResult<Table> {
                     for (index, entry) in subsection.entries.iter().enumerate() {
+                        // FIXME (TEMP) Refactor the below to avoid the following error when using
+                        // ObjectNumberOrZero::from(index): the trait `std::convert::From<usize>` is not
+                        // implemented for `ObjectNumberOrZero`
                         let object_number =
                             subsection.first_object_number + index as ObjectNumberOrZero;
                         // The object number should not appear in multiple
@@ -169,20 +169,6 @@ mod convert {
     }
 }
 
-pub(crate) mod error {
-
-    use ::thiserror::Error;
-
-    use crate::parse::error::ParseErrorCode;
-
-    // Box does not implement Copy
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum SectionCode {
-        #[error("Missing trailer dictionary. Error: {0}")]
-        MissingTrailerDictionary(Box<ParseErrorCode>),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
@@ -190,9 +176,9 @@ mod tests {
     use super::entry::Entry;
     use super::*;
     use crate::assert_err_eq;
-    use crate::new_parse_assert_eq;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
+    use crate::parse_assert_eq;
 
     #[test]
     fn section_valid() {
@@ -202,21 +188,21 @@ mod tests {
             VecDeque::default(),
             Trailer::new(1).set_root(unsafe { Reference::new_unchecked(1, 0) }),
         );
-        new_parse_assert_eq!(buffer, section, "".as_bytes());
+        parse_assert_eq!(buffer, section, "".as_bytes());
         // Synthetic test
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
         let section = Section::new(
             [Subsection::new(0, [Entry::Free(0, 65535)])],
             Trailer::new(1),
         );
-        new_parse_assert_eq!(buffer, section, "".as_bytes());
+        parse_assert_eq!(buffer, section, "".as_bytes());
 
         // PDF produced by pdfunite from PDFs produced by Microsoft Word
         let buffer: &[Byte] =
             include_bytes!("../../../../tests/data/F3D45259CBB36D09F04BF0D65BAAD3ED_section.bin");
         let subsection: Section =
             include!("../../../../tests/code/F3D45259CBB36D09F04BF0D65BAAD3ED_section.rs");
-        new_parse_assert_eq!(
+        parse_assert_eq!(
             buffer,
             subsection,
             "\r\nstartxref\r\n38912\r\n%%EOF\r\n".as_bytes()
@@ -232,18 +218,20 @@ mod tests {
         // Incmplte cross-reference section
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n";
         let parse_result = Section::parse(buffer);
-        let expected_error = NewParseFailure {
+        let expected_error = ParseFailure {
             buffer: b"",
-            code: ParseErrorCode::MissingClosing(stringify!(Section), ErrorKind::Tag),
+            object: stringify!(Section),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
 
         // Missing cross-reference section
         let buffer = b"trailer<</Size 1>>";
         let parse_result = Section::parse(buffer);
-        let expected_error = NewParseRecoverable {
+        let expected_error = ParseRecoverable {
             buffer: b"trailer<</Size 1>>",
-            code: ParseErrorCode::NotFound(stringify!(Section), Some(ErrorKind::Tag)),
+            object: stringify!(Section),
+            code: ParseErrorCode::NotFound(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
 
@@ -251,9 +239,10 @@ mod tests {
         // TOOD Refactor error messages to avoid the repetition below
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n<</Size 1>>";
         let parse_result = Section::parse(buffer);
-        let expected_error = NewParseFailure {
+        let expected_error = ParseFailure {
             buffer: b"<</Size 1>>",
-            code: ParseErrorCode::MissingClosing(stringify!(Section), ErrorKind::Tag),
+            object: stringify!(Section),
+            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
         };
         assert_err_eq!(parse_result, expected_error);
     }

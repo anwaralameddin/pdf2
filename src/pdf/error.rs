@@ -2,12 +2,10 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::io::ErrorKind;
-use ::std::num::TryFromIntError;
 use ::thiserror::Error;
 
 use super::*;
 use crate::object::indirect::id::Id;
-use crate::parse::error::NewParseErr;
 use crate::parse::error::ParseErr;
 use crate::process::error::NewProcessErr;
 use crate::Offset;
@@ -18,7 +16,7 @@ pub type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum PdfErr<'path> {
     #[error("Parse. File: {0}. Error: {1}")]
-    Parse(&'path Path, NewParseErr<'path>),
+    Parse(&'path Path, ParseErr<'path>),
     #[error("Process. File: {0}. Error: {1}")]
     Process(&'path Path, NewProcessErr),
     #[error("Empty cross-reference table. File: {0}")]
@@ -36,7 +34,7 @@ pub enum PdfErr<'path> {
 #[derive(Debug, Error, PartialEq, Clone)]
 pub struct PdfRecoverable<'path> {
     path: &'path Path,
-    errors: Vec<ObjectRecoverable>,
+    errors: Vec<ObjectRecoverable<'path>>,
 }
 
 impl Display for PdfRecoverable<'_> {
@@ -56,13 +54,10 @@ impl Display for PdfRecoverable<'_> {
 
 // This error variant is always included in the PdfRecoverable, and
 // there is no need to include the path here.
-// FIXME: Add Copy when ParseErr is changed to NewParseErr
 #[derive(Debug, Error, PartialEq, Clone)]
-pub enum ObjectRecoverable {
+pub enum ObjectRecoverable<'path> {
     #[error("Parse. Id: {0}. Offset {1}. Error: {2}")]
-    Parse(Id, u64, ParseErr),
-    #[error("Convert offset to usize. Id: {0}. Offset: {1}. Error: {2}")]
-    OffsetAsUsize(Id, Offset, TryFromIntError),
+    Parse(Id, Offset, ParseErr<'path>),
     #[error("Mismatched id: {0} != {1}")]
     MismatchedId(Id, Id),
 }
@@ -74,13 +69,13 @@ mod convert {
     use super::*;
 
     impl<'path> PdfRecoverable<'path> {
-        pub fn new(path: &'path Path, errors: Vec<ObjectRecoverable>) -> Self {
+        pub fn new(path: &'path Path, errors: Vec<ObjectRecoverable<'path>>) -> Self {
             Self { path, errors }
         }
     }
 
-    impl Deref for PdfRecoverable<'_> {
-        type Target = Vec<ObjectRecoverable>;
+    impl<'path> Deref for PdfRecoverable<'path> {
+        type Target = Vec<ObjectRecoverable<'path>>;
 
         fn deref(&self) -> &Self::Target {
             &self.errors

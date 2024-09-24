@@ -1,32 +1,24 @@
-use ::std::collections::VecDeque;
-use error::PreTableCode;
-
 use super::increment::Increment;
 use super::startxref::StartXRef;
-use crate::parse::error::NewParseFailure;
-use crate::parse::error::NewParseResult;
-use crate::parse::NewParser;
+use crate::parse::error::ParseResult;
+use crate::parse::Parser;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct PreTable(VecDeque<Increment>);
+pub(crate) struct PreTable(Vec<Increment>);
 
-impl NewParser<'_> for PreTable {
-    fn parse(buffer: &[Byte]) -> NewParseResult<(&[Byte], Self)> {
+impl Parser<'_> for PreTable {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (_, startxref) = StartXRef::parse(buffer)?;
 
-        let mut increments = VecDeque::new();
+        let mut increments = Vec::default();
 
         let mut prev = Some(*startxref);
 
         while let Some(offset) = prev {
-            let start = usize::try_from(offset).map_err(|err| NewParseFailure {
-                buffer: &[],
-                code: PreTableCode::U64ToOffSet(offset, err).into(),
-            })?;
-            let buffer_ref = &buffer[start..];
-            let (_, increment) = Increment::parse(buffer_ref)?;
+            let remains = &buffer[offset..];
+            let (_, increment) = Increment::parse(remains)?;
 
             // FIXME This does not take intoaccount the notes on
             // hybrid-reference file’s trailer dictionary in
@@ -35,10 +27,10 @@ impl NewParser<'_> for PreTable {
             prev = increment.trailer().prev();
 
             // We first read the last section and then read the previous one. We
-            // use `push_front` to preserve the order of the sections, which
+            // use `push` to preserve the order of the sections, which
             // simplifies iterating over them and merging them so that later
             // sections override earlier ones.
-            increments.push_front(increment);
+            increments.push(increment);
         }
 
         Ok((buffer, Self(increments)))
@@ -67,20 +59,20 @@ mod convert {
 
     use super::*;
 
-    impl From<VecDeque<Increment>> for PreTable {
-        fn from(value: VecDeque<Increment>) -> Self {
+    impl From<Vec<Increment>> for PreTable {
+        fn from(value: Vec<Increment>) -> Self {
             Self(value)
         }
     }
 
     impl FromIterator<Increment> for PreTable {
         fn from_iter<I: IntoIterator<Item = Increment>>(iter: I) -> Self {
-            Self(VecDeque::from_iter(iter))
+            Self(Vec::from_iter(iter))
         }
     }
 
     impl Deref for PreTable {
-        type Target = VecDeque<Increment>;
+        type Target = Vec<Increment>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -89,22 +81,10 @@ mod convert {
 
     impl IntoIterator for PreTable {
         type Item = Increment;
-        type IntoIter = <VecDeque<Increment> as IntoIterator>::IntoIter;
+        type IntoIter = <Vec<Increment> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()
         }
-    }
-}
-
-pub(crate) mod error {
-
-    use ::std::num::TryFromIntError;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum PreTableCode {
-        #[error("Offset. Code: {1}. Input: {0}")]
-        U64ToOffSet(u64, TryFromIntError),
     }
 }

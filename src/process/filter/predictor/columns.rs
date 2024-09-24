@@ -28,11 +28,13 @@ mod convert {
         type Error = ProcessErr;
 
         fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+            // TODO Replace with `as_usize`
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
                 let value = usize::try_from(**value)
-                    .map_err(|_| PredictorError::Unsupported(stringify!(Columns), **value))?;
+                    .map_err(|_| PredictorError::Unsupported(stringify!(Columns), **value))?; // TODO (TEMP) Avoid overriding the error
                 Ok(Self(value))
             } else {
+                // TODO (TEMP) Refactor to avoid cloning
                 Err(PredictorError::DataType(stringify!(Columns), value.clone()).into())
             }
         }
