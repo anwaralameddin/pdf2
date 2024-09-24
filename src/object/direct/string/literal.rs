@@ -18,6 +18,7 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use crate::fmt::debug_bytes;
+use crate::object::BorrowedBuffer;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -31,12 +32,13 @@ use crate::Byte;
 use crate::Bytes;
 
 /// REFERENCE: [7.3.4.2 Literal strings, p25-28}
+#[derive(Clone, Copy)]
+pub struct Literal<'buffer>(&'buffer [Byte]);
+
 #[derive(Clone)]
 pub struct OwnedLiteral(Bytes);
 
-impl OwnedLiteral {}
-
-impl Display for OwnedLiteral {
+impl Display for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "(")?;
         for &byte in self.0.iter() {
@@ -45,14 +47,25 @@ impl Display for OwnedLiteral {
         write!(f, ")")
     }
 }
-
-impl Debug for OwnedLiteral {
+impl Display for OwnedLiteral {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "({})", debug_bytes(&self.0))
+        Display::fmt(&Literal::from(self), f)
     }
 }
 
-impl PartialEq for OwnedLiteral {
+impl Debug for Literal<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "({})", debug_bytes(self.0))
+    }
+}
+
+impl Debug for OwnedLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Debug::fmt(&Literal::from(self), f)
+    }
+}
+
+impl PartialEq for Literal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
             self_escaped == other_escaped
@@ -62,9 +75,14 @@ impl PartialEq for OwnedLiteral {
         }
     }
 }
+impl PartialEq for OwnedLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        Literal::from(self) == Literal::from(other)
+    }
+}
 
-impl Parser<'_> for OwnedLiteral {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> Parser<'buffer> for Literal<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
         let (buffer, value) = preceded(
@@ -93,8 +111,14 @@ impl Parser<'_> for OwnedLiteral {
             }
         ))?;
 
-        let literal = Self(value.into());
+        let literal = Self(value);
         Ok((buffer, literal))
+    }
+}
+
+impl Parser<'_> for OwnedLiteral {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        Literal::parse(buffer).map(|(buffer, literal)| (buffer, literal.to_owned_buffer()))
     }
 }
 
@@ -136,7 +160,7 @@ mod process {
         Other,
     }
 
-    impl OwnedLiteral {
+    impl Literal<'_> {
         /// REFERENCE:
         /// - [7.3.4.2 Literal strings, p25]
         /// - ["Table 3: Escape sequences in literal strings", p25-26]
@@ -272,13 +296,31 @@ mod process {
             Ok(escaped)
         }
 
+        // pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
+        //     let encoded = encoding.encode(string)?;
+        //     Ok(Self(encoded.into()))
+        // }
+
+        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
+            encoding.decode(&self.escape()?)
+        }
+    }
+
+    impl OwnedLiteral {
+        /// REFERENCE:
+        /// - [7.3.4.2 Literal strings, p25]
+        /// - ["Table 3: Escape sequences in literal strings", p25-26]
+        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
+            Literal::from(self).escape()
+        }
+
         pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
             let encoded = encoding.encode(string)?;
             Ok(Self(encoded.into()))
         }
 
         pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            encoding.decode(&self.escape()?)
+            Literal::from(self).decode(encoding)
         }
     }
 
@@ -301,17 +343,51 @@ mod convert {
     use ::std::ops::Deref;
 
     use super::*;
+    use crate::object::BorrowedBuffer;
     use crate::Byte;
 
+    impl BorrowedBuffer for Literal<'_> {
+        type OwnedBuffer = OwnedLiteral;
+
+        fn to_owned_buffer(self) -> Self::OwnedBuffer {
+            OwnedLiteral(Bytes::from(self.0))
+        }
+    }
+
+    impl<'buffer> From<&'buffer OwnedLiteral> for Literal<'buffer> {
+        fn from(value: &'buffer OwnedLiteral) -> Self {
+            Literal(value.0.as_ref())
+        }
+    }
+
+    impl<'buffer> From<&'buffer [Byte]> for Literal<'buffer> {
+        fn from(value: &'buffer [Byte]) -> Self {
+            Self(value)
+        }
+    }
     impl From<&[Byte]> for OwnedLiteral {
         fn from(value: &[Byte]) -> Self {
-            Self(value.into())
+            Literal::from(value).to_owned_buffer()
+        }
+    }
+
+    impl<'buffer> From<&'buffer str> for Literal<'buffer> {
+        fn from(value: &'buffer str) -> Self {
+            Self::from(value.as_bytes())
         }
     }
 
     impl From<&str> for OwnedLiteral {
         fn from(value: &str) -> Self {
-            Self::from(value.as_bytes())
+            Literal::from(value).to_owned_buffer()
+        }
+    }
+
+    impl<'buffer> Deref for Literal<'buffer> {
+        type Target = &'buffer [Byte];
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
         }
     }
 
@@ -337,23 +413,23 @@ mod tests {
         // Synthetic tests
         parse_assert_eq!(
             b"(A literal string)",
-            OwnedLiteral::from("A literal string"),
+            Literal::from("A literal string"),
             "".as_bytes(),
         );
         parse_assert_eq!(
             b"(A literal
 string)",
-            OwnedLiteral::from(r"A literal\nstring"),
+            Literal::from(r"A literal\nstring"),
             "".as_bytes(),
         );
         parse_assert_eq!(
             br"({A \(literal string!()} with unbalanced escaped parentheses)",
-            OwnedLiteral::from(r"{A \(literal string!()} with unbalanced escaped parentheses"),
+            Literal::from(r"{A \(literal string!()} with unbalanced escaped parentheses"),
             "".as_bytes(),
         );
         parse_assert_eq!(
             b"(((A))literal(string)(()))",
-            OwnedLiteral::from("((A))literal(string)(())"),
+            Literal::from("((A))literal(string)(())"),
             "".as_bytes()
         );
     }
@@ -362,7 +438,7 @@ string)",
     fn string_literal_invalid() {
         // Synthetic tests
         // Literal: Missing end parenthesis
-        let parse_result = OwnedLiteral::parse(b"(Unbalanced parentheses");
+        let parse_result = Literal::parse(b"(Unbalanced parentheses");
         let expected_error = ParseFailure {
             buffer: b"",
             object: stringify!(Literal),
@@ -371,7 +447,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
-        let parse_result = OwnedLiteral::parse(br"(Escaped parentheses\)");
+        let parse_result = Literal::parse(br"(Escaped parentheses\)");
         let expected_error = ParseFailure {
             buffer: b"",
             object: stringify!(Literal),
@@ -380,7 +456,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
-        let parse_result = OwnedLiteral::parse(b"Unbalanced parentheses)");
+        let parse_result = Literal::parse(b"Unbalanced parentheses)");
         let expected_error = ParseRecoverable {
             buffer: b"Unbalanced parentheses)",
             object: stringify!(Literal),
@@ -392,59 +468,59 @@ string)",
     #[test]
     fn string_literal_escape() {
         // Synthetic tests
-        let literal_solidus_eol = OwnedLiteral::from(
+        let literal_solidus_eol = Literal::from(
             r"A \
 literal \
 string",
         );
-        let literal_solidus_eol_escaped = OwnedLiteral::from("A literal string");
+        let literal_solidus_eol_escaped = Literal::from("A literal string");
         assert_eq!(literal_solidus_eol, literal_solidus_eol_escaped);
 
-        let literal_eol = OwnedLiteral::from(
+        let literal_eol = Literal::from(
             "A literal string
 ",
         );
-        let literal_eol_escaped = OwnedLiteral::from(r"A literal string\n");
+        let literal_eol_escaped = Literal::from(r"A literal string\n");
         assert_eq!(literal_eol, literal_eol_escaped);
 
-        let literal_eol_2 = OwnedLiteral::from(b"A literal string\r\n".as_slice());
-        let literal_eol_2_escaped = OwnedLiteral::from(b"A literal string\n".as_slice());
+        let literal_eol_2 = Literal::from(b"A literal string\r\n".as_slice());
+        let literal_eol_2_escaped = Literal::from(b"A literal string\n".as_slice());
         assert_eq!(literal_eol_2, literal_eol_2_escaped);
 
-        let literal_unsupported_solidus = OwnedLiteral::from(r"Unsupported \ escape.");
-        let literal_unsupported_solidus_escaped = OwnedLiteral::from("Unsupported  escape.");
+        let literal_unsupported_solidus = Literal::from(r"Unsupported \ escape.");
+        let literal_unsupported_solidus_escaped = Literal::from("Unsupported  escape.");
         assert_eq!(
             literal_unsupported_solidus,
             literal_unsupported_solidus_escaped
         );
 
-        let literal_unsupported_escape = OwnedLiteral::from(r"Unsupported escape \z.");
-        let literal_unsupported_escape_escaped = OwnedLiteral::from(r"Unsupported escape z.");
+        let literal_unsupported_escape = Literal::from(r"Unsupported escape \z.");
+        let literal_unsupported_escape_escaped = Literal::from(r"Unsupported escape z.");
         assert_eq!(
             literal_unsupported_escape,
             literal_unsupported_escape_escaped
         );
 
-        let literal = OwnedLiteral::from(r"\101");
-        let literal_escaped = OwnedLiteral::from(r"A");
+        let literal = Literal::from(r"\101");
+        let literal_escaped = Literal::from(r"A");
         assert_eq!(literal, literal_escaped);
 
-        let literal = OwnedLiteral::from(r"\377");
-        let literal_escaped = OwnedLiteral::from(b"\xFF".as_slice());
+        let literal = Literal::from(r"\377");
+        let literal_escaped = Literal::from(b"\xFF".as_slice());
         assert_eq!(literal, literal_escaped);
 
-        let literal = OwnedLiteral::from(r"\77");
-        let literal_escaped = OwnedLiteral::from("?");
+        let literal = Literal::from(r"\77");
+        let literal_escaped = Literal::from("?");
         assert_eq!(literal, literal_escaped);
 
-        let literal = OwnedLiteral::from(r"\077");
-        let literal_escaped = OwnedLiteral::from("?");
+        let literal = Literal::from(r"\077");
+        let literal_escaped = Literal::from("?");
         assert_eq!(literal, literal_escaped);
 
-        let literal = OwnedLiteral::from(
+        let literal = Literal::from(
             r"\124\150\151\163\40\151\163\40\141\40\163\164\162\151\156\147\40\151\156\40\157\143\164\141\154\40\162\145\160\162\145\163\145\156\164\141\164\151\157\156\56",
         );
-        let literal_escaped = OwnedLiteral::from(r"This is a string in octal representation.");
+        let literal_escaped = Literal::from(r"This is a string in octal representation.");
         assert_eq!(literal, literal_escaped);
     }
 
