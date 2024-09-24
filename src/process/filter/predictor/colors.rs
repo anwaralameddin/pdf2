@@ -14,15 +14,16 @@ mod convert {
 
     use super::Colors;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::OwnedDirectValue;
+    use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
-    impl TryFrom<&OwnedDirectValue> for Colors {
+    impl TryFrom<&DirectValue<'_>> for Colors {
         type Error = ProcessErr;
 
-        fn try_from(value: &OwnedDirectValue) -> Result<Self, Self::Error> {
-            if let OwnedDirectValue::Numeric(Numeric::Integer(value)) = value {
+        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+            if let DirectValue::Numeric(Numeric::Integer(value)) = value {
                 match **value {
                     1 => Ok(Self::One),
                     2 => Ok(Self::Two),
@@ -31,7 +32,11 @@ mod convert {
                     _ => Err(PredictorError::Unsupported(stringify!(Colors), **value).into()),
                 }
             } else {
-                Err(PredictorError::DataType(stringify!(Colors), value.clone()).into())
+                Err(
+                    PredictorError::DataType(stringify!(Colors), value.clone().to_owned_buffer())
+                        .into(),
+                )
+                // TODO (TEMP) Avoid to_owned_buffer
             }
         }
     }

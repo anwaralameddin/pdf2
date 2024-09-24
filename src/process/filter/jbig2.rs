@@ -1,5 +1,4 @@
 use super::Filter;
-use crate::object::direct::dictionary::OwnedDictionary;
 use crate::object::indirect::stream::OwnedStream;
 use crate::process::error::ProcessResult;
 use crate::Byte;
@@ -28,12 +27,13 @@ impl Filter for JBiG2 {
 mod convert {
     use super::error::Jbig2Error;
     use super::*;
-    use crate::object::direct::OwnedDirectValue;
+    use crate::object::direct::dictionary::Dictionary;
+    use crate::object::direct::DirectValue;
     use crate::process::error::ProcessErr;
 
     impl JBiG2 {
         pub(in crate::process::filter) fn new(
-            decode_parms: Option<&OwnedDictionary>,
+            decode_parms: Option<&Dictionary>,
         ) -> ProcessResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let jbig2_globals = decode_parms
@@ -49,10 +49,10 @@ mod convert {
         }
     }
 
-    impl TryFrom<&OwnedDirectValue> for Jbig2Globals {
+    impl TryFrom<&DirectValue<'_>> for Jbig2Globals {
         type Error = ProcessErr;
 
-        fn try_from(_value: &OwnedDirectValue) -> Result<Self, Self::Error> {
+        fn try_from(_value: &DirectValue) -> Result<Self, Self::Error> {
             todo!("Implement TryFrom<&DirectValue> for Jbig2Globals")
         }
     }

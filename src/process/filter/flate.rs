@@ -6,7 +6,6 @@ use ::std::io::Read;
 use self::error::FlateError;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::object::direct::dictionary::OwnedDictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
@@ -47,10 +46,11 @@ impl Filter for Fl {
 
 mod convert {
     use super::*;
+    use crate::object::direct::dictionary::Dictionary;
 
     impl Fl {
         pub(in crate::process::filter) fn new(
-            decode_parms: Option<&OwnedDictionary>,
+            decode_parms: Option<&Dictionary>,
         ) -> ProcessResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;

@@ -57,12 +57,13 @@ mod convert {
     use super::error::PredictorError;
     use super::png::PngAlgorithm;
     use super::*;
-    use crate::object::direct::dictionary::OwnedDictionary;
+    use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
-    use crate::object::direct::OwnedDirectValue;
+    use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
 
     impl Predictor {
-        pub(in crate::process::filter) fn new(decode_parms: &OwnedDictionary) -> ProcessResult<Self> {
+        pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> ProcessResult<Self> {
             let bits_per_component = decode_parms
                 .get(KEY_BITS_PER_COMPONENT)
                 .map(BitsPerComponent::try_from)
@@ -85,7 +86,7 @@ mod convert {
             };
 
             match decode_parms.get(KEY_PREDICTOR) {
-                Some(OwnedDirectValue::Numeric(Numeric::Integer(value))) => match **value {
+                Some(DirectValue::Numeric(Numeric::Integer(value))) => match **value {
                     1 => Ok(Self::None),
                     2 => Ok(Self::Tiff(Tiff::new(parms))),
                     10 => Ok(Self::Png(Png::new(PngAlgorithm::None, parms))),
@@ -97,7 +98,11 @@ mod convert {
                     _ => Err(PredictorError::Unsupported(stringify!(Predictor), **value).into()),
                 },
                 Some(value) => {
-                    Err(PredictorError::DataType(stringify!(Predictor), value.clone()).into())
+                    Err(PredictorError::DataType(
+                        stringify!(Predictor),
+                        value.clone().to_owned_buffer(),
+                    )
+                    .into()) // TODO (TEMP) Avoid to_owned_buffer
                 }
                 None => Ok(Self::None),
             }

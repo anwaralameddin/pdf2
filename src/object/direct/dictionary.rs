@@ -280,7 +280,7 @@ mod convert {
         pub(crate) fn get_array(
             &self,
             key: &'static str,
-        ) -> StdResult<Option<&Array>, DataTypeError> {
+        ) -> StdResult<Option<&Array>, DataTypeError<'static>> {
             // <'static>
             self.get(key)
                 .map(|value| {
@@ -297,7 +297,7 @@ mod convert {
         pub(crate) fn get_name(
             &self,
             key: &'static str,
-        ) -> StdResult<Option<&Name>, DataTypeError> {
+        ) -> StdResult<Option<&Name>, DataTypeError<'static>> {
             self.get(key)
                 .map(|value| {
                     value.as_name().ok_or_else(|| DataTypeError {
@@ -310,7 +310,10 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn get_u64(&self, key: &'static str) -> StdResult<Option<u64>, DataTypeError> {
+        pub(crate) fn get_u64(
+            &self,
+            key: &'static str,
+        ) -> StdResult<Option<u64>, DataTypeError<'static>> {
             self.get(key)
                 .map(|value| {
                     value
@@ -330,7 +333,7 @@ mod convert {
         pub(crate) fn get_usize(
             &self,
             key: &'static str,
-        ) -> StdResult<Option<usize>, DataTypeError> {
+        ) -> StdResult<Option<usize>, DataTypeError<'static>> {
             self.get(key)
                 .map(|value| {
                     value
@@ -350,7 +353,7 @@ mod convert {
         pub(crate) fn get_reference(
             &self,
             key: &'static str,
-        ) -> StdResult<Option<&Reference>, DataTypeError> {
+        ) -> StdResult<Option<&Reference>, DataTypeError<'static>> {
             self.get(key)
                 .map(|value| {
                     value.as_reference().ok_or_else(|| DataTypeError {

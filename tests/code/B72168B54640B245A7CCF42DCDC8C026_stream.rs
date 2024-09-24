@@ -1,10 +1,10 @@
-OwnedStream::new(
-    OwnedDictionary::from_iter([
-        ("Type".into(), OwnedName::from("XRef").into()),
+Stream::new(
+    Dictionary::from_iter([
+        ("Type".into(), Name::from("XRef").into()),
         ("Size".into(), 60.into()),
         (
             "W".into(),
-            OwnedArray::from_iter([
+            Array::from_iter([
                 1.into(),
                 4.into(),
                 2.into(),
@@ -19,13 +19,13 @@ OwnedStream::new(
         }),
         (
             "ID".into(),
-            OwnedArray::from_iter([
-                OwnedHexadecimal::from("B72168B54640B245A7CCF42DCDC8C026").into(),
-                OwnedHexadecimal::from("B72168B54640B245A7CCF42DCDC8C026").into(),
+            Array::from_iter([
+                Hexadecimal::from("B72168B54640B245A7CCF42DCDC8C026").into(),
+                Hexadecimal::from("B72168B54640B245A7CCF42DCDC8C026").into(),
             ])
             .into(),
         ),
-        ("Filter".into(), OwnedName::from("FlateDecode").into()),
+        ("Filter".into(), Name::from("FlateDecode").into()),
         ("Length".into(), 193.into()),
     ]),
     &buffer[170..363],

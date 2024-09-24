@@ -24,14 +24,14 @@ use self::jpx::Jpx;
 use self::lzw::Lzw;
 use self::run_length::RL;
 use super::error::ProcessResult;
-use crate::object::direct::dictionary::OwnedDictionary;
-use crate::object::direct::name::OwnedName;
-use crate::object::direct::OwnedDirectValue;
+use crate::object::direct::dictionary::Dictionary;
+use crate::object::direct::name::Name;
 use crate::object::indirect::stream::KEY_DECODEPARMS;
 use crate::object::indirect::stream::KEY_F;
 use crate::object::indirect::stream::KEY_FDECODEPARMS;
 use crate::object::indirect::stream::KEY_FFILTER;
 use crate::object::indirect::stream::KEY_FILTER;
+use crate::object::BorrowedBuffer;
 use crate::Byte;
 
 pub(crate) trait Filter {
@@ -103,7 +103,7 @@ enum Filtering {
 }
 
 impl Filtering {
-    pub(super) fn new(name: &OwnedName, decode_parms: Option<&OwnedDictionary>) -> ProcessResult<Self> {
+    pub(super) fn new(name: &Name, decode_parms: Option<&Dictionary>) -> ProcessResult<Self> {
         // REFERENCE: [Table 92 — Additional abbreviations in an inline image
         // object, p269]
         match name.as_bytes() {
@@ -117,7 +117,7 @@ impl Filtering {
             b"DCT" | b"DCTDecode" => Ok(Self::Dct(Dct::new(decode_parms)?)),
             b"JPXDecode" => Ok(Self::Jpx(Jpx)),
             b"Crypt" => Ok(Self::Crypt(Crypt::new(decode_parms)?)),
-            _ => Err(FilterError::Unsupported(name.clone()).into()),
+            _ => Err(FilterError::Unsupported(name.to_owned_buffer()).into()), /* TODO (TEMP) Avoid to_owned_buffer */
         }
     }
 }
@@ -158,10 +158,12 @@ impl Filter for Filtering {
 
 mod convert {
     use super::*;
+    use crate::object::direct::dictionary::Dictionary;
+    use crate::object::direct::DirectValue;
 
     impl FilteringChain {
         /// REFERENCE: [7.3.8.2 Stream extent, p31-33]
-        pub(crate) fn new(dictionary: &OwnedDictionary) -> ProcessResult<Self> {
+        pub(crate) fn new(dictionary: &Dictionary) -> ProcessResult<Self> {
             // TODO Move this to a separate function that `parses` the stream
             // dictionary according to a specific schema.
             let filtering = if dictionary.get(KEY_F).is_some() {
@@ -177,18 +179,15 @@ mod convert {
 
             let filter_chain = match (filtering, decode_pars) {
                 (
-                    Some(OwnedDirectValue::Name(filtering)),
-                    Some(OwnedDirectValue::Dictionary(decode_pars)),
+                    Some(DirectValue::Name(filtering)),
+                    Some(DirectValue::Dictionary(decode_pars)),
                 ) => {
                     vec![Filtering::new(filtering, Some(decode_pars))?]
                 }
-                (Some(OwnedDirectValue::Name(filtering)), None) => {
+                (Some(DirectValue::Name(filtering)), None) => {
                     vec![Filtering::new(filtering, None)?]
                 }
-                (
-                    Some(OwnedDirectValue::Array(filterings)),
-                    Some(OwnedDirectValue::Array(decode_pars)),
-                ) => {
+                (Some(DirectValue::Array(filterings)), Some(DirectValue::Array(decode_pars))) => {
                     if filterings.len() != decode_pars.len() {
                         return Err(
                             FilterError::Mismatch(filterings.len(), decode_pars.len()).into()
@@ -197,39 +196,41 @@ mod convert {
                     filterings
                         .iter()
                         .zip(decode_pars.iter())
-                        .map(|(filtering, decode_pars)| match (filtering, decode_pars) {
+                        .map(|(filtering, decode_pars)| {
+                            match (filtering, decode_pars) {
                             (
-                                OwnedDirectValue::Name(filtering),
-                                OwnedDirectValue::Dictionary(decode_pars),
+                                DirectValue::Name(filtering),
+                                DirectValue::Dictionary(decode_pars),
                             ) => Ok(Filtering::new(filtering, Some(decode_pars))?),
-                            (OwnedDirectValue::Name(filtering), OwnedDirectValue::Null(_)) => {
+                            (DirectValue::Name(filtering), DirectValue::Null(_)) => {
                                 Ok(Filtering::new(filtering, None)?)
                             }
-                            (OwnedDirectValue::Name(_), _) => Err(FilterError::DataType(
+                            (DirectValue::Name(_), _) => Err(FilterError::DataType(
                                 KEY_DECODEPARMS,
                                 stringify!(Dictionary),
-                                decode_pars.clone(),
+                                decode_pars.clone().to_owned_buffer(), // TODO (TEMP) Avoid to_owned_buffer
                             )
                             .into()),
                             _ => Err(FilterError::DataType(
                                 KEY_FILTER,
                                 stringify!(Name),
-                                filtering.clone(),
+                                filtering.clone().to_owned_buffer(), // TODO (TEMP) Avoid to_owned_buffer
                             )
                             .into()),
+                        }
                         })
                         .collect::<ProcessResult<_>>()?
                 }
-                (Some(OwnedDirectValue::Array(filtersing)), None) => filtersing
+                (Some(DirectValue::Array(filtersing)), None) => filtersing
                     .iter()
                     .map(|filtering| -> ProcessResult<Filtering> {
-                        if let OwnedDirectValue::Name(filtering) = filtering {
+                        if let DirectValue::Name(filtering) = filtering {
                             Ok(Filtering::new(filtering, None)?)
                         } else {
                             Err(FilterError::DataType(
                                 KEY_FILTER,
                                 stringify!(Name),
-                                filtering.clone(),
+                                filtering.clone().to_owned_buffer(), // TODO (TEMP) Avoid to_owned_buffer
                             )
                             .into())
                         }
@@ -242,9 +243,9 @@ mod convert {
                     return Err(FilterError::DataType(
                         KEY_FILTER,
                         stringify!(Name | Array),
-                        filtering.clone(),
+                        filtering.clone().to_owned_buffer(), // TODO (TEMP) Avoid to_owned_buffer
                     )
-                    .into())
+                    .into());
                 }
             };
 

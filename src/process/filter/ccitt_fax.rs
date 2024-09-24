@@ -1,5 +1,5 @@
 use super::Filter;
-use crate::object::direct::dictionary::OwnedDictionary;
+use crate::object::direct::dictionary::Dictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
@@ -8,7 +8,7 @@ use crate::Byte;
 pub(super) struct Ccf {}
 
 impl Ccf {
-    pub(super) fn new(_decode_parms: Option<&OwnedDictionary>) -> ProcessResult<Self> {
+    pub(super) fn new(_decode_parms: Option<&Dictionary>) -> ProcessResult<Self> {
         todo!("Implement Ccf::new")
     }
 }
