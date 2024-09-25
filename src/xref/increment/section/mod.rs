@@ -13,7 +13,7 @@ use ::std::fmt::Result as FmtResult;
 
 use self::subsection::Subsection;
 use super::trailer::Trailer;
-use crate::object::direct::dictionary::OwnedDictionary;
+use crate::object::direct::dictionary::Dictionary;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space;
 use crate::parse::character_set::white_space_or_comment;
@@ -31,12 +31,12 @@ use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p57]
 #[derive(Debug, PartialEq)]
-pub(crate) struct Section {
+pub(crate) struct Section<'buffer> {
     pub(crate) subsections: VecDeque<Subsection>,
-    pub(crate) trailer: Trailer,
+    pub(crate) trailer: Trailer<'buffer>,
 }
 
-impl Display for Section {
+impl Display for Section<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         writeln!(f, "{}", KW_XREF)?;
         for subsection in &self.subsections {
@@ -46,9 +46,9 @@ impl Display for Section {
     }
 }
 
-impl Parser<'_> for Section {
+impl<'buffer> Parser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let (mut buffer, _) = terminated(tag(KW_XREF), eol)(buffer).map_err(parse_recoverable!(
             e,
             ParseRecoverable {
@@ -84,13 +84,13 @@ impl Parser<'_> for Section {
             }
         ))?;
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (remains, trailer) = OwnedDictionary::parse(buffer).map_err(|err| ParseFailure {
+        let (remains, trailer) = Dictionary::parse(buffer).map_err(|err| ParseFailure {
             buffer: err.buffer(),
             object: stringify!(Section),
             code: ParseErrorCode::RecMissingSubobject(stringify!(Trailer), Box::new(err.code())),
         })?;
 
-        let trailer = Trailer::try_from(&trailer).map_err(|err| ParseFailure {
+        let trailer = Trailer::try_from(trailer).map_err(|err| ParseFailure {
             buffer, // TODO (TEMP) Replace with trailer.as_bytes() when implemented
             object: stringify!(Section),
             code: ParseErrorCode::InvalidTrailerDictionary(err),
@@ -117,7 +117,7 @@ mod process {
     use crate::xref::ToTable;
     use crate::ObjectNumberOrZero;
 
-    impl ToTable for Section {
+    impl ToTable for Section<'_> {
         // REFERENCE: [7.5.4 Cross-reference table, p56]
         fn to_table(&self) -> NewProcessResult<Table> {
             let mut object_numbers: HashSet<ObjectNumberOrZero> = Default::default();
@@ -159,8 +159,11 @@ mod process {
 mod convert {
     use super::*;
 
-    impl Section {
-        pub(crate) fn new(subsections: impl Into<VecDeque<Subsection>>, trailer: Trailer) -> Self {
+    impl<'buffer> Section<'buffer> {
+        pub(crate) fn new(
+            subsections: impl Into<VecDeque<Subsection>>,
+            trailer: Trailer<'buffer>,
+        ) -> Self {
             Self {
                 subsections: subsections.into(),
                 trailer,
@@ -176,7 +179,7 @@ mod tests {
     use super::entry::Entry;
     use super::*;
     use crate::assert_err_eq;
-    use crate::object::direct::string::OwnedHexadecimal;
+    use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse_assert_eq;
 

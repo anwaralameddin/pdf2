@@ -4,7 +4,6 @@
 
 - The recent change from <code>ReaderParser</code> to <code>Parser</code> seems to have slowed the parsing. Investigate and fix.
 - Reconsider the order of calls in <code>parse_semi_quiet</code> so that simple types are tried first.
-- Given the recent change into a single read, replace cloning with references.
 - Cache created filters.
 
 ## Fixes

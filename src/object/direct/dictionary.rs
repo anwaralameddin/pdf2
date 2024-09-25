@@ -175,6 +175,7 @@ mod process {
 
 mod convert {
     use ::std::ops::Deref;
+    use ::std::ops::DerefMut;
     use ::std::result::Result as StdResult;
 
     use self::error::DataTypeError;
@@ -263,6 +264,12 @@ mod convert {
         }
     }
 
+    impl<'buffer> DerefMut for Dictionary<'buffer> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
     impl IntoIterator for OwnedDictionary {
         type Item = (OwnedName, OwnedDirectValue);
         type IntoIter = <HashMap<OwnedName, OwnedDirectValue> as IntoIterator>::IntoIter;
@@ -272,8 +279,8 @@ mod convert {
         }
     }
 
-    impl Dictionary<'_> {
-        pub(crate) fn get(&self, key: &'static str) -> Option<&DirectValue> {
+    impl<'buffer> Dictionary<'buffer> {
+        pub(crate) fn get(&'buffer self, key: &'static str) -> Option<&DirectValue> {
             self.0.get(&Name::from(key))
         }
 

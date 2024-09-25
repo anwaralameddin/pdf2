@@ -40,6 +40,7 @@ pub(crate) trait Filter {
     fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>>;
 }
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct FilteringChain(Vec<Filtering>);
 
 impl Filter for FilteringChain {
@@ -87,7 +88,7 @@ impl Filter for FilteringChain {
 /// NOTE: This structure is named `Filtering` to avoid conflicts with the
 /// `Filter` trait. Also, this has the side effect of having consistent naming
 /// with the `Encoding` structure and the `Encoder` trait.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum Filtering {
     None,
     AHx(AHx),
@@ -273,7 +274,7 @@ pub(in crate::process) mod error {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::indirect::stream::OwnedStream;
+    use crate::object::indirect::stream::Stream;
     use crate::parse::Parser;
     use crate::process::error::ProcessResult;
     use crate::Byte;
@@ -282,11 +283,11 @@ mod tests {
         buffer: &[Byte],
         expected: &[Byte],
     ) -> ProcessResult<()> {
-        let (_, stream) = OwnedStream::parse(buffer).unwrap();
+        let (_, stream) = Stream::parse(buffer).unwrap();
         let defiltered = stream.defilter()?;
         assert_eq!(defiltered, expected);
         let refiltered = stream.filter_buffer(defiltered.as_slice())?;
-        assert_eq!(refiltered, &*stream.data);
+        assert_eq!(refiltered, stream.data);
         Ok(())
     }
 
@@ -300,7 +301,7 @@ mod tests {
         buffer: &[Byte],
         expected: &[Byte],
     ) -> ProcessResult<()> {
-        let (_, stream) = OwnedStream::parse(buffer).unwrap();
+        let (_, stream) = Stream::parse(buffer).unwrap();
         let defiltered = stream.defilter()?;
         assert_eq!(defiltered, expected);
         let refiltered = stream.filter_buffer(defiltered.as_slice())?;

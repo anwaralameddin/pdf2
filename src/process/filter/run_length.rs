@@ -2,7 +2,7 @@ use super::Filter;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct RL;
 
 impl Filter for RL {

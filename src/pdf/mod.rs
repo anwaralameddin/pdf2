@@ -8,12 +8,12 @@ use ::std::path::Path;
 use self::error::PdfErr;
 use self::error::PdfRecoverable;
 use crate::object::indirect::id::Id;
-use crate::object::indirect::OwnedIndirectValue;
+use crate::object::indirect::IndirectValue;
 use crate::xref::increment::trailer::Trailer;
 use crate::xref::Table;
 use crate::Byte;
 
-type ObjectsInUse = HashMap<Id, (OwnedIndirectValue, Span)>;
+type ObjectsInUse<'path> = HashMap<Id, (IndirectValue<'path>, Span)>;
 
 // TODO Add support for spans within object streams
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -34,7 +34,7 @@ pub struct Pdf<'path> {
     path: &'path Path,
     buffer: &'path [Byte],
     /// • The trailer
-    trailer: Trailer,
+    trailer: Trailer<'path>,
     /// • The cross-reference table
     table: Table,
     // • The version of the PDF specification
@@ -43,7 +43,7 @@ pub struct Pdf<'path> {
     /// - [7.5.1 General, p53]
     /// - [7.5.3 File body, p55]
     /// • The body of a PDF file
-    objects_in_use: ObjectsInUse,
+    objects_in_use: ObjectsInUse<'path>,
     // TODO Add support for:
     // - Free objects
     // - Compressed objects
@@ -78,21 +78,19 @@ mod process {
     use super::error::PdfErr;
     use super::error::PdfResult;
     use super::*;
-    use crate::object::indirect::object::OwnedIndirectObject;
+    use crate::object::indirect::object::IndirectObject;
     use crate::parse::Parser;
+    use crate::xref::increment::trailer::Trailer;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
 
     impl<'path> PdfBuilder<'path> {
-        fn get_trailer(&'path self, pretable: &PreTable) -> PdfResult<Trailer> {
-            if let Some(increment) = pretable.last() {
-                // TODO (TEMP) currently, `PdfBuilder::build` does not use
-                // `pretable` after calling this function, and we can change
-                // this function and consume `pretable`
-                Ok(increment.trailer().clone())
-            } else {
-                Err(PdfErr::EmptyPreTable(self.path))
-            }
+        fn get_trailer(&'path self, pretable: PreTable<'path>) -> PdfResult<Trailer> {
+            let mut pretable = pretable;
+            pretable
+                .pop()
+                .map(|increment| increment.trailer())
+                .ok_or(PdfErr::EmptyPreTable(self.path))
         }
 
         fn parse_objects_in_use(
@@ -104,7 +102,7 @@ mod process {
             // collect all errors and report them at the end.
             let mut objects = HashMap::default();
             for (offset, id) in table.in_use.iter() {
-                let (remains, object) = match OwnedIndirectObject::parse(&self.buffer[*offset..]) {
+                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
                     Ok((remains, object)) => (remains, object),
                     Err(err) => {
                         errors.push(ObjectRecoverable::Parse(*id, *offset, err));
@@ -113,7 +111,7 @@ mod process {
                 };
                 // At this point, we have a valid indirect object, and there is
                 // no need to skip the object on errors
-                let OwnedIndirectObject {
+                let IndirectObject {
                     id: parsed_id,
                     value,
                 } = object;
@@ -141,7 +139,7 @@ mod process {
             let table = pretable
                 .to_table()
                 .map_err(|err| PdfErr::Process(self.path, err))?;
-            let trailer = self.get_trailer(&pretable)?;
+            let trailer = self.get_trailer(pretable)?;
             let mut errors = Vec::default();
             let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
             let errors = PdfRecoverable::new(self.path, errors);

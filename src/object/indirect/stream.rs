@@ -11,8 +11,6 @@ use ::std::fmt::Debug;
 use ::std::fmt::Display;
 
 use crate::object::direct::dictionary::Dictionary;
-use crate::object::direct::dictionary::OwnedDictionary;
-use crate::object::BorrowedBuffer;
 use crate::parse::character_set::eol;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
@@ -26,7 +24,6 @@ use crate::parse::KW_STREAM;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
-use crate::Bytes;
 
 pub(crate) const KEY_LENGTH: &str = "Length";
 pub(crate) const KEY_F: &str = "F";
@@ -43,12 +40,6 @@ pub(crate) struct Stream<'buffer> {
     pub(crate) data: &'buffer [Byte],
 }
 
-#[derive(PartialEq, Default, Clone)]
-pub(crate) struct OwnedStream {
-    pub(crate) dictionary: OwnedDictionary,
-    pub(crate) data: Bytes,
-}
-
 impl Display for Stream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}\n{}\n", self.dictionary, KW_STREAM)?;
@@ -59,12 +50,6 @@ impl Display for Stream<'_> {
     }
 }
 
-impl Display for OwnedStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&Stream::from(self), f)
-    }
-}
-
 impl Debug for Stream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}\n{}", self.dictionary, KW_STREAM)?;
@@ -72,12 +57,6 @@ impl Debug for Stream<'_> {
             write!(f, "{}", char::from(byte))?;
         }
         write!(f, "\n{}", KW_ENDSTREAM)
-    }
-}
-
-impl Debug for OwnedStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&Stream::from(self), f)
     }
 }
 
@@ -154,12 +133,6 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
     }
 }
 
-impl Parser<'_> for OwnedStream {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse(buffer).map(|(remains, stream)| (remains, stream.to_owned_buffer()))
-    }
-}
-
 mod process {
     use ::std::ffi::OsString;
 
@@ -172,18 +145,22 @@ mod process {
     use crate::Byte;
 
     impl Stream<'_> {
+        pub(crate) fn filters(&self) -> ProcessResult<FilteringChain> {
+            FilteringChain::new(&self.dictionary)
+        }
+
         pub(crate) fn defilter(&self) -> ProcessResult<Vec<Byte>> {
             // TODO Store the filter Chain in the Stream struct
             FilteringChain::new(&self.dictionary)?.defilter(self.data)
         }
 
         // TODO Amend in line with the `PdFString::encode` method
-        // pub(crate) fn filter_buffer(
-        //     &self,
-        //     buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
-        // ) -> ProcessResult<Vec<Byte>> {
-        //     FilteringChain::new(&self.dictionary)?.filter(buffer)
-        // }
+        pub(crate) fn filter_buffer(
+            &self,
+            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
+        ) -> ProcessResult<Vec<Byte>> {
+            FilteringChain::new(&self.dictionary)?.filter(buffer)
+        }
 
         pub(crate) fn defilter_buffer(
             &self,
@@ -197,61 +174,13 @@ mod process {
                 .and_then(|decoded| encoding.decode(&decoded))
         }
     }
-
-    impl OwnedStream {
-        pub(crate) fn defilter(&self) -> ProcessResult<Vec<Byte>> {
-            Stream::from(self).defilter()
-        }
-
-        // TODO Amend in line with the `PdFString::encode` method
-        pub(crate) fn filter_buffer(
-            &self,
-            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
-        ) -> ProcessResult<Vec<Byte>> {
-            let dictionary = Dictionary::from(&self.dictionary);
-            FilteringChain::new(&dictionary)?.filter(buffer)
-        }
-
-        pub(crate) fn defilter_buffer(
-            &self,
-            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
-        ) -> ProcessResult<Vec<Byte>> {
-            Stream::from(self).defilter_buffer(buffer)
-        }
-
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            Stream::from(self).decode(encoding)
-        }
-    }
 }
 
 mod convert {
 
     use super::*;
     use crate::object::indirect::IndirectValue;
-    use crate::object::indirect::OwnedIndirectValue;
-    use crate::object::BorrowedBuffer;
     use crate::parse::error::ParseFailure;
-
-    impl BorrowedBuffer for Stream<'_> {
-        type OwnedBuffer = OwnedStream;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedStream {
-                dictionary: self.dictionary.to_owned_buffer(),
-                data: Bytes::from(self.data),
-            }
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedStream> for Stream<'buffer> {
-        fn from(stream: &'buffer OwnedStream) -> Self {
-            Self {
-                dictionary: (&stream.dictionary).into(),
-                data: &stream.data,
-            }
-        }
-    }
 
     impl<'buffer> Stream<'buffer> {
         pub(crate) fn new(
@@ -265,37 +194,11 @@ mod convert {
         }
     }
 
-    impl OwnedStream {
-        pub(crate) fn new(dictionary: impl Into<OwnedDictionary>, data: impl Into<Bytes>) -> Self {
-            Self {
-                dictionary: dictionary.into(),
-                data: data.into(),
-            }
-        }
-    }
-
-    // TODO (TEMP) Implement once `IndirectValue` is implemented
     impl<'buffer> TryFrom<IndirectValue<'buffer>> for Stream<'buffer> {
         type Error = ParseFailure<'static>;
 
         fn try_from(value: IndirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let IndirectValue::Stream(stream) = value {
-                Ok(stream)
-            } else {
-                Err(ParseFailure {
-                    buffer: &[], // TODO (TEMP) Replace with value.as_bytes() when implemented
-                    object: stringify!(Stream),
-                    code: ParseErrorCode::ObjectType,
-                })
-            }
-        }
-    }
-
-    impl TryFrom<OwnedIndirectValue> for OwnedStream {
-        type Error = ParseFailure<'static>;
-
-        fn try_from(value: OwnedIndirectValue) -> Result<Self, Self::Error> {
-            if let OwnedIndirectValue::Stream(stream) = value {
                 Ok(stream)
             } else {
                 Err(ParseFailure {

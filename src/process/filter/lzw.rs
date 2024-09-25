@@ -17,7 +17,7 @@ const FIRST_CODE: u16 = 258;
 /// REFERENCE: [7.4.4 LZWDecode and FlateDecode filters, p38] and [[Adobe TIFF
 /// Revision 6.0; Final (TIFF)] 7.4.4.2 "Details of LZW encoding"]
 /// The LZW (Lempel-Ziv-Welch) adaptive compression filter.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(super) struct Lzw {
     predictor: Predictor,
     early_change: EarlyChange,

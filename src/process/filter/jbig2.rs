@@ -1,15 +1,14 @@
 use super::Filter;
-use crate::object::indirect::stream::OwnedStream;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
 const KEY_JBIG2_GLOBALS: &str = "JBIG2Globals";
 
 /// REFERENCE: [Table 12 — Optional parameter for the JBIG2Decode filter. p46]
-#[derive(Debug, Clone, PartialEq)]
-struct Jbig2Globals(OwnedStream);
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct Jbig2Globals(());
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct JBiG2 {
     jbig2_globals: Jbig2Globals,
 }

@@ -9,8 +9,6 @@ use ::std::fmt::Result as FmtResult;
 
 use super::id::Id;
 use super::IndirectValue;
-use super::OwnedIndirectValue;
-use crate::object::BorrowedBuffer;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -31,21 +29,9 @@ pub(crate) struct IndirectObject<'buffer> {
     pub(crate) value: IndirectValue<'buffer>,
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) struct OwnedIndirectObject {
-    pub(crate) id: Id,
-    pub(crate) value: OwnedIndirectValue,
-}
-
 impl Display for IndirectObject<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.value, KW_ENDOBJ)
-    }
-}
-
-impl Display for OwnedIndirectObject {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&IndirectObject::from(self), f)
     }
 }
 
@@ -97,47 +83,11 @@ impl<'buffer> Parser<'buffer> for IndirectObject<'buffer> {
     }
 }
 
-impl Parser<'_> for OwnedIndirectObject {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        IndirectObject::parse(buffer).map(|(buffer, value)| (buffer, value.to_owned_buffer()))
-    }
-}
-
 mod convert {
     use super::*;
-    use crate::object::BorrowedBuffer;
-
-    impl BorrowedBuffer for IndirectObject<'_> {
-        type OwnedBuffer = OwnedIndirectObject;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedIndirectObject {
-                id: self.id,
-                value: self.value.to_owned_buffer(),
-            }
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedIndirectObject> for IndirectObject<'buffer> {
-        fn from(value: &'buffer OwnedIndirectObject) -> Self {
-            Self {
-                id: value.id,
-                value: (&value.value).into(),
-            }
-        }
-    }
 
     impl<'buffer> IndirectObject<'buffer> {
         pub(crate) fn new(id: Id, value: impl Into<IndirectValue<'buffer>>) -> Self {
-            Self {
-                id,
-                value: value.into(),
-            }
-        }
-    }
-
-    impl OwnedIndirectObject {
-        pub(crate) fn new(id: Id, value: impl Into<OwnedIndirectValue>) -> Self {
             Self {
                 id,
                 value: value.into(),

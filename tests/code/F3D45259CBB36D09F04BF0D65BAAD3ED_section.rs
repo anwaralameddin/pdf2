@@ -129,8 +129,8 @@ Trailer::new(74)
 .set_root(unsafe { Reference::new_unchecked(116, 0)})
 .set_id(
     [
-        OwnedHexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
-        OwnedHexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
+        Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
+        Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
     ]
 )
 )

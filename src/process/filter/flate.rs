@@ -11,7 +11,7 @@ use crate::Byte;
 
 /// REFERENCE: [7.4.4 LZWDecode and FlateDecode filters, p38]
 /// zlib/deflate compression filter.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(super) struct Fl {
     predictor: Predictor,
 }
