@@ -4,7 +4,7 @@ use crate::process::error::ProcessResult;
 use crate::Byte;
 
 /// The CCITT facsimile standard filter.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct Ccf {}
 
 impl Ccf {

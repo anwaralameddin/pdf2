@@ -15,10 +15,11 @@ mod convert {
     use super::BitsPerComponent;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
-    impl TryFrom<&DirectValue> for BitsPerComponent {
+    impl TryFrom<&DirectValue<'_>> for BitsPerComponent {
         type Error = ProcessErr;
 
         fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
@@ -33,7 +34,11 @@ mod convert {
                     ),
                 }
             } else {
-                Err(PredictorError::DataType(stringify!(BitsPerComponent), value.clone()).into())
+                Err(PredictorError::DataType(
+                    stringify!(BitsPerComponent),
+                    value.clone().to_owned_buffer(),
+                )
+                .into()) // TODO (TEMP) Avoid to_owned_buffer
             }
         }
     }

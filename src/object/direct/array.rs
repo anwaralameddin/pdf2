@@ -8,7 +8,9 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::ops::Deref;
 
-use crate::object::direct::DirectValue;
+use super::DirectValue;
+use crate::object::direct::OwnedDirectValue;
+use crate::object::BorrowedBuffer;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -21,9 +23,12 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.6 Array objects, p29]
 #[derive(Debug, Default, Clone)]
-pub struct Array(Vec<DirectValue>);
+pub struct Array<'buffer>(Vec<DirectValue<'buffer>>);
 
-impl Display for Array {
+#[derive(Debug, Default, Clone)]
+pub struct OwnedArray(Vec<OwnedDirectValue>);
+
+impl Display for Array<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "[")?;
         for (i, obj) in self.0.iter().enumerate() {
@@ -36,7 +41,14 @@ impl Display for Array {
     }
 }
 
-impl PartialEq for Array {
+impl Display for OwnedArray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        // TODO (TEMP) Array::from involves reallocation
+        Display::fmt(&Array::from(self), f)
+    }
+}
+
+impl PartialEq for Array<'_> {
     fn eq(&self, other: &Self) -> bool {
         if self.0.len() != other.0.len() {
             return false;
@@ -50,8 +62,15 @@ impl PartialEq for Array {
     }
 }
 
-impl Parser<'_> for Array {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl PartialEq for OwnedArray {
+    fn eq(&self, other: &Self) -> bool {
+        // TODO (TEMP) Array::from involves reallocation
+        Array::from(self) == Array::from(other)
+    }
+}
+
+impl<'buffer> Parser<'buffer> for Array<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let mut array = vec![];
         let mut value: DirectValue;
         let (mut buffer, _) = terminated(char('['), opt(white_space_or_comment))(buffer).map_err(
@@ -92,32 +111,87 @@ impl Parser<'_> for Array {
     }
 }
 
+impl Parser<'_> for OwnedArray {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        Array::parse(buffer).map(|(remains, array)| (remains, array.to_owned_buffer()))
+    }
+}
+
 mod convert {
     use super::*;
+    use crate::object::BorrowedBuffer;
 
-    impl From<Vec<DirectValue>> for Array {
-        fn from(value: Vec<DirectValue>) -> Self {
+    impl BorrowedBuffer for Array<'_> {
+        type OwnedBuffer = OwnedArray;
+
+        fn to_owned_buffer(self) -> Self::OwnedBuffer {
+            OwnedArray(
+                self.0
+                    .into_iter()
+                    .map(DirectValue::to_owned_buffer)
+                    .collect(),
+            )
+        }
+    }
+
+    impl<'buffer> From<&'buffer OwnedArray> for Array<'buffer> {
+        fn from(value: &'buffer OwnedArray) -> Self {
+            Array(value.0.iter().map(DirectValue::from).collect())
+        }
+    }
+
+    impl<'buffer> From<Vec<DirectValue<'buffer>>> for Array<'buffer> {
+        fn from(value: Vec<DirectValue<'buffer>>) -> Self {
             Self(value)
         }
     }
 
-    impl FromIterator<DirectValue> for Array {
-        fn from_iter<T: IntoIterator<Item = DirectValue>>(iter: T) -> Array {
+    impl From<Vec<OwnedDirectValue>> for OwnedArray {
+        fn from(value: Vec<OwnedDirectValue>) -> Self {
+            Self(value)
+        }
+    }
+
+    impl<'buffer> FromIterator<DirectValue<'buffer>> for Array<'buffer> {
+        fn from_iter<T: IntoIterator<Item = DirectValue<'buffer>>>(iter: T) -> Array<'buffer> {
             Self(Vec::from_iter(iter))
         }
     }
 
-    impl Deref for Array {
-        type Target = Vec<DirectValue>;
+    impl FromIterator<OwnedDirectValue> for OwnedArray {
+        fn from_iter<T: IntoIterator<Item = OwnedDirectValue>>(iter: T) -> OwnedArray {
+            Self(Vec::from_iter(iter))
+        }
+    }
+
+    impl<'buffer> Deref for Array<'buffer> {
+        type Target = Vec<DirectValue<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
         }
     }
 
-    impl IntoIterator for Array {
-        type Item = DirectValue;
-        type IntoIter = <Vec<DirectValue> as IntoIterator>::IntoIter;
+    impl Deref for OwnedArray {
+        type Target = Vec<OwnedDirectValue>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<'buffer> IntoIterator for Array<'buffer> {
+        type Item = DirectValue<'buffer>;
+        type IntoIter = <Vec<DirectValue<'buffer>> as IntoIterator>::IntoIter;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.0.into_iter()
+        }
+    }
+
+    impl IntoIterator for OwnedArray {
+        type Item = OwnedDirectValue;
+        type IntoIter = <Vec<OwnedDirectValue> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()

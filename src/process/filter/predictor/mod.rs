@@ -60,6 +60,7 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
 
     impl Predictor {
         pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> ProcessResult<Self> {
@@ -97,7 +98,11 @@ mod convert {
                     _ => Err(PredictorError::Unsupported(stringify!(Predictor), **value).into()),
                 },
                 Some(value) => {
-                    Err(PredictorError::DataType(stringify!(Predictor), value.clone()).into())
+                    Err(PredictorError::DataType(
+                        stringify!(Predictor),
+                        value.clone().to_owned_buffer(),
+                    )
+                    .into()) // TODO (TEMP) Avoid to_owned_buffer
                 }
                 None => Ok(Self::None),
             }
@@ -108,12 +113,12 @@ mod convert {
 pub(in crate::process) mod error {
     use ::thiserror::Error;
 
-    use crate::object::direct::DirectValue;
+    use crate::object::direct::OwnedDirectValue;
 
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum PredictorError {
         #[error("{0}: Invalid data type. Input: {1}")]
-        DataType(&'static str, DirectValue),
+        DataType(&'static str, OwnedDirectValue),
         #[error("{0}: Unsupport value. Input: {1}")]
         Unsupported(&'static str, i128),
     }

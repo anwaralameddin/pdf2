@@ -1,9 +1,6 @@
 pub(crate) mod entry;
 
 use ::nom::error::Error as NomError;
-use ::std::fmt::Display;
-use ::std::fmt::Formatter;
-use ::std::fmt::Result as FmtResult;
 
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
@@ -13,26 +10,27 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
-use crate::parse::KW_ENDOBJ;
-use crate::parse::KW_OBJ;
+use crate::process::filter::FilteringChain;
 use crate::Byte;
 
 /// REFERENCE: [7.5.8 Cross-reference streams, p65-66]
 #[derive(Debug, PartialEq)]
-pub(crate) struct XRefStream {
+pub(crate) struct XRefStream<'buffer> {
     pub(crate) id: Id,
-    pub(crate) stream: Stream,
-    pub(crate) trailer: Trailer,
+    pub(crate) trailer: Trailer<'buffer>,
+    pub(crate) filter_chain: FilteringChain,
+    pub(crate) data: &'buffer [Byte],
 }
 
-impl Display for XRefStream {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.stream, KW_ENDOBJ)
-    }
-}
+// FIXME Implement Display
+// impl Display for XRefStream<'_> {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+//         write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.stream, KW_ENDOBJ)
+//     }
+// }
 
-impl Parser<'_> for XRefStream {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
@@ -40,18 +38,14 @@ impl Parser<'_> for XRefStream {
 
         let stream = Stream::try_from(value)?;
 
-        let trailer = Trailer::try_from(&stream.dictionary).map_err(|err| ParseFailure {
+        let xref_stream = XRefStream::new(id, stream).map_err(|err| ParseFailure {
             buffer, // TODO (TEMP) Remove with stream.dictionary.as_bytes() when implemented
             object: stringify!(XRefStream),
             code: ParseErrorCode::InvalidTrailerDictionary(err),
         })?;
+
         let buffer = remains;
 
-        let xref_stream = XRefStream {
-            id,
-            stream,
-            trailer,
-        };
         Ok((buffer, xref_stream))
     }
 }
@@ -68,8 +62,10 @@ mod process {
     use super::error::XRefStreamError;
     use super::*;
     use crate::object::direct::dictionary::error::MissingEntryError;
+    use crate::object::BorrowedBuffer;
     use crate::process::error::NewProcessErr;
     use crate::process::error::NewProcessResult;
+    use crate::process::filter::Filter;
     use crate::process_err;
     use crate::xref::increment::error::IncrementError;
     use crate::xref::increment::trailer::KEY_TYPE;
@@ -79,7 +75,7 @@ mod process {
     use crate::xref::ToTable;
     use crate::ObjectNumberOrZero;
 
-    impl ToTable for XRefStream {
+    impl ToTable for XRefStream<'_> {
         fn to_table(&self) -> NewProcessResult<Table> {
             // TODO Change the errors below into warnings as long as they don't
             // prevent building the table
@@ -142,7 +138,7 @@ mod process {
         }
     }
 
-    impl XRefStream {
+    impl XRefStream<'_> {
         fn get_entries(&self) -> NewProcessResult<Vec<Entry>> {
             // Type
             self.trailer
@@ -152,11 +148,11 @@ mod process {
                     data_type: stringify!(Name),
                 }))
                 .and_then(|type_| {
-                    if type_.ne(VAL_XREF) {
+                    if type_.ne(&VAL_XREF) {
                         Err(XRefStreamError::WrongValue {
                             key: KEY_TYPE,
                             expected: VAL_XREF,
-                            value: type_.clone(), // TODO (TEMP) Remove clone
+                            value: type_.to_owned_buffer(), // TODO (TEMP) Remove clone
                         }
                         .into())
                     } else {
@@ -169,7 +165,7 @@ mod process {
                 data_type: stringify!(array of three integers),
             })?;
 
-            let decoded_data = self.stream.defilter()?;
+            let decoded_data = self.filter_chain.defilter(self.data)?;
             let buffer = decoded_data.as_slice();
 
             let mut parser = many0(tuple((
@@ -201,13 +197,16 @@ mod convert {
     use super::*;
     use crate::process::error::NewProcessResult;
 
-    impl XRefStream {
-        pub(crate) fn new(id: Id, stream: &Stream) -> NewProcessResult<Self> {
-            let trailer = Trailer::try_from(&stream.dictionary)?;
+    impl<'buffer> XRefStream<'buffer> {
+        pub(crate) fn new(id: Id, stream: Stream<'buffer>) -> NewProcessResult<Self> {
+            let data = stream.data;
+            let filter_chain = FilteringChain::new(&stream.dictionary)?;
+            let trailer = Trailer::try_from(stream.dictionary)?;
             Ok(Self {
                 id,
-                stream: stream.clone(), // TODO(TEMP) Remove clone
                 trailer,
+                filter_chain,
+                data,
             })
         }
     }
@@ -219,7 +218,7 @@ pub(crate) mod error {
     use ::thiserror::Error;
 
     use crate::fmt::debug_bytes;
-    use crate::object::direct::name::Name;
+    use crate::object::direct::name::OwnedName;
     use crate::Byte;
     use crate::IndexNumber;
 
@@ -230,7 +229,7 @@ pub(crate) mod error {
         WrongValue {
             key: &'static str,
             expected: &'static str,
-            value: Name, // TODO(TEMP) &'buffer [Byte]
+            value: OwnedName, // TODO(TEMP) &'buffer [Byte]
         },
         #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
         ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) Remove Vec<Byte> with &'buffer [Byte]
@@ -289,8 +288,9 @@ mod tests {
             ]));
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },
-            stream: Stream::new(dictionary, &buffer[215..1975]),
             trailer,
+            filter_chain: FilteringChain::new(&dictionary).unwrap(),
+            data: &buffer[215..1975],
         };
         parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
@@ -302,7 +302,7 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
-            &Stream::new(dictionary, &buffer[215..1304]),
+            Stream::new(dictionary, &buffer[215..1304]),
         )
         .unwrap();
         parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
@@ -315,7 +315,7 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
-            &Stream::new(dictionary, &buffer[215..717]),
+            Stream::new(dictionary, &buffer[215..717]),
         )
         .unwrap();
         parse_assert_eq!(buffer, xref_stream, &buffer[735..]);

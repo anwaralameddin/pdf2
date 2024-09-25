@@ -24,19 +24,19 @@ use crate::Byte;
 
 /// REFERENCE: [7.3.10 Indirect objects, p33]
 #[derive(Debug, PartialEq)]
-pub(crate) struct IndirectObject {
+pub(crate) struct IndirectObject<'buffer> {
     pub(crate) id: Id,
-    pub(crate) value: IndirectValue,
+    pub(crate) value: IndirectValue<'buffer>,
 }
 
-impl Display for IndirectObject {
+impl Display for IndirectObject<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.value, KW_ENDOBJ)
     }
 }
 
-impl Parser<'_> for IndirectObject {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> Parser<'buffer> for IndirectObject<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // REFERENCE: [7.3.10 Indirect objects, p33]
         let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
             buffer: err.buffer(),
@@ -86,8 +86,8 @@ impl Parser<'_> for IndirectObject {
 mod convert {
     use super::*;
 
-    impl IndirectObject {
-        pub(crate) fn new(id: Id, value: impl Into<IndirectValue>) -> Self {
+    impl<'buffer> IndirectObject<'buffer> {
+        pub(crate) fn new(id: Id, value: impl Into<IndirectValue<'buffer>>) -> Self {
             Self {
                 id,
                 value: value.into(),

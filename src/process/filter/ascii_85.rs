@@ -6,7 +6,7 @@ use crate::process::error::ProcessResult;
 use crate::Byte;
 
 /// ASCII base-85 filter.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct A85;
 
 impl Filter for A85 {

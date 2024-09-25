@@ -24,7 +24,6 @@ use crate::parse::KW_STREAM;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
-use crate::Bytes;
 
 pub(crate) const KEY_LENGTH: &str = "Length";
 pub(crate) const KEY_F: &str = "F";
@@ -36,12 +35,12 @@ pub(crate) const KEY_DL: &str = "DL";
 
 /// REFERENCE: [7.3.8 Stream objects, p31]
 #[derive(PartialEq, Default, Clone)]
-pub(crate) struct Stream {
-    pub(crate) dictionary: Dictionary,
-    pub(crate) data: Bytes,
+pub(crate) struct Stream<'buffer> {
+    pub(crate) dictionary: Dictionary<'buffer>,
+    pub(crate) data: &'buffer [Byte],
 }
 
-impl Display for Stream {
+impl Display for Stream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}\n{}\n", self.dictionary, KW_STREAM)?;
         for &byte in self.data.iter() {
@@ -51,7 +50,7 @@ impl Display for Stream {
     }
 }
 
-impl Debug for Stream {
+impl Debug for Stream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}\n{}", self.dictionary, KW_STREAM)?;
         for &byte in self.data.iter() {
@@ -61,9 +60,9 @@ impl Debug for Stream {
     }
 }
 
-impl Parser<'_> for Stream {
+impl<'buffer> Parser<'buffer> for Stream<'buffer> {
     /// REFERENCE: [7.3.8 Stream objects, p31-32]
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let (remains, dictionary) = Dictionary::parse(buffer)?;
 
         let (remains, _) = tuple((
@@ -129,10 +128,7 @@ impl Parser<'_> for Stream {
             }
         ))?;
 
-        let stream = Self {
-            dictionary,
-            data: data.into(),
-        };
+        let stream = Self { dictionary, data };
         Ok((buffer, stream))
     }
 }
@@ -148,10 +144,14 @@ mod process {
     use crate::process::filter::FilteringChain;
     use crate::Byte;
 
-    impl Stream {
+    impl Stream<'_> {
+        pub(crate) fn filters(&self) -> ProcessResult<FilteringChain> {
+            FilteringChain::new(&self.dictionary)
+        }
+
         pub(crate) fn defilter(&self) -> ProcessResult<Vec<Byte>> {
             // TODO Store the filter Chain in the Stream struct
-            FilteringChain::new(&self.dictionary)?.defilter(&*self.data)
+            FilteringChain::new(&self.dictionary)?.defilter(self.data)
         }
 
         // TODO Amend in line with the `PdFString::encode` method
@@ -182,8 +182,11 @@ mod convert {
     use crate::object::indirect::IndirectValue;
     use crate::parse::error::ParseFailure;
 
-    impl Stream {
-        pub(crate) fn new(dictionary: impl Into<Dictionary>, data: impl Into<Bytes>) -> Self {
+    impl<'buffer> Stream<'buffer> {
+        pub(crate) fn new(
+            dictionary: impl Into<Dictionary<'buffer>>,
+            data: impl Into<&'buffer [Byte]>,
+        ) -> Self {
             Self {
                 dictionary: dictionary.into(),
                 data: data.into(),
@@ -191,10 +194,10 @@ mod convert {
         }
     }
 
-    impl TryFrom<IndirectValue> for Stream {
+    impl<'buffer> TryFrom<IndirectValue<'buffer>> for Stream<'buffer> {
         type Error = ParseFailure<'static>;
 
-        fn try_from(value: IndirectValue) -> Result<Self, Self::Error> {
+        fn try_from(value: IndirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let IndirectValue::Stream(stream) = value {
                 Ok(stream)
             } else {
@@ -227,7 +230,10 @@ mod tests {
     fn stream_valid() {
         // A synthetic test
         let buffer = b"<</Length 0>>\nstream\n\nendstream\nendobj";
-        let stream = Stream::new(Dictionary::from_iter([(KEY_LENGTH.into(), 0.into())]), []);
+        let stream = Stream::new(
+            Dictionary::from_iter([(KEY_LENGTH.into(), 0.into())]),
+            "".as_bytes(),
+        );
         parse_assert_eq!(buffer, stream, "endobj".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21

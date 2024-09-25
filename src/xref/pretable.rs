@@ -6,10 +6,10 @@ use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct PreTable(Vec<Increment>);
+pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
-impl Parser<'_> for PreTable {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let (_, startxref) = StartXRef::parse(buffer)?;
 
         let mut increments = Vec::default();
@@ -24,7 +24,7 @@ impl Parser<'_> for PreTable {
             // hybrid-reference file’s trailer dictionary in
             // REFERENCE: [7.5.8.4 Compatibility with applications that do not
             // support compressed reference streams, p68]
-            prev = increment.trailer().prev();
+            prev = increment.prev();
 
             // We first read the last section and then read the previous one. We
             // use `push` to preserve the order of the sections, which
@@ -43,7 +43,7 @@ mod process {
     use crate::xref::Table;
     use crate::xref::ToTable;
 
-    impl ToTable for PreTable {
+    impl ToTable for PreTable<'_> {
         fn to_table(&self) -> NewProcessResult<Table> {
             self.iter()
                 .try_fold(Table::default(), |mut table, increment| {
@@ -56,32 +56,39 @@ mod process {
 
 mod convert {
     use ::std::ops::Deref;
+    use ::std::ops::DerefMut;
 
     use super::*;
 
-    impl From<Vec<Increment>> for PreTable {
-        fn from(value: Vec<Increment>) -> Self {
+    impl<'buffer> From<Vec<Increment<'buffer>>> for PreTable<'buffer> {
+        fn from(value: Vec<Increment<'buffer>>) -> Self {
             Self(value)
         }
     }
 
-    impl FromIterator<Increment> for PreTable {
-        fn from_iter<I: IntoIterator<Item = Increment>>(iter: I) -> Self {
+    impl<'buffer> FromIterator<Increment<'buffer>> for PreTable<'buffer> {
+        fn from_iter<I: IntoIterator<Item = Increment<'buffer>>>(iter: I) -> Self {
             Self(Vec::from_iter(iter))
         }
     }
 
-    impl Deref for PreTable {
-        type Target = Vec<Increment>;
+    impl<'buffer> Deref for PreTable<'buffer> {
+        type Target = Vec<Increment<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
         }
     }
 
-    impl IntoIterator for PreTable {
-        type Item = Increment;
-        type IntoIter = <Vec<Increment> as IntoIterator>::IntoIter;
+    impl<'buffer> DerefMut for PreTable<'buffer> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    impl<'buffer> IntoIterator for PreTable<'buffer> {
+        type Item = Increment<'buffer>;
+        type IntoIter = <Vec<Increment<'buffer>> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()

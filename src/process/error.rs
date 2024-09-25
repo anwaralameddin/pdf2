@@ -2,7 +2,7 @@ use ::std::str::Utf8Error;
 use ::thiserror::Error;
 
 use super::encoding::error::EncodingError;
-use super::escape::error::EscapeError;
+use super::escape::error::OwnedEscapeError;
 use super::filter::ascii_85::error::ASCII85Error;
 use super::filter::ascii_hex::error::ASCIIHexError;
 use super::filter::error::FilterError;
@@ -47,7 +47,7 @@ pub enum ProcessErr {
     #[error("Encoding: {0}")]
     Encoding(#[from] EncodingError),
     #[error("Escape: {0}")]
-    Escape(#[from] EscapeError),
+    Escape(#[from] OwnedEscapeError),
     // TODO (TEMP) Remove this error variant after refactoring escape and encoding
     #[error("Utf8: {0}")]
     Utf8(#[from] Utf8Error),
@@ -70,6 +70,18 @@ pub enum ProcessErr {
     Flate(#[from] FlateError),
     #[error("JBIG2: {0}")]
     Jbig2(#[from] Jbig2Error),
+}
+
+mod convert {
+
+    use crate::process::escape::error::EscapeError;
+
+    // TODO (TEMP) Remove this when ProcessErr is refactored to accept lifetime parameters
+    impl From<EscapeError<'_>> for super::ProcessErr {
+        fn from(err: EscapeError) -> Self {
+            Self::Escape(err.into())
+        }
+    }
 }
 
 #[macro_export]

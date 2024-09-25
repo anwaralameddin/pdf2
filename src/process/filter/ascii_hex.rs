@@ -6,7 +6,7 @@ use crate::process::error::ProcessResult;
 use crate::Byte;
 
 /// ASCII hexadecimal filter.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) struct AHx;
 
 impl Filter for AHx {

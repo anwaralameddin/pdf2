@@ -6,13 +6,12 @@ use ::std::io::Read;
 use self::error::FlateError;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
 /// REFERENCE: [7.4.4 LZWDecode and FlateDecode filters, p38]
 /// zlib/deflate compression filter.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(super) struct Fl {
     predictor: Predictor,
 }
@@ -47,6 +46,7 @@ impl Filter for Fl {
 
 mod convert {
     use super::*;
+    use crate::object::direct::dictionary::Dictionary;
 
     impl Fl {
         pub(in crate::process::filter) fn new(

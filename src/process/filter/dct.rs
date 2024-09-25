@@ -4,7 +4,7 @@ use crate::process::error::ProcessResult;
 use crate::Byte;
 
 /// The DCT (discrete cosine transform) filter
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct Dct {}
 
 impl Dct {

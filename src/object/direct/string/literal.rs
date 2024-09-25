@@ -18,6 +18,7 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use crate::fmt::debug_bytes;
+use crate::object::BorrowedBuffer;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -31,12 +32,13 @@ use crate::Byte;
 use crate::Bytes;
 
 /// REFERENCE: [7.3.4.2 Literal strings, p25-28}
+#[derive(Clone, Copy)]
+pub struct Literal<'buffer>(&'buffer [Byte]);
+
 #[derive(Clone)]
-pub struct Literal(Bytes);
+pub struct OwnedLiteral(Bytes);
 
-impl Literal {}
-
-impl Display for Literal {
+impl Display for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "(")?;
         for &byte in self.0.iter() {
@@ -46,13 +48,25 @@ impl Display for Literal {
     }
 }
 
-impl Debug for Literal {
+impl Display for OwnedLiteral {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "({})", debug_bytes(&self.0))
+        Display::fmt(&Literal::from(self), f)
     }
 }
 
-impl PartialEq for Literal {
+impl Debug for Literal<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "({})", debug_bytes(self.0))
+    }
+}
+
+impl Debug for OwnedLiteral {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Debug::fmt(&Literal::from(self), f)
+    }
+}
+
+impl PartialEq for Literal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
             self_escaped == other_escaped
@@ -63,8 +77,14 @@ impl PartialEq for Literal {
     }
 }
 
-impl Parser<'_> for Literal {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl PartialEq for OwnedLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        Literal::from(self) == Literal::from(other)
+    }
+}
+
+impl<'buffer> Parser<'buffer> for Literal<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
         let (buffer, value) = preceded(
@@ -93,8 +113,14 @@ impl Parser<'_> for Literal {
             }
         ))?;
 
-        let literal = Self(value.into());
+        let literal = Self(value);
         Ok((buffer, literal))
+    }
+}
+
+impl Parser<'_> for OwnedLiteral {
+    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+        Literal::parse(buffer).map(|(buffer, literal)| (buffer, literal.to_owned_buffer()))
     }
 }
 
@@ -136,7 +162,7 @@ mod process {
         Other,
     }
 
-    impl Literal {
+    impl Literal<'_> {
         /// REFERENCE:
         /// - [7.3.4.2 Literal strings, p25]
         /// - ["Table 3: Escape sequences in literal strings", p25-26]
@@ -272,13 +298,28 @@ mod process {
             Ok(escaped)
         }
 
+        // pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
+        //     let encoded = encoding.encode(string)?;
+        //     Ok(Self(encoded.into()))
+        // }
+
+        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
+            encoding.decode(&self.escape()?)
+        }
+    }
+
+    impl OwnedLiteral {
+        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
+            Literal::from(self).escape()
+        }
+
         pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
             let encoded = encoding.encode(string)?;
             Ok(Self(encoded.into()))
         }
 
         pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            encoding.decode(&self.escape()?)
+            Literal::from(self).decode(encoding)
         }
     }
 
@@ -301,21 +342,56 @@ mod convert {
     use ::std::ops::Deref;
 
     use super::*;
+    use crate::object::BorrowedBuffer;
     use crate::Byte;
 
-    impl From<&[Byte]> for Literal {
-        fn from(value: &[Byte]) -> Self {
-            Self(value.into())
+    impl BorrowedBuffer for Literal<'_> {
+        type OwnedBuffer = OwnedLiteral;
+
+        fn to_owned_buffer(self) -> Self::OwnedBuffer {
+            OwnedLiteral(Bytes::from(self.0))
         }
     }
 
-    impl From<&str> for Literal {
-        fn from(value: &str) -> Self {
+    impl<'buffer> From<&'buffer OwnedLiteral> for Literal<'buffer> {
+        fn from(value: &'buffer OwnedLiteral) -> Self {
+            Literal(value.0.as_ref())
+        }
+    }
+
+    impl<'buffer> From<&'buffer [Byte]> for Literal<'buffer> {
+        fn from(value: &'buffer [Byte]) -> Self {
+            Self(value)
+        }
+    }
+
+    impl From<&[Byte]> for OwnedLiteral {
+        fn from(value: &[Byte]) -> Self {
+            Literal::from(value).to_owned_buffer()
+        }
+    }
+
+    impl<'buffer> From<&'buffer str> for Literal<'buffer> {
+        fn from(value: &'buffer str) -> Self {
             Self::from(value.as_bytes())
         }
     }
 
-    impl Deref for Literal {
+    impl From<&str> for OwnedLiteral {
+        fn from(value: &str) -> Self {
+            Literal::from(value).to_owned_buffer()
+        }
+    }
+
+    impl<'buffer> Deref for Literal<'buffer> {
+        type Target = &'buffer [Byte];
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Deref for OwnedLiteral {
         type Target = Bytes;
 
         fn deref(&self) -> &Self::Target {

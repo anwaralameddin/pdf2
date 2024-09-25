@@ -15,6 +15,7 @@ mod convert {
     use super::Columns;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
@@ -24,7 +25,7 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue> for Columns {
+    impl TryFrom<&DirectValue<'_>> for Columns {
         type Error = ProcessErr;
 
         fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
@@ -35,7 +36,11 @@ mod convert {
                 Ok(Self(value))
             } else {
                 // TODO (TEMP) Refactor to avoid cloning
-                Err(PredictorError::DataType(stringify!(Columns), value.clone()).into())
+                Err(
+                    PredictorError::DataType(stringify!(Columns), value.clone().to_owned_buffer())
+                        .into(),
+                )
+                // TODO (TEMP) Avoid to_owned_buffer
             }
         }
     }

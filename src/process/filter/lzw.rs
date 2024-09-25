@@ -3,7 +3,6 @@ use ::std::collections::HashMap;
 use self::error::LzwError;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::object::direct::dictionary::Dictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 use crate::DECODED_LIMIT;
@@ -18,7 +17,7 @@ const FIRST_CODE: u16 = 258;
 /// REFERENCE: [7.4.4 LZWDecode and FlateDecode filters, p38] and [[Adobe TIFF
 /// Revision 6.0; Final (TIFF)] 7.4.4.2 "Details of LZW encoding"]
 /// The LZW (Lempel-Ziv-Welch) adaptive compression filter.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(super) struct Lzw {
     predictor: Predictor,
     early_change: EarlyChange,
@@ -312,8 +311,10 @@ mod convert {
     use ::std::ops::Deref;
 
     use super::*;
+    use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::object::BorrowedBuffer;
     use crate::process::error::ProcessErr;
     use crate::process::filter::predictor::error::PredictorError;
 
@@ -344,7 +345,7 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue> for EarlyChange {
+    impl TryFrom<&DirectValue<'_>> for EarlyChange {
         type Error = ProcessErr;
 
         fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
@@ -355,7 +356,11 @@ mod convert {
                     _ => Err(PredictorError::Unsupported(stringify!(Colors), **value).into()),
                 }
             } else {
-                Err(PredictorError::DataType(stringify!(Colors), value.clone()).into())
+                Err(
+                    PredictorError::DataType(stringify!(Colors), value.clone().to_owned_buffer())
+                        .into(),
+                )
+                // TODO (TEMP) Avoid to_owned_buffer
             }
         }
     }

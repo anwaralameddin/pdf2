@@ -3,7 +3,7 @@ use crate::object::direct::dictionary::Dictionary;
 use crate::process::error::ProcessResult;
 use crate::Byte;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(super) struct Crypt {}
 
 impl Crypt {
