@@ -1,16 +1,19 @@
-use self::error::ASCIIHexError;
+use self::error::AHxErrorCode;
 use super::Filter;
 use crate::parse::character_set::is_white_space;
 use crate::parse::num::hex_val;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
 /// ASCII hexadecimal filter.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) struct AHx;
 
-impl Filter for AHx {
-    fn filter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+impl<'buffer> Filter<'buffer> for AHx {
+    fn filter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let encoded = bytes
             .as_ref()
             .iter()
@@ -35,7 +38,10 @@ impl Filter for AHx {
     }
 
     /// REFERENCE: [7.4.2 ASCIIHexDecode filter, p37]
-    fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
         let mut defiltered = Vec::with_capacity(bytes.len() / 2 + 1);
         let mut eod = false;
@@ -46,7 +52,7 @@ impl Filter for AHx {
                 continue;
             }
             if eod {
-                return Err(ASCIIHexError::AfterEod(char::from(byte)).into());
+                return Err(AHxErrorCode::AfterEod(char::from(byte)).into());
             }
             if byte == b'>' {
                 eod = true;
@@ -54,8 +60,9 @@ impl Filter for AHx {
             }
             if let Some(a) = prev {
                 defiltered.push(
-                    hex_val(a).ok_or(ASCIIHexError::InvalidHexDigit(char::from(a)))? << 4
-                        | hex_val(byte).ok_or(ASCIIHexError::InvalidHexDigit(char::from(byte)))?,
+                    hex_val(a).ok_or_else(|| AHxErrorCode::InvalidHexDigit(char::from(a)))? << 4
+                        | hex_val(byte)
+                            .ok_or_else(|| AHxErrorCode::InvalidHexDigit(char::from(byte)))?,
                 );
 
                 prev = None;
@@ -64,18 +71,18 @@ impl Filter for AHx {
             }
         }
         if let Some(a) = prev {
-            defiltered.push(hex_val(a).ok_or(ASCIIHexError::AfterEod(char::from(a)))? << 4);
+            defiltered.push(hex_val(a).ok_or_else(|| AHxErrorCode::AfterEod(char::from(a)))? << 4);
         }
 
         Ok(defiltered)
     }
 }
 
-pub(in crate::process) mod error {
+pub(in crate::process::filter) mod error {
     use ::thiserror::Error;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum ASCIIHexError {
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum AHxErrorCode {
         #[error("Invalid ASCII hexadecimal digit: {0}")]
         InvalidHexDigit(char),
         #[error("Unexpected character after the EOD marker: {0}")]
@@ -138,13 +145,13 @@ mod tests {
         // Invalid ASCII hexadecimal digit
         let filtered = b"41204X";
         let defiltered_result = AHx.defilter(filtered);
-        let expected_error = ASCIIHexError::InvalidHexDigit('X');
+        let expected_error = AHxErrorCode::InvalidHexDigit('X');
         assert_err_eq!(defiltered_result, expected_error);
 
         // Unexpected character after the EOD marker
         let filtered = b"41204>1";
         let defiltered_result = AHx.defilter(filtered);
-        let expected_error = ASCIIHexError::AfterEod('1');
+        let expected_error = AHxErrorCode::AfterEod('1');
         assert_err_eq!(defiltered_result, expected_error);
     }
 }

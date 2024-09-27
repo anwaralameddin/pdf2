@@ -40,7 +40,6 @@ type SectionNumber = GenerationNumber;
 type IndexNumber = u64;
 /// REFERENCE: [4.7 byte, p7]
 type Byte = u8;
-type Bytes = Box<[Byte]>;
 
 #[cfg(test)]
 mod tests {

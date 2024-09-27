@@ -11,14 +11,12 @@ use ::nom::sequence::pair;
 use ::nom::sequence::preceded;
 use ::nom::Err as NomErr;
 use ::nom::IResult;
-use ::std::ffi::OsString;
 use ::std::fmt::Debug;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use crate::fmt::debug_bytes;
-use crate::object::BorrowedBuffer;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -27,16 +25,12 @@ use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse_failure;
 use crate::parse_recoverable;
-use crate::process::encoding::Encoding;
+use crate::process::escape::Escape;
 use crate::Byte;
-use crate::Bytes;
 
 /// REFERENCE: [7.3.4.2 Literal strings, p25-28}
 #[derive(Clone, Copy)]
 pub struct Literal<'buffer>(&'buffer [Byte]);
-
-#[derive(Clone)]
-pub struct OwnedLiteral(Bytes);
 
 impl Display for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -48,21 +42,9 @@ impl Display for Literal<'_> {
     }
 }
 
-impl Display for OwnedLiteral {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&Literal::from(self), f)
-    }
-}
-
 impl Debug for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "({})", debug_bytes(self.0))
-    }
-}
-
-impl Debug for OwnedLiteral {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Debug::fmt(&Literal::from(self), f)
     }
 }
 
@@ -74,12 +56,6 @@ impl PartialEq for Literal<'_> {
             // If an escape call fails, the string is not valid, so we don't need to compare
             false
         }
-    }
-}
-
-impl PartialEq for OwnedLiteral {
-    fn eq(&self, other: &Self) -> bool {
-        Literal::from(self) == Literal::from(other)
     }
 }
 
@@ -96,31 +72,25 @@ impl<'buffer> Parser<'buffer> for Literal<'buffer> {
         )(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Literal),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(
+                e.input,
+                stringify!(Literal),
+                ParseErrorCode::NotFound(e.code)
+            )
         ))?;
         // Here, we know that the buffer starts with a literal string, and
         // the following errors should be propagated as LiteralFailure
         let (buffer, _) = char::<_, NomError<_>>(')')(buffer).map_err(parse_failure!(
             e,
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(Literal),
-                code: ParseErrorCode::MissingClosing(e.code),
-            }
+            ParseFailure::new(
+                e.input,
+                stringify!(Literal),
+                ParseErrorCode::MissingClosing(e.code)
+            )
         ))?;
 
         let literal = Self(value);
         Ok((buffer, literal))
-    }
-}
-
-impl Parser<'_> for OwnedLiteral {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Literal::parse(buffer).map(|(buffer, literal)| (buffer, literal.to_owned_buffer()))
     }
 }
 
@@ -147,11 +117,11 @@ mod parse {
     }
 }
 
-mod process {
+mod escape {
 
     use super::*;
-    use crate::process::encoding::Decoder;
-    use crate::process::error::ProcessResult;
+    use crate::process::escape::error::EscapeResult;
+    use crate::process::escape::Escape;
     use crate::Byte;
 
     #[derive(Debug, Copy, Clone)]
@@ -162,11 +132,11 @@ mod process {
         Other,
     }
 
-    impl Literal<'_> {
+    impl Escape for Literal<'_> {
         /// REFERENCE:
         /// - [7.3.4.2 Literal strings, p25]
         /// - ["Table 3: Escape sequences in literal strings", p25-26]
-        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
+        fn escape(&self) -> EscapeResult<Vec<Byte>> {
             let mut prev = PrevByte::Other;
             let mut escaped = Vec::with_capacity(self.0.len());
 
@@ -256,8 +226,7 @@ mod process {
                     }
                     (b'0'..=b'7', PrevByte::Octal { digits, value }) => {
                         let digit = byte - b'0';
-                        if let (Some(value), 1 | 2) = (process::extend_octal(value, digit), digits)
-                        {
+                        if let (Some(value), 1 | 2) = (extend_octal(value, digit), digits) {
                             prev = PrevByte::Octal {
                                 value,
                                 digits: digits + 1,
@@ -297,30 +266,6 @@ mod process {
 
             Ok(escaped)
         }
-
-        // pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
-        //     let encoded = encoding.encode(string)?;
-        //     Ok(Self(encoded.into()))
-        // }
-
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            encoding.decode(&self.escape()?)
-        }
-    }
-
-    impl OwnedLiteral {
-        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
-            Literal::from(self).escape()
-        }
-
-        pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
-            let encoded = encoding.encode(string)?;
-            Ok(Self(encoded.into()))
-        }
-
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            Literal::from(self).decode(encoding)
-        }
     }
 
     // TODO Convert into a Result
@@ -338,36 +283,35 @@ mod process {
     }
 }
 
+mod encode {
+    use ::std::ffi::OsString;
+
+    use super::*;
+    use crate::process::encoding::error::EncodingResult;
+    use crate::process::encoding::Encoding;
+
+    impl Literal<'_> {
+        // pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
+        // let encoded = encoding.encode(string)?;
+        // Ok(Self(encoded.into()))
+        // }
+
+        pub(crate) fn decode(&self, _encoding: Encoding) -> EncodingResult<OsString> {
+            // encoding.decode(&self.escape()?)
+            todo!("Implement Literal::decode")
+        }
+    }
+}
+
 mod convert {
     use ::std::ops::Deref;
 
     use super::*;
-    use crate::object::BorrowedBuffer;
     use crate::Byte;
-
-    impl BorrowedBuffer for Literal<'_> {
-        type OwnedBuffer = OwnedLiteral;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedLiteral(Bytes::from(self.0))
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedLiteral> for Literal<'buffer> {
-        fn from(value: &'buffer OwnedLiteral) -> Self {
-            Literal(value.0.as_ref())
-        }
-    }
 
     impl<'buffer> From<&'buffer [Byte]> for Literal<'buffer> {
         fn from(value: &'buffer [Byte]) -> Self {
             Self(value)
-        }
-    }
-
-    impl From<&[Byte]> for OwnedLiteral {
-        fn from(value: &[Byte]) -> Self {
-            Literal::from(value).to_owned_buffer()
         }
     }
 
@@ -377,22 +321,8 @@ mod convert {
         }
     }
 
-    impl From<&str> for OwnedLiteral {
-        fn from(value: &str) -> Self {
-            Literal::from(value).to_owned_buffer()
-        }
-    }
-
     impl<'buffer> Deref for Literal<'buffer> {
         type Target = &'buffer [Byte];
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl Deref for OwnedLiteral {
-        type Target = Bytes;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -439,29 +369,29 @@ string)",
         // Synthetic tests
         // Literal: Missing end parenthesis
         let parse_result = Literal::parse(b"(Unbalanced parentheses");
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(Literal),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
-        };
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(Literal),
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
         let parse_result = Literal::parse(br"(Escaped parentheses\)");
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(Literal),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
-        };
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(Literal),
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
         let parse_result = Literal::parse(b"Unbalanced parentheses)");
-        let expected_error = ParseRecoverable {
-            buffer: b"Unbalanced parentheses)",
-            object: stringify!(Literal),
-            code: ParseErrorCode::NotFound(ErrorKind::Char),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"Unbalanced parentheses)",
+            stringify!(Literal),
+            ParseErrorCode::NotFound(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 

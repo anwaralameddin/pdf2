@@ -1,6 +1,6 @@
-use self::error::PngError;
+use self::error::PngErrorCode;
 use super::PredictorParms;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::process::filter::Filter;
 use crate::Byte;
 
@@ -14,9 +14,12 @@ pub(in crate::process::filter) struct Png {
     parms: PredictorParms,
 }
 
-impl Filter for Png {
+impl<'buffer> Filter<'buffer> for Png {
     /// REFERENCE: [[https://www.w3.org/TR/PNG-Filters.html]]
-    fn filter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn filter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
         // REFERENCE:
         // [[https://www.w3.org/TR/png/#4Concepts.EncodingScanlineAbs]
@@ -58,7 +61,7 @@ impl Filter for Png {
 
         let scanlines = bytes.chunks_exact(bytes_per_scanline);
         if !scanlines.remainder().is_empty() {
-            return Err(PngError::NumBytes(bytes.len(), bytes_per_scanline).into());
+            return Err(PngErrorCode::NumBytes(bytes.len(), bytes_per_scanline).into());
         }
         scanlines.for_each(|scanline| {
             diff_fn(&mut diff, &mut prior_scanline, scanline, bytes_per_pixel);
@@ -68,7 +71,10 @@ impl Filter for Png {
         Ok(filtered)
     }
 
-    fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let bits_per_scanline =
@@ -99,7 +105,9 @@ impl Filter for Png {
 
         let diffs = bytes.chunks_exact(encoded_bytes_per_scanline);
         if !diffs.remainder().is_empty() {
-            return Err(PngError::EncodedNumBytes(bytes.len(), encoded_bytes_per_scanline).into());
+            return Err(
+                PngErrorCode::EncodedNumBytes(bytes.len(), encoded_bytes_per_scanline).into(),
+            );
         }
         if let PngAlgorithm::Optimum = self.algorithm {
             for diff in diffs {
@@ -121,7 +129,9 @@ impl Filter for Png {
                 if algorith != self.algorithm {
                     // TODO Convert into a warning and rollback to the optimum
                     // algorithm
-                    return Err(PngError::MismatchingAlgorithm(*self.algorithm, filter_type).into());
+                    return Err(
+                        PngErrorCode::MismatchingAlgorithm(*self.algorithm, filter_type).into(),
+                    );
                 }
                 // let rev_fn = algorithm.rev_fn();
                 rev_fn(&mut scanline, &mut prior_scanline, diff, bytes_per_pixel);
@@ -153,7 +163,7 @@ mod process {
 
     impl PngAlgorithm {
         #[inline]
-        pub(super) fn diff_fn(&self) -> Result<PngDiffFn, PngError> {
+        pub(super) fn diff_fn(&self) -> Result<PngDiffFn, PngErrorCode> {
             match self {
                 Self::None => Ok(diff_none),
                 Self::Sub => Ok(diff_sub),
@@ -164,7 +174,7 @@ mod process {
             }
         }
 
-        pub(super) fn rev_fn(&self) -> Result<PngRevFn, PngError> {
+        pub(super) fn rev_fn(&self) -> Result<PngRevFn, PngErrorCode> {
             match self {
                 Self::None => Ok(rev_none),
                 Self::Sub => Ok(rev_sub),
@@ -369,7 +379,7 @@ mod convert {
     }
 
     impl TryFrom<Byte> for PngAlgorithm {
-        type Error = PngError;
+        type Error = PngErrorCode;
 
         fn try_from(value: Byte) -> Result<Self, Self::Error> {
             match value {
@@ -379,7 +389,7 @@ mod convert {
                 3 => Ok(Self::Average),
                 4 => Ok(Self::Paeth),
                 5 => Ok(Self::Optimum),
-                _ => Err(PngError::Unsupported(value)),
+                _ => Err(PngErrorCode::Unsupported(value)),
             }
         }
     }
@@ -400,13 +410,13 @@ mod convert {
     }
 }
 
-pub(in crate::process) mod error {
+pub(in crate::process::filter) mod error {
     use ::thiserror::Error;
 
     use crate::Byte;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum PngError {
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum PngErrorCode {
         #[error("Unsupported PNG filter. Type: {0}")]
         Unsupported(Byte),
         #[error("Number of bytes: {0} is not a multiple of {1} bytes per encoded scanline")]
@@ -423,7 +433,9 @@ pub(in crate::process) mod error {
 #[cfg(test)]
 mod tests {
 
-    use crate::process::filter::tests::lax_stream_defilter_filter;
+    use crate::lax_stream_defilter_filter;
+    use crate::object::indirect::stream::Stream;
+    use crate::parse::Parser;
 
     #[test]
     fn png_valid() {
@@ -432,7 +444,7 @@ mod tests {
             "../../../../tests/data/A22408A93E27AD44B908FB70279DC7A0_xref_stream.bin"
         );
         let expected = include!("../../../../tests/code/A22408A93E27AD44B908FB70279DC7A0_data.rs");
-        lax_stream_defilter_filter(buffer, expected).unwrap();
+        lax_stream_defilter_filter!(buffer, expected);
     }
 
     // TODO Add tests

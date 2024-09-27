@@ -125,12 +125,19 @@ Section::new([
         ],
     ),
 ],
-Trailer::new(74)
-.set_root(unsafe { Reference::new_unchecked(116, 0)})
-.set_id(
-    [
-        Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
-        Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
-    ]
-)
+Dictionary::from_iter([
+    ("Size".into(), 74.into()),
+    (
+        "Root".into(),
+        unsafe { Reference::new_unchecked(116, 0) }.into(),
+    ),
+    (
+        "ID".into(),
+        Array::from_iter([
+            Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
+            Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
+        ])
+        .into(),
+    ),
+])
 )

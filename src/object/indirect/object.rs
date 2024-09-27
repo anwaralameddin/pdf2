@@ -38,30 +38,34 @@ impl Display for IndirectObject<'_> {
 impl<'buffer> Parser<'buffer> for IndirectObject<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // REFERENCE: [7.3.10 Indirect objects, p33]
-        let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
-            buffer: err.buffer(),
-            object: stringify!(Id),
-            code: ParseErrorCode::RecNotFound(Box::new(err.code())),
+        let (buffer, id) = Id::parse(buffer).map_err(|err| {
+            ParseRecoverable::new(
+                err.buffer(),
+                stringify!(Id),
+                ParseErrorCode::RecNotFound(Box::new(err.code())),
+            )
         })?;
         let (buffer, _) = terminated(tag(KW_OBJ), opt(white_space_or_comment))(buffer).map_err(
             parse_recoverable!(
                 e,
-                ParseRecoverable {
-                    buffer: e.input,
-                    object: stringify!(IndirectObject),
-                    code: ParseErrorCode::NotFound(e.code),
-                }
+                ParseRecoverable::new(
+                    e.input,
+                    stringify!(IndirectObject),
+                    ParseErrorCode::NotFound(e.code)
+                )
             ),
         )?;
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
-        let (buffer, object) = IndirectValue::parse(buffer).map_err(|err| ParseFailure {
-            buffer: err.buffer(),
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::RecMissingSubobject(
-                stringify!(IndirectValue),
-                Box::new(err.code()),
-            ),
+        let (buffer, object) = IndirectValue::parse(buffer).map_err(|err| {
+            ParseFailure::new(
+                err.buffer(),
+                stringify!(IndirectObject),
+                ParseErrorCode::RecMissingSubobject(
+                    stringify!(IndirectValue),
+                    Box::new(err.code()),
+                ),
+            )
         })?;
         // REFERENCE: [7.3.8.1 General, p31]
         let (buffer, _) = delimited(
@@ -71,11 +75,11 @@ impl<'buffer> Parser<'buffer> for IndirectObject<'buffer> {
         )(buffer)
         .map_err(parse_failure!(
             e,
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(IndirectObject),
-                code: ParseErrorCode::MissingClosing(e.code),
-            }
+            ParseFailure::new(
+                e.input,
+                stringify!(IndirectObject),
+                ParseErrorCode::MissingClosing(e.code),
+            )
         ))?;
 
         let indirect_object = Self { id, value: object };
@@ -153,53 +157,53 @@ mod tests {
         // Synthetic tests
         // Indirect Object: Incomplete
         let parse_result = IndirectObject::parse(b"1 0 obj /Name e");
-        let expected_error = ParseFailure {
-            buffer: b"e",
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
-        };
+        let expected_error = ParseFailure::new(
+            b"e",
+            stringify!(IndirectObject),
+            ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the endobj keyword
         let parse_result = IndirectObject::parse(b"1 0 obj /Name <");
-        let expected_error = ParseFailure {
-            buffer: b"<",
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
-        };
+        let expected_error = ParseFailure::new(
+            b"<",
+            stringify!(IndirectObject),
+            ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Incomplete object
         let parse_result = IndirectObject::parse(b"1 0 obj (A partial literal string");
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::RecMissingSubobject(
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(IndirectObject),
+            ParseErrorCode::RecMissingSubobject(
                 stringify!(IndirectValue),
                 Box::new(ParseErrorCode::MissingClosing(ErrorKind::Char)),
             ),
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the object keyword
         let parse_result = IndirectObject::parse(b"1 0 /Name<");
-        let expected_error = ParseRecoverable {
-            buffer: b"/Name<",
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::NotFound(ErrorKind::Tag),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"/Name<",
+            stringify!(IndirectObject),
+            ParseErrorCode::NotFound(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing value
         let parse_result = IndirectObject::parse(b"1 0 obj endobj");
-        let expected_error = ParseFailure {
-            buffer: b"endobj",
-            object: stringify!(IndirectObject),
-            code: ParseErrorCode::RecMissingSubobject(
+        let expected_error = ParseFailure::new(
+            b"endobj",
+            stringify!(IndirectObject),
+            ParseErrorCode::RecMissingSubobject(
                 stringify!(IndirectValue),
                 Box::new(ParseErrorCode::NotFoundUnion),
             ),
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }

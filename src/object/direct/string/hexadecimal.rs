@@ -8,14 +8,12 @@ use ::nom::multi::many0;
 use ::nom::sequence::preceded;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
-use ::std::ffi::OsString;
 use ::std::fmt::Debug;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use crate::fmt::debug_bytes;
-use crate::object::BorrowedBuffer;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -26,15 +24,12 @@ use crate::parse::Parser;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::process::encoding::Encoding;
+use crate::process::escape::Escape;
 use crate::Byte;
-use crate::Bytes;
 
 /// REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
 #[derive(Clone, Copy)]
 pub struct Hexadecimal<'buffer>(&'buffer [Byte]);
-
-#[derive(Clone)]
-pub struct OwnedHexadecimal(Bytes);
 
 impl Display for Hexadecimal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -46,21 +41,9 @@ impl Display for Hexadecimal<'_> {
     }
 }
 
-impl Display for OwnedHexadecimal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&Hexadecimal::from(self), f)
-    }
-}
-
 impl Debug for Hexadecimal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<{}>", debug_bytes(self.0))
-    }
-}
-
-impl Debug for OwnedHexadecimal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Debug::fmt(&Hexadecimal::from(self), f)
     }
 }
 
@@ -75,12 +58,6 @@ impl PartialEq for Hexadecimal<'_> {
     }
 }
 
-impl PartialEq for OwnedHexadecimal {
-    fn eq(&self, other: &Self) -> bool {
-        Hexadecimal::from(self) == Hexadecimal::from(other)
-    }
-}
-
 impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         // This check is unnecessary because the start of Names and hexadecimal
@@ -88,11 +65,11 @@ impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
         // a dictionary start is found
         let is_dictionary = tag::<_, _, NomError<_>>(b"<<")(buffer);
         if is_dictionary.is_ok() {
-            return Err(ParseRecoverable {
+            return Err(ParseRecoverable::new(
                 buffer,
-                object: stringify!(Hexadecimal),
-                code: ParseErrorCode::ObjectType,
-            }
+                stringify!(Hexadecimal),
+                ParseErrorCode::WrongObjectType,
+            )
             .into());
         }
         // REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
@@ -109,21 +86,21 @@ impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
         )(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Hexadecimal),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(
+                e.input,
+                stringify!(Hexadecimal),
+                ParseErrorCode::NotFound(e.code)
+            )
         ))?;
         // Here, we know that the buffer starts with a hexadecimal string, and
         // the following errors should be propagated as HexadecimalFailure
         let (buffer, _) = char::<_, NomError<_>>('>')(buffer).map_err(parse_failure!(
             e,
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(Hexadecimal),
-                code: ParseErrorCode::MissingClosing(e.code),
-            }
+            ParseFailure::new(
+                e.input,
+                stringify!(Hexadecimal),
+                ParseErrorCode::MissingClosing(e.code)
+            )
         ))?;
 
         let hexadecimal = Self(value);
@@ -131,49 +108,51 @@ impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
     }
 }
 
-impl Parser<'_> for OwnedHexadecimal {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Hexadecimal::parse(buffer)
-            .map(|(buffer, hexadecimal)| (buffer, hexadecimal.to_owned_buffer()))
+mod escape {
+
+    use super::*;
+    use crate::process::escape::error::EscapeErr;
+    use crate::process::escape::error::EscapeErrorCode;
+    use crate::process::escape::error::EscapeResult;
+    use crate::process::escape::Escape;
+    use crate::process::filter::ascii_hex::AHx;
+    use crate::process::filter::Filter;
+
+    impl Escape for Hexadecimal<'_> {
+        fn escape(&self) -> EscapeResult<Vec<Byte>> {
+            let escaped = AHx
+                .defilter(self.0)
+                .map_err(|err| EscapeErr::new(self.0, EscapeErrorCode::Hexadecimal(err.code)))?;
+            Ok(escaped)
+        }
     }
 }
 
-mod process {
+mod encode {
+    use ::std::ffi::OsString;
 
     use super::*;
+    use crate::process::encoding::error::EncodingErr;
+    use crate::process::encoding::error::EncodingErrorCode;
+    use crate::process::encoding::error::EncodingResult;
     use crate::process::encoding::Decoder;
-    use crate::process::error::ProcessResult;
     use crate::process::filter::ascii_hex::AHx;
     use crate::process::filter::Filter;
 
     impl Hexadecimal<'_> {
-        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
-            let escaped = AHx.defilter(self.0)?;
-            Ok(escaped)
-        }
-
         // pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
-        //     let encoded = AHx.filter(encoding.encode(string)?)?;
-        //     Ok(Self(encoded.into()))
+        // let encoded = AHx.filter(encoding.encode(string)?)?;
+        // Ok(Self(encoded.into()))
         // }
 
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            encoding.decode(&AHx.defilter(self.0)?)
-        }
-    }
-
-    impl OwnedHexadecimal {
-        pub(crate) fn escape(&self) -> ProcessResult<Vec<Byte>> {
-            Hexadecimal::from(self).escape()
-        }
-
-        pub(crate) fn encode(encoding: Encoding, string: &OsString) -> ProcessResult<Self> {
-            let encoded = AHx.filter(encoding.encode(string)?)?;
-            Ok(Self(encoded.into()))
-        }
-
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            Hexadecimal::from(self).decode(encoding)
+        pub(crate) fn decode(&self, encoding: Encoding) -> EncodingResult<OsString> {
+            encoding.decode(
+                |data| {
+                    AHx.defilter(data)
+                        .map_err(|err| EncodingErr::new(data, EncodingErrorCode::Filter(err.code)))
+                },
+                self.0,
+            )
         }
     }
 }
@@ -182,21 +161,6 @@ mod convert {
     use ::std::ops::Deref;
 
     use super::*;
-    use crate::object::BorrowedBuffer;
-
-    impl BorrowedBuffer for Hexadecimal<'_> {
-        type OwnedBuffer = OwnedHexadecimal;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedHexadecimal(Bytes::from(self.0))
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedHexadecimal> for Hexadecimal<'buffer> {
-        fn from(value: &'buffer OwnedHexadecimal) -> Self {
-            Hexadecimal(value.0.as_ref())
-        }
-    }
 
     impl<'buffer> From<&'buffer str> for Hexadecimal<'buffer> {
         fn from(value: &'buffer str) -> Self {
@@ -204,22 +168,8 @@ mod convert {
         }
     }
 
-    impl From<&str> for OwnedHexadecimal {
-        fn from(value: &str) -> Self {
-            Hexadecimal::from(value).to_owned_buffer()
-        }
-    }
-
     impl<'buffer> Deref for Hexadecimal<'buffer> {
         type Target = &'buffer [Byte];
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl Deref for OwnedHexadecimal {
-        type Target = Bytes;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -234,6 +184,7 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::parse_assert_eq;
+    use crate::process::escape::Escape;
 
     #[test]
     fn string_hexadecimal_valid() {
@@ -251,47 +202,47 @@ mod tests {
         // Synthetic tests
         // Hexadecimal: Missing closing angle bracket
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67");
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(Hexadecimal),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
-        };
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(Hexadecimal),
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Dictionary opening
         let parse_result = Hexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>");
-        let expected_error = ParseRecoverable {
-            buffer: b"<<412048657861646563696D616C20537472696E67>",
-            object: stringify!(Hexadecimal),
-            code: ParseErrorCode::ObjectType,
-        };
+        let expected_error = ParseRecoverable::new(
+            b"<<412048657861646563696D616C20537472696E67>",
+            stringify!(Hexadecimal),
+            ParseErrorCode::WrongObjectType,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Not found
         let parse_result = Hexadecimal::parse(b"412048657861646563696D616C20537472696E67>");
-        let expected_error = ParseRecoverable {
-            buffer: b"412048657861646563696D616C20537472696E67>",
-            object: stringify!(Hexadecimal),
-            code: ParseErrorCode::NotFound(ErrorKind::Char),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"412048657861646563696D616C20537472696E67>",
+            stringify!(Hexadecimal),
+            ParseErrorCode::NotFound(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Missing end angle bracket
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67<");
-        let expected_error = ParseFailure {
-            buffer: b"<",
-            object: stringify!(Hexadecimal),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
-        };
+        let expected_error = ParseFailure::new(
+            b"<",
+            stringify!(Hexadecimal),
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Unsupported digits
         let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67XX>");
-        let expected_error = ParseFailure {
-            buffer: b"XX>",
-            object: stringify!(Hexadecimal),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Char),
-        };
+        let expected_error = ParseFailure::new(
+            b"XX>",
+            stringify!(Hexadecimal),
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 

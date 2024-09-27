@@ -9,7 +9,6 @@ use ::std::hash::Hash;
 use ::std::hash::Hasher;
 
 use crate::fmt::debug_bytes;
-use crate::object::BorrowedBuffer;
 use crate::parse::character_set::printable_token;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -17,8 +16,8 @@ use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse_recoverable;
+use crate::process::escape::Escape;
 use crate::Byte;
-use crate::Bytes;
 
 // FIXME Take the PDF version into account when parsing names as #-escaped
 // characters are not valid in PDF 1.0 or 1.1
@@ -28,9 +27,6 @@ use crate::Bytes;
 /// REFERENCE: [7.3.5 Name objects, p27-28]
 #[derive(Clone, Copy)]
 pub struct Name<'buffer>(&'buffer [Byte]);
-
-#[derive(Clone)]
-pub struct OwnedName(Bytes);
 
 impl Display for Name<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -42,21 +38,9 @@ impl Display for Name<'_> {
     }
 }
 
-impl Display for OwnedName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&Name::from(self), f)
-    }
-}
-
 impl Debug for Name<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "/{}", debug_bytes(self.0))
-    }
-}
-
-impl Debug for OwnedName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Debug::fmt(&Name::from(self), f)
     }
 }
 
@@ -71,12 +55,6 @@ impl PartialEq for Name<'_> {
     }
 }
 
-impl PartialEq for OwnedName {
-    fn eq(&self, other: &Self) -> bool {
-        Name::from(self) == Name::from(other)
-    }
-}
-
 impl PartialEq<&str> for Name<'_> {
     fn eq(&self, other: &&str) -> bool {
         if let Ok(name) = self.escape() {
@@ -87,15 +65,7 @@ impl PartialEq<&str> for Name<'_> {
     }
 }
 
-impl PartialEq<str> for OwnedName {
-    fn eq(&self, other: &str) -> bool {
-        Name::from(self) == other
-    }
-}
-
 impl Eq for Name<'_> {}
-
-impl Eq for OwnedName {}
 
 impl Hash for Name<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -106,22 +76,12 @@ impl Hash for Name<'_> {
     }
 }
 
-impl Hash for OwnedName {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Name::from(self).hash(state)
-    }
-}
-
 impl<'buffer> Parser<'buffer> for Name<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, value) =
             preceded(char('/'), printable_token)(buffer).map_err(parse_recoverable!(
                 e,
-                ParseRecoverable {
-                    buffer: e.input,
-                    object: stringify!(Name),
-                    code: ParseErrorCode::NotFound(e.code),
-                }
+                ParseRecoverable::new(e.input, stringify!(Name), ParseErrorCode::NotFound(e.code))
             ))?;
 
         let name = Self(value);
@@ -129,26 +89,15 @@ impl<'buffer> Parser<'buffer> for Name<'buffer> {
     }
 }
 
-impl Parser<'_> for OwnedName {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Name::parse(buffer).map(|(buffer, name)| (buffer, name.to_owned_buffer()))
-    }
-}
-
-mod process {
+mod escape {
     use ::nom::character::is_hex_digit;
-    use ::std::ffi::OsString;
-    use ::std::result::Result as StdResult;
 
-    use super::error::NameEscape;
-    use super::error::NameEscapeCode;
     use super::*;
     use crate::parse::num::hex_val;
-    use crate::process::encoding::Decoder;
-    use crate::process::encoding::Encoding;
-    use crate::process::error::ProcessResult;
-    use crate::process::escape::error::EscapeError;
-    use crate::process::escape::error::OwnedEscapeError;
+    use crate::process::escape::error::EscapeErr;
+    use crate::process::escape::error::EscapeErrorCode;
+    use crate::process::escape::error::EscapeResult;
+    use crate::process::escape::Escape;
 
     #[derive(Debug, Clone, Copy)]
     enum PrevByte {
@@ -157,11 +106,11 @@ mod process {
         Other,
     }
 
-    impl Name<'_> {
+    impl Escape for Name<'_> {
         /// REFERENCE: [7.3.5 Name objects, p28]
         /// FIXME Only a prefix solidus, printable characters, number signs and
         /// pairs of hexadecimal digits are allowed in names.
-        pub(crate) fn escape(&self) -> StdResult<Vec<Byte>, EscapeError> {
+        fn escape(&self) -> EscapeResult<Vec<Byte>> {
             // FIXME Fail if the inner bytes include non-printable tokens
             // or if #00 is found
             let mut escaped = Vec::with_capacity(self.0.len());
@@ -172,19 +121,18 @@ mod process {
                         prev = PrevByte::NumberSign;
                     }
                     (_, PrevByte::NumberSign) if is_hex_digit(byte) => {
-                        let hex_digit = hex_val(byte).ok_or(NameEscape {
-                            name: self,
-                            code: NameEscapeCode::InvalidHexDigit(char::from(byte)),
+                        let hex_digit = hex_val(byte).ok_or_else(|| {
+                            EscapeErr::new(self, EscapeErrorCode::InvalidHexDigit(char::from(byte)))
                         })?;
                         prev = PrevByte::FistHexDigit(hex_digit);
                     }
                     (_, PrevByte::FistHexDigit(prev_hex_digit))
                         if is_hex_digit(byte) && prev_hex_digit < 16 =>
                     {
-                        let hex_digit = hex_val(byte).ok_or(NameEscape {
-                            name: self,
-                            code: NameEscapeCode::InvalidHexDigit(char::from(byte)),
-                        })?;
+                        let hex_digit = hex_val(byte).ok_or_else(||EscapeErr::new(
+                            self,
+                            EscapeErrorCode::InvalidHexDigit(char::from(byte)),
+                        ))?;
                         let value = prev_hex_digit * 16 + hex_digit;
                         escaped.push(value);
                         prev = PrevByte::Other;
@@ -197,18 +145,16 @@ mod process {
                         );
                     }
                     (c, PrevByte::NumberSign) => {
-                        return Err(NameEscape {
-                            name: self,
-                            code: NameEscapeCode::InvalidHexDigit(char::from(c)),
-                        }
-                        .into());
+                        return Err(EscapeErr::new(
+                            self,
+                            EscapeErrorCode::InvalidHexDigit(char::from(c)),
+                        ));
                     }
                     (c, PrevByte::FistHexDigit(prev_hex_digit)) => {
-                        return Err(NameEscape {
-                            name: self,
-                            code: NameEscapeCode::IncompleteHexCode(prev_hex_digit, char::from(c)),
-                        }
-                        .into());
+                        return Err(EscapeErr::new(
+                            self,
+                            EscapeErrorCode::IncompleteHexCode(prev_hex_digit, char::from(c)),
+                        ));
                     }
                     (c, PrevByte::Other) => {
                         escaped.push(c);
@@ -218,40 +164,35 @@ mod process {
 
             match prev {
                 PrevByte::NumberSign => {
-                    return Err(NameEscape {
-                        name: self,
-                        code: NameEscapeCode::TraillingNumberSign,
-                    }
-                    .into());
+                    return Err(EscapeErr::new(self, EscapeErrorCode::TraillingNumberSign));
                 }
                 PrevByte::FistHexDigit(value) => {
-                    return Err(NameEscape {
-                        name: self,
-                        code: NameEscapeCode::TraillingHexDigit(value),
-                    }
-                    .into());
+                    return Err(EscapeErr::new(
+                        self,
+                        EscapeErrorCode::TraillingHexDigit(value),
+                    ));
                 }
                 PrevByte::Other => {}
             }
 
             Ok(escaped)
         }
+    }
+}
 
+mod encode {
+    use ::std::ffi::OsString;
+
+    use super::*;
+    use crate::process::encoding::error::EncodingResult;
+
+    impl Name<'_> {
         /// REFERENCE: [7.3.5 Name objects, p29]
         /// Names should be encoded as UTF-8 when interpreted as text.
         // TODO Implement `encode` and `decode` more generically as for `String_`s
-        pub(crate) fn decode_as_utf8(&self) -> ProcessResult<OsString> {
-            Encoding::Utf8.decode(&self.escape()?)
-        }
-    }
-
-    impl OwnedName {
-        pub(crate) fn escape(&self) -> StdResult<Vec<Byte>, OwnedEscapeError> {
-            Name::from(self).escape().map_err(Into::into)
-        }
-
-        pub(crate) fn decode_as_utf8(&self) -> ProcessResult<OsString> {
-            Name::from(self).decode_as_utf8()
+        pub(crate) fn decode_as_utf8(&self) -> EncodingResult<OsString> {
+            // Encoding::Utf8.decode(&self.escape()?)
+            todo!("Implement Name::decode_as_utf8")
         }
     }
 }
@@ -259,24 +200,8 @@ mod process {
 mod convert {
     use ::std::ops::Deref;
 
-    use super::OwnedName;
     use super::*;
-    use crate::object::BorrowedBuffer;
     use crate::Byte;
-
-    impl BorrowedBuffer for Name<'_> {
-        type OwnedBuffer = OwnedName;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedName(Bytes::from(self.0))
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedName> for Name<'buffer> {
-        fn from(value: &'buffer OwnedName) -> Self {
-            Name(value.0.as_ref())
-        }
-    }
 
     impl<'buffer> From<&'buffer [Byte]> for Name<'buffer> {
         fn from(value: &'buffer [Byte]) -> Self {
@@ -284,21 +209,9 @@ mod convert {
         }
     }
 
-    impl From<&[Byte]> for OwnedName {
-        fn from(value: &[Byte]) -> Self {
-            Name::from(value).to_owned_buffer()
-        }
-    }
-
     impl<'buffer> From<&'buffer str> for Name<'buffer> {
         fn from(value: &'buffer str) -> Self {
             Self::from(value.as_bytes())
-        }
-    }
-
-    impl From<&str> for OwnedName {
-        fn from(value: &str) -> Self {
-            Name::from(value).to_owned_buffer()
         }
     }
 
@@ -309,94 +222,19 @@ mod convert {
             &self.0
         }
     }
-
-    impl Deref for OwnedName {
-        type Target = Bytes;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-}
-
-pub(crate) mod error {
-    use ::thiserror::Error;
-
-    use super::OwnedName;
-    use crate::fmt::debug_bytes;
-    use crate::Byte;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    #[error("Name Escape: {}. Error: {code}", debug_bytes(.name))]
-    pub struct NameEscape<'buffer> {
-        pub name: &'buffer [Byte],
-        pub code: NameEscapeCode,
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum NameEscapeCode {
-        #[error("A non hexadecimal character following the number sign:  {0}")]
-        InvalidHexDigit(char),
-        #[error("Incomplete hex code: #{0:02X} followed by: {1}")]
-        IncompleteHexCode(Byte, char),
-        #[error("Trailing number sign")]
-        TraillingNumberSign,
-        #[error("Trailing hex digit: #{0:02X}")]
-        TraillingHexDigit(Byte),
-    }
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum OwnedNameEscape {
-        #[error("Name: A non hexadecimal character following the number sign: {1} in {0}")]
-        InvalidHexDigit(OwnedName, char),
-        #[error("Name: Incomplete hex code: #{1:x?} followed by: {2} in {0}")]
-        IncompleteHexCode(OwnedName, Byte, char),
-        #[error("Name: Trailing number sign in {0}")]
-        TraillingNumberSign(OwnedName),
-        #[error("Name: Trailing hex digit: #{1:x?} in {0}")]
-        TraillingHexDigit(OwnedName, Byte),
-    }
-
-    mod convert {
-        use super::NameEscape;
-        use super::OwnedNameEscape;
-        use crate::object::direct::name::Name;
-        use crate::object::BorrowedBuffer;
-
-        // TODO (TEMP) Remove this when ProcessErr is refactored to accept lifetime parameters
-        impl From<NameEscape<'_>> for OwnedNameEscape {
-            fn from(err: NameEscape) -> Self {
-                let owned_name = Name(err.name).to_owned_buffer();
-                match err.code {
-                    super::NameEscapeCode::InvalidHexDigit(c) => {
-                        Self::InvalidHexDigit(owned_name, c)
-                    }
-                    super::NameEscapeCode::IncompleteHexCode(b, c) => {
-                        Self::IncompleteHexCode(owned_name, b, c)
-                    }
-                    super::NameEscapeCode::TraillingNumberSign => {
-                        Self::TraillingNumberSign(owned_name)
-                    }
-                    super::NameEscapeCode::TraillingHexDigit(b) => {
-                        Self::TraillingHexDigit(owned_name, b)
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use ::nom::error::ErrorKind;
 
-    use super::error::NameEscape;
-    use super::error::NameEscapeCode;
     use super::*;
     use crate::assert_err_eq;
     use crate::escape_assert_err;
     use crate::parse_assert_eq;
-    use crate::process::escape::error::EscapeError;
+    use crate::process::escape::error::EscapeErr;
+    use crate::process::escape::error::EscapeErrorCode;
+    use crate::process::escape::Escape;
 
     #[test]
     fn name_valid() {
@@ -414,11 +252,11 @@ mod tests {
         // Synthetic tests
         // Name: Not found
         let parse_result = Name::parse(b"Name");
-        let expected_error = ParseRecoverable {
-            buffer: b"Name",
-            object: stringify!(Name),
-            code: ParseErrorCode::NotFound(ErrorKind::Char),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"Name",
+            stringify!(Name),
+            ParseErrorCode::NotFound(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 
@@ -440,35 +278,23 @@ mod tests {
 
         // Name: A non-hexadecimal character following the number sign
         let object = Name::from("Name#_");
-        let expected_error = EscapeError::Name(NameEscape {
-            name: &object,
-            code: NameEscapeCode::InvalidHexDigit('_'),
-        });
+        let expected_error = EscapeErr::new(&object, EscapeErrorCode::InvalidHexDigit('_'));
 
         escape_assert_err!(object, expected_error);
 
         // Name: Incomplete hex code
         let object = Name::from("Name#7_");
-        let expected_error = EscapeError::Name(NameEscape {
-            name: &object,
-            code: NameEscapeCode::IncompleteHexCode(7, '_'),
-        });
+        let expected_error = EscapeErr::new(&object, EscapeErrorCode::IncompleteHexCode(7, '_'));
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing number sign
         let object = Name::from("Name#");
-        let expected_error = EscapeError::Name(NameEscape {
-            name: &object,
-            code: NameEscapeCode::TraillingNumberSign,
-        });
+        let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingNumberSign);
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing hex digit
         let object = Name::from("Name#7");
-        let expected_error = EscapeError::Name(NameEscape {
-            name: &object,
-            code: NameEscapeCode::TraillingHexDigit(7),
-        });
+        let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingHexDigit(7));
         escape_assert_err!(object, expected_error);
     }
 }

@@ -1,15 +1,18 @@
 pub(crate) mod entry;
 
 use ::nom::error::Error as NomError;
+use ::std::fmt::Display;
+use ::std::fmt::Formatter;
+use ::std::fmt::Result as FmtResult;
 
 use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
-use crate::parse::error::ParseErrorCode;
-use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::KW_ENDOBJ;
+use crate::parse::KW_OBJ;
 use crate::process::filter::FilteringChain;
 use crate::Byte;
 
@@ -17,17 +20,14 @@ use crate::Byte;
 #[derive(Debug, PartialEq)]
 pub(crate) struct XRefStream<'buffer> {
     pub(crate) id: Id,
-    pub(crate) trailer: Trailer<'buffer>,
-    pub(crate) filter_chain: FilteringChain,
-    pub(crate) data: &'buffer [Byte],
+    pub(crate) stream: Stream<'buffer>,
 }
 
-// FIXME Implement Display
-// impl Display for XRefStream<'_> {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-//         write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.stream, KW_ENDOBJ)
-//     }
-// }
+impl Display for XRefStream<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{} {}\n{}\n{}", self.id, KW_OBJ, self.stream, KW_ENDOBJ)
+    }
+}
 
 impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
@@ -38,11 +38,7 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
 
         let stream = Stream::try_from(value)?;
 
-        let xref_stream = XRefStream::new(id, stream).map_err(|err| ParseFailure {
-            buffer, // TODO (TEMP) Remove with stream.dictionary.as_bytes() when implemented
-            object: stringify!(XRefStream),
-            code: ParseErrorCode::InvalidTrailerDictionary(err),
-        })?;
+        let xref_stream = XRefStream::new(id, stream);
 
         let buffer = remains;
 
@@ -50,46 +46,70 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
     }
 }
 
-mod process {
+mod table {
     use ::nom::bytes::complete::take;
     use ::nom::multi::many0;
     use ::nom::sequence::tuple;
     use ::nom::Err as NomErr;
     use ::std::collections::HashSet;
 
-    use super::entry::error::EntryError;
     use super::entry::Entry;
-    use super::error::XRefStreamError;
+    use super::error::XRefStreamErrorCode;
     use super::*;
-    use crate::object::direct::dictionary::error::MissingEntryError;
-    use crate::object::BorrowedBuffer;
-    use crate::process::error::NewProcessErr;
-    use crate::process::error::NewProcessResult;
+    use crate::object::error::ObjectErr;
+    use crate::object::error::ObjectErrorCode;
     use crate::process::filter::Filter;
-    use crate::process_err;
-    use crate::xref::increment::error::IncrementError;
+    use crate::xref::error::XRefErr;
+    use crate::xref::error::XRefResult;
     use crate::xref::increment::trailer::KEY_TYPE;
     use crate::xref::increment::trailer::KEY_W;
     use crate::xref::increment::trailer::VAL_XREF;
     use crate::xref::Table;
     use crate::xref::ToTable;
+    use crate::xref_err;
     use crate::ObjectNumberOrZero;
 
     impl ToTable for XRefStream<'_> {
-        fn to_table(&self) -> NewProcessResult<Table> {
+        fn to_table(&self) -> XRefResult<Table> {
             // TODO Change the errors below into warnings as long as they don't
             // prevent building the table
 
+            self.stream
+                .dictionary
+                .required_name(KEY_TYPE)
+                .and_then(|r#type| {
+                    if r#type.ne(&VAL_XREF) {
+                        Err(ObjectErr::new(
+                            KEY_TYPE,
+                            &self.stream.dictionary,
+                            ObjectErrorCode::Name {
+                                expected: VAL_XREF,
+                                value: r#type,
+                            },
+                        ))
+                    } else {
+                        Ok(r#type)
+                    }
+                })?;
+            let trailer = Trailer::try_from(&self.stream.dictionary)?;
+            // W
+            let w = trailer.w.ok_or_else(|| {
+                ObjectErr::new(
+                    KEY_W,
+                    trailer.dictionary,
+                    ObjectErrorCode::MissingRequiredEntry,
+                )
+            })?;
             // Size
-            let size = self.trailer.size();
+            let size = trailer.size;
             // Index
-            let mut index = self.trailer.index();
+            let mut index = trailer.index.as_slice();
             let default_index = [(0, size)];
             if index.is_empty() {
                 index = &default_index;
             }
 
-            let entries = self.get_entries()?;
+            let entries = Self::get_entries(&self.stream, w)?;
             let mut entries_iter = entries.iter();
 
             let mut object_numbers: HashSet<ObjectNumberOrZero> = Default::default();
@@ -102,7 +122,7 @@ mod process {
                         let entry =
                             entries_iter
                                 .next()
-                                .ok_or(XRefStreamError::EntriesTooShort {
+                                .ok_or(XRefStreamErrorCode::EntriesTooShort {
                                     first_object_number: *first_object_number,
                                     count: *count,
                                     index: entry_index,
@@ -110,7 +130,7 @@ mod process {
                         let object_number = first_object_number + entry_index;
 
                         if !object_numbers.insert(object_number) {
-                            return Err(IncrementError::DuplicateObjectNumber(object_number).into());
+                            return Err(XRefErr::DuplicateObjectNumber(object_number));
                         }
 
                         match entry {
@@ -139,47 +159,28 @@ mod process {
     }
 
     impl XRefStream<'_> {
-        fn get_entries(&self) -> NewProcessResult<Vec<Entry>> {
-            // Type
-            self.trailer
-                .r#type()
-                .ok_or(NewProcessErr::from(MissingEntryError {
-                    key: KEY_TYPE,
-                    data_type: stringify!(Name),
-                }))
-                .and_then(|type_| {
-                    if type_.ne(&VAL_XREF) {
-                        Err(XRefStreamError::WrongValue {
-                            key: KEY_TYPE,
-                            expected: VAL_XREF,
-                            value: type_.to_owned_buffer(), // TODO (TEMP) Remove clone
-                        }
-                        .into())
-                    } else {
-                        Ok(type_)
-                    }
-                })?;
-            // W
-            let [count1, count2, count3] = self.trailer.w().ok_or(MissingEntryError {
-                key: KEY_W,
-                data_type: stringify!(array of three integers),
-            })?;
+        // TODO (TEMP)
+        fn get_entries<'buffer>(
+            stream: &'buffer Stream<'buffer>,
+            w: [usize; 3],
+        ) -> XRefResult<'buffer, Vec<Entry>> {
+            let [count1, count2, count3] = w;
 
-            let decoded_data = self.filter_chain.defilter(self.data)?;
+            let decoded_data = FilteringChain::new(&stream.dictionary)?.defilter(stream.data)?;
             let buffer = decoded_data.as_slice();
 
             let mut parser = many0(tuple((
-                take::<_, _, NomError<_>>(*count1),
-                take(*count2),
-                take(*count3),
+                take::<_, _, NomError<_>>(count1),
+                take(count2),
+                take(count3),
             )));
 
-            let (buffer, entries) = parser(buffer).map_err(process_err!(e, {
-                XRefStreamError::ParseDecoded(e.input.to_vec(), e.code) // TODO (TEMP) Remove .to_vec()
+            let (buffer, entries) = parser(buffer).map_err(xref_err!(e, {
+                XRefStreamErrorCode::ParseDecoded(e.input.to_vec(), e.code)
             }))?;
             if !buffer.is_empty() {
-                return Err(XRefStreamError::DecodedLength(
-                    [*count1, *count2, *count3],
+                return Err(XRefStreamErrorCode::DecodedLength(
+                    [count1, count2, count3],
                     decoded_data.len(),
                 )
                 .into());
@@ -187,7 +188,7 @@ mod process {
             let entries = entries
                 .into_iter()
                 .map(|(field1, field2, field3)| Entry::try_from((field1, field2, field3)))
-                .collect::<Result<Vec<_>, EntryError>>()?;
+                .collect::<XRefResult<Vec<Entry>>>()?;
             Ok(entries)
         }
     }
@@ -195,44 +196,28 @@ mod process {
 
 mod convert {
     use super::*;
-    use crate::process::error::NewProcessResult;
 
     impl<'buffer> XRefStream<'buffer> {
-        pub(crate) fn new(id: Id, stream: Stream<'buffer>) -> NewProcessResult<Self> {
-            let data = stream.data;
-            let filter_chain = FilteringChain::new(&stream.dictionary)?;
-            let trailer = Trailer::try_from(stream.dictionary)?;
-            Ok(Self {
-                id,
-                trailer,
-                filter_chain,
-                data,
-            })
+        pub(crate) fn new(id: Id, stream: Stream<'buffer>) -> Self {
+            Self { id, stream }
         }
     }
 }
 
-pub(crate) mod error {
+pub(in crate::xref) mod error {
 
     use ::nom::error::ErrorKind;
     use ::thiserror::Error;
 
     use crate::fmt::debug_bytes;
-    use crate::object::direct::name::OwnedName;
     use crate::Byte;
     use crate::IndexNumber;
 
-    // Name and Vec do not implement Copy
     #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum XRefStreamError {
-        #[error("Wrong value. Key {key}. Expected a {expected} value, found {value}")]
-        WrongValue {
-            key: &'static str,
-            expected: &'static str,
-            value: OwnedName, // TODO(TEMP) &'buffer [Byte]
-        },
+    pub enum XRefStreamErrorCode {
+        // TODO (TEMP) Replace Vec<Byte> below with Span
         #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
-        ParseDecoded(Vec<Byte>, ErrorKind), // TODO(TEMP) Remove Vec<Byte> with &'buffer [Byte]
+        ParseDecoded(Vec<Byte>, ErrorKind),
         #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
         DecodedLength([usize; 3], usize),
         #[error(
@@ -251,7 +236,6 @@ pub(crate) mod error {
 
 #[cfg(test)]
 mod tests {
-    use ::std::collections::HashMap;
 
     use super::*;
     use crate::object::direct::array::Array;
@@ -259,10 +243,7 @@ mod tests {
     use crate::object::direct::name::Name;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
-    use crate::object::indirect::stream::KEY_FILTER;
-    use crate::object::indirect::stream::KEY_LENGTH;
     use crate::parse_assert_eq;
-    use crate::xref::increment::trailer::VAL_XREF;
 
     #[test]
     fn xref_stream_valid() {
@@ -272,25 +253,9 @@ mod tests {
         );
         let dictionary =
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
-        let trailer = Trailer::new(750)
-            .set_root(unsafe { Reference::new_unchecked(747, 0) })
-            .set_w([1, 3, 1])
-            .set_index(vec![(0, 750)])
-            .set_info(unsafe { Reference::new_unchecked(748, 0) })
-            .set_id([
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-                Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-            ])
-            .set_type(Name::from(VAL_XREF))
-            .set_others(HashMap::from_iter([
-                (Name::from(KEY_LENGTH), 1760.into()),
-                (Name::from(KEY_FILTER), Name::from("FlateDecode").into()),
-            ]));
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },
-            trailer,
-            filter_chain: FilteringChain::new(&dictionary).unwrap(),
-            data: &buffer[215..1975],
+            stream: Stream::new(dictionary, &buffer[215..1975]),
         };
         parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
@@ -303,8 +268,7 @@ mod tests {
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
             Stream::new(dictionary, &buffer[215..1304]),
-        )
-        .unwrap();
+        );
         parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
         // PDF produced by pdfTeX-1.40.21
@@ -316,8 +280,7 @@ mod tests {
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
             Stream::new(dictionary, &buffer[215..717]),
-        )
-        .unwrap();
+        );
         parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }
 

@@ -1,3 +1,4 @@
+pub(crate) mod error;
 pub(crate) mod increment;
 pub(crate) mod pretable;
 pub(crate) mod startxref;
@@ -5,9 +6,9 @@ pub(crate) mod startxref;
 use ::std::collections::BTreeSet;
 use ::std::collections::HashMap;
 
-use self::error::XRefError;
+use self::error::XRefErr;
 use crate::object::indirect::id::Id;
-use crate::process::error::NewProcessResult;
+use crate::xref::error::XRefResult;
 use crate::GenerationNumber;
 use crate::IndexNumber;
 use crate::ObjectNumber;
@@ -15,8 +16,7 @@ use crate::ObjectNumberOrZero;
 use crate::Offset;
 
 pub(crate) trait ToTable {
-    // TODO(TEMP) Consider consuming the object
-    fn to_table(&self) -> NewProcessResult<Table>;
+    fn to_table(&self) -> XRefResult<Table>;
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -31,6 +31,7 @@ pub(crate) struct Table {
     // - Validate that they partially form a linked list
     pub(crate) free: HashMap<Id, ObjectNumberOrZero>,
     pub(crate) compressed: HashMap<Id, (Id, IndexNumber)>,
+    // TODO Add trailer here rather than in the Pdf struct
 }
 
 impl Table {
@@ -51,9 +52,8 @@ impl Table {
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
         offset: Offset,
-    ) -> Result<(), XRefError> {
-        // TODO use 'static if a lifetime is introduced
-        let object_number = ObjectNumber::new(object_number).ok_or(XRefError::XRefInUseObject {
+    ) -> XRefResult<'static, ()> {
+        let object_number = ObjectNumber::new(object_number).ok_or(XRefErr::InUseObjectNumber {
             object_number,
             generation_number,
             offset,
@@ -69,10 +69,9 @@ impl Table {
         object_number: ObjectNumberOrZero,
         stream_id: Id,
         index: IndexNumber,
-    ) -> Result<Option<(Id, IndexNumber)>, XRefError> {
-        // TODO use 'static if a lifetime is introduced
+    ) -> XRefResult<'static, Option<(Id, IndexNumber)>> {
         let object_number =
-            ObjectNumber::new(object_number).ok_or(XRefError::XRefCompressedObject {
+            ObjectNumber::new(object_number).ok_or(XRefErr::CompressedObjectNumber {
                 object_number,
                 stream_id,
                 index,
@@ -88,42 +87,6 @@ impl Table {
         // into account objects that are reused
         self.free.extend(other.free);
         self.compressed.extend(other.compressed);
-    }
-}
-
-pub(crate) mod error {
-    use ::thiserror::Error;
-
-    use crate::object::indirect::id::Id;
-    use crate::GenerationNumber;
-    use crate::IndexNumber;
-    use crate::ObjectNumberOrZero;
-    use crate::Offset;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum XRefError {
-        #[error(
-            "In-use Object. Number: {}, Generation: {}, Offset: {}",
-            object_number,
-            generation_number,
-            offset
-        )]
-        XRefInUseObject {
-            object_number: ObjectNumberOrZero,
-            generation_number: GenerationNumber,
-            offset: Offset,
-        },
-        #[error(
-            "Compressed Object. Number: {}, Stream: {}, index: {}",
-            object_number,
-            stream_id,
-            index
-        )]
-        XRefCompressedObject {
-            object_number: ObjectNumberOrZero,
-            stream_id: Id,
-            index: IndexNumber,
-        },
     }
 }
 
@@ -171,8 +134,9 @@ mod tests {
                         let pretable = PreTable::parse(&buffer);
                         match pretable {
                             Ok((_, pretable)) => {
+                                let pretable_len = pretable.len();
                                 pretable.to_table().unwrap();
-                                println!("{}: # Increments {:?}", path.display(), pretable.len());
+                                println!("{}: # Increments {:?}", path.display(), pretable_len);
                             }
                             Err(err) => {
                                 eprintln!("{}: Error: {}", path.display(), err);
@@ -221,17 +185,26 @@ mod tests {
                         let mut buffer = vec![];
                         reader.read_to_end(&mut buffer).unwrap();
                         let pretable = PreTable::parse(&buffer);
+                        let pretable_len = pretable
+                            .as_ref()
+                            .map(|pretable| pretable.1.len())
+                            .unwrap_or_default();
                         match pretable {
-                            Ok((_, pretable)) if pretable.to_table().is_ok() => {
-                                eprintln!("{}: # Increments {:?}", path.display(), pretable.len());
-                                err_msgs.push(path);
-                            }
-                            Ok(_) => {
-                                println!(
-                                    "{}: Successfully parsed the cross-reference table but failed \
-                                     to process it",
-                                    path.display()
-                                );
+                            Ok((_, pretable)) => {
+                                if pretable.to_table().is_ok() {
+                                    eprintln!(
+                                        "{}: # Increments {:?}",
+                                        path.display(),
+                                        pretable_len
+                                    );
+                                    err_msgs.push(path);
+                                } else {
+                                    println!(
+                                        "{}: Successfully parsed the cross-reference table but \
+                                         failed to process it",
+                                        path.display()
+                                    );
+                                }
                             }
                             Err(err) => {
                                 println!("{}: Error: {}", path.display(), err);

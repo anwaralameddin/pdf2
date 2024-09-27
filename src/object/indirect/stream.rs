@@ -72,29 +72,22 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
         ))(remains)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Stream),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(
+                e.input,
+                stringify!(Stream),
+                ParseErrorCode::NotFound(e.code),
+            )
         ))?;
         // Here, we know that the buffer starts with a stream, and the following
         // errors should be propagated as StreamFailure
 
-        let length = dictionary
-            .get_usize(KEY_LENGTH)
-            .map_err(|err| ParseFailure {
-                buffer, // TODO (TEMP) Replace with dictionary.as_bytes() when implemented
-                object: stringify!(Stream),
-                code: err.into(),
-            })?
-            .ok_or_else(|| {
-                ParseFailure {
-                    buffer, // TODO (TEMP) Replace with dictionary.as_bytes() when implemented
-                    object: stringify!(Stream),
-                    code: ParseErrorCode::RecMissingKey(KEY_LENGTH),
-                }
-            })?;
+        let length = dictionary.required_usize(KEY_LENGTH).map_err(|err| {
+            ParseFailure::new(
+                buffer, // TODO (TEMP) Replace with dictionary.span() when implemented
+                stringify!(Stream),
+                ParseErrorCode::Object(err.to_string()),
+            )
+        })?;
         let buffer = remains;
 
         // FIXME Add support for indirect reference
@@ -102,18 +95,18 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
         //     todo!("Indirect reference for stream length")
         // }
 
-        let file = dictionary.get(KEY_F);
+        let file = dictionary.opt_get(KEY_F);
         if let Some(file) = file {
             todo!("Implement Stream with data stored in a file: {:?}", file);
         }
 
         let (buffer, data) = take::<_, _, NomError<_>>(length)(buffer).map_err(parse_failure!(
             e,
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(Stream),
-                code: ParseErrorCode::MissingData(e.code),
-            }
+            ParseFailure::new(
+                e.input,
+                stringify!(Stream),
+                ParseErrorCode::StreamData(e.code),
+            )
         ))?;
 
         let (buffer, _) = delimited(opt(eol), tag(KW_ENDSTREAM), opt(white_space_or_comment))(
@@ -121,11 +114,11 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
         )
         .map_err(parse_failure!(
             e,
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(Stream),
-                code: ParseErrorCode::MissingClosing(e.code),
-            }
+            ParseFailure::new(
+                e.input,
+                stringify!(Stream),
+                ParseErrorCode::MissingClosing(e.code),
+            )
         ))?;
 
         let stream = Self { dictionary, data };
@@ -133,45 +126,64 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
     }
 }
 
-mod process {
-    use ::std::ffi::OsString;
-
+mod filter {
     use super::*;
-    use crate::process::encoding::Decoder;
-    use crate::process::encoding::Encoding;
-    use crate::process::error::ProcessResult;
+    use crate::process::filter::error::FilterResult;
     use crate::process::filter::Filter;
     use crate::process::filter::FilteringChain;
     use crate::Byte;
 
-    impl Stream<'_> {
-        pub(crate) fn filters(&self) -> ProcessResult<FilteringChain> {
+    impl<'buffer> Stream<'buffer> {
+        pub(crate) fn filter_chain(&self) -> FilterResult<FilteringChain> {
+            // TODO Store the filter Chain in the Stream struct
             FilteringChain::new(&self.dictionary)
         }
 
-        pub(crate) fn defilter(&self) -> ProcessResult<Vec<Byte>> {
-            // TODO Store the filter Chain in the Stream struct
-            FilteringChain::new(&self.dictionary)?.defilter(self.data)
+        pub(crate) fn defilter(&'buffer self) -> FilterResult<'buffer, Vec<Byte>> {
+            self.filter_chain()?.defilter(self.data)
         }
 
         // TODO Amend in line with the `PdFString::encode` method
         pub(crate) fn filter_buffer(
-            &self,
-            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
-        ) -> ProcessResult<Vec<Byte>> {
+            &'buffer self,
+            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+        ) -> FilterResult<'buffer, Vec<Byte>> {
             FilteringChain::new(&self.dictionary)?.filter(buffer)
         }
 
         pub(crate) fn defilter_buffer(
-            &self,
-            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]>,
-        ) -> ProcessResult<Vec<Byte>> {
+            &'buffer self,
+            buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+        ) -> FilterResult<'buffer, Vec<Byte>> {
             FilteringChain::new(&self.dictionary)?.defilter(buffer)
         }
+    }
+}
 
-        pub(crate) fn decode(&self, encoding: Encoding) -> ProcessResult<OsString> {
-            self.defilter()
-                .and_then(|decoded| encoding.decode(&decoded))
+mod encode {
+    use ::std::ffi::OsString;
+
+    use super::*;
+    use crate::process::encoding::error::EncodingErr;
+    use crate::process::encoding::error::EncodingErrorCode;
+    use crate::process::encoding::error::EncodingResult;
+    use crate::process::encoding::Decoder;
+    use crate::process::encoding::Encoding;
+    use crate::process::filter::Filter;
+
+    impl<'buffer> Stream<'buffer> {
+        pub(crate) fn decode(&self, encoding: Encoding) -> EncodingResult<OsString> {
+            let filter_chain = self
+                .filter_chain()
+                .map_err(|err| EncodingErr::new(self.data, EncodingErrorCode::Filter(err.code)))?;
+            encoding.decode(
+                |data| {
+                    filter_chain
+                        .defilter(data)
+                        .map_err(|err| EncodingErr::new(data, EncodingErrorCode::Filter(err.code)))
+                },
+                self.data,
+            )
         }
     }
 }
@@ -201,11 +213,11 @@ mod convert {
             if let IndirectValue::Stream(stream) = value {
                 Ok(stream)
             } else {
-                Err(ParseFailure {
-                    buffer: &[], // TODO (TEMP) Replace with value.as_bytes() when implemented
-                    object: stringify!(Stream),
-                    code: ParseErrorCode::ObjectType,
-                })
+                Err(ParseFailure::new(
+                    &[], // TODO (TEMP) Replace with value.span() when implemented
+                    stringify!(Stream),
+                    ParseErrorCode::WrongObjectType,
+                ))
             }
         }
     }
@@ -218,9 +230,12 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::direct::array::Array;
-    use crate::object::direct::dictionary::error::DataTypeError;
     use crate::object::direct::name::Name;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
+    use crate::object::direct::DirectValue;
+    use crate::object::error::ObjectErr;
+    use crate::object::error::ObjectErrorCode;
     use crate::object::indirect::reference::Reference;
     use crate::parse::error::ParseFailure;
     use crate::parse_assert_eq;
@@ -265,27 +280,39 @@ mod tests {
         // Synthetic tests
         // Stream: Length not found in stream dictionary
         let parse_result = Stream::parse(b"<<>>\nstream\nendstream");
-        let expected_error = ParseFailure {
-            buffer: b"<<>>\nstream\nendstream", // TODO (TEMP) b"<<>>"
-            object: stringify!(Stream),
-            code: ParseErrorCode::RecMissingKey(KEY_LENGTH),
-        };
+        let expected_error = ParseFailure::new(
+            b"<<>>\nstream\nendstream", // b"<<>>"
+            stringify!(Stream),
+            ParseErrorCode::Object(
+                ObjectErr::new(
+                    KEY_LENGTH,
+                    &Dictionary::default(),
+                    ObjectErrorCode::MissingRequiredEntry,
+                )
+                .to_string(),
+            ),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Stream: Length has the wrong type. Only NonNegative values and References are
         // allowed for Length Stream: Length of invalid value: -1
         let parse_result = Stream::parse(b"<</Length -1>>\nstream\nendstream");
-        let expected_error = ParseFailure {
-            buffer: b"<</Length -1>>\nstream\nendstream", // TODO(TEMP) b"-1",
-            object: stringify!(Stream),
-            code: DataTypeError {
-                entry: KEY_LENGTH,
-                expected_type: stringify!(usize),
-                value: "-1".to_string(),
-                object: "<</Length -1>>".to_string(),
-            }
-            .into(),
-        };
+        let value: DirectValue = Integer::from(-1i128).into();
+        let expected_error = ParseFailure::new(
+            b"<</Length -1>>\nstream\nendstream", // b"-1",
+            stringify!(Stream),
+            ParseErrorCode::Object(
+                ObjectErr::new(
+                    KEY_LENGTH,
+                    &Dictionary::from_iter([(KEY_LENGTH.into(), Integer::from(-1i128).into())]),
+                    ObjectErrorCode::Type {
+                        expected_type: stringify!(usize),
+                        value: &value,
+                    },
+                )
+                .to_string(),
+            ),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // TODO StreamFailure::LengthInvalidValue should be returned on machines
@@ -293,20 +320,20 @@ mod tests {
 
         // Stream: Data is too short
         let parse_result = Stream::parse(b"<</Length 10>>\nstream\n0123456\nendstream");
-        let expected_error = ParseFailure {
-            buffer: b"dstream",
-            object: stringify!(Stream),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
-        };
+        let expected_error = ParseFailure::new(
+            b"dstream",
+            stringify!(Stream),
+            ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Stream: Data is too long
         let parse_result = Stream::parse(b"<</Length 5>>\nstream\n0123456789\nendstream");
-        let expected_error = ParseFailure {
-            buffer: b"56789\nendstream",
-            object: stringify!(Stream),
-            code: ParseErrorCode::MissingClosing(ErrorKind::Tag),
-        };
+        let expected_error = ParseFailure::new(
+            b"56789\nendstream",
+            stringify!(Stream),
+            ParseErrorCode::MissingClosing(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }

@@ -28,11 +28,7 @@ impl Parser<'_> for Null {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, _) = tag::<_, _, NomError<_>>(KW_NULL)(buffer).map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Null),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(e.input, stringify!(Null), ParseErrorCode::NotFound(e.code))
         ))?;
 
         Ok((buffer, Self))
@@ -60,11 +56,11 @@ mod tests {
     fn null_invalid() {
         // Null: Not found
         let parse_result = Null::parse(b"nul");
-        let expected_error = ParseRecoverable {
-            buffer: b"nul",
-            object: stringify!(Null),
-            code: ParseErrorCode::NotFound(ErrorKind::Tag),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"nul",
+            stringify!(Null),
+            ParseErrorCode::NotFound(ErrorKind::Tag),
+        );
 
         assert_err_eq!(parse_result, expected_error);
     }

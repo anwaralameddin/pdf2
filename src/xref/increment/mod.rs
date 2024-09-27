@@ -34,24 +34,22 @@ impl<'buffer> Parser<'buffer> for Increment<'buffer> {
             .unwrap_or_else(|| {
                 // Except for Subsection, Section and XRefStream, NotFound
                 // errors for xref objects should be propagated as failures.
-                Err(ParseFailure {
-                    buffer,
-                    object: stringify!(Increment),
-                    code: ParseErrorCode::NotFoundUnion,
-                }
-                .into())
+                Err(
+                    ParseFailure::new(buffer, stringify!(Increment), ParseErrorCode::NotFoundUnion)
+                        .into(),
+                )
             })
     }
 }
 
-mod process {
+mod table {
     use super::*;
-    use crate::process::error::NewProcessResult;
+    use crate::xref::error::XRefResult;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for Increment<'_> {
-        fn to_table(&self) -> NewProcessResult<Table> {
+        fn to_table(&self) -> XRefResult<Table> {
             match self {
                 Self::Section(section) => section.to_table(),
                 Self::Stream(stream) => stream.to_table(),
@@ -62,41 +60,32 @@ mod process {
 
 mod convert {
 
-    use super::trailer::Trailer;
+    use super::trailer::KEY_PREV;
     use super::*;
     use crate::impl_from_ref;
+    use crate::object::error::ObjectResult;
     use crate::Offset;
 
     impl_from_ref!('buffer, Section<'buffer>, Section, Increment<'buffer>);
     impl_from_ref!('buffer, XRefStream<'buffer>, Stream, Increment<'buffer>);
 
     impl<'buffer> Increment<'buffer> {
-        pub(crate) fn prev(&self) -> Option<Offset> {
-            match self {
-                Self::Section(section) => section.trailer.prev(),
-                Self::Stream(stream) => stream.trailer.prev(),
-            }
+        pub(crate) fn prev(&self) -> ObjectResult<Option<Offset>> {
+            let dictionary = match self {
+                Self::Section(section) => &section.trailer,
+                Self::Stream(stream) => &stream.stream.dictionary,
+            };
+            dictionary.opt_usize(KEY_PREV)
         }
 
-        pub(crate) fn trailer(self) -> Trailer<'buffer> {
-            match self {
-                Self::Section(section) => section.trailer,
-                Self::Stream(stream) => stream.trailer,
-            }
-        }
-    }
-}
-
-pub(crate) mod error {
-    use ::std::num::TryFromIntError;
-    use ::thiserror::Error;
-
-    #[derive(Debug, Error, PartialEq, Clone, Copy)]
-    pub enum IncrementError {
-        #[error("Generation number. Error: {1}. Input: {0}")]
-        EntryGenerationNumber(u64, TryFromIntError),
-        #[error("Duplicate object number: {0}")]
-        DuplicateObjectNumber(u64),
+        // Avoid calling several times. Store in the processed table.
+        // pub(crate) fn trailer(self) -> XRefResult<Trailer<'buffer>> {
+        //     let dictionary = match self {
+        //         Self::Section(section) => section.trailer,
+        //         Self::Stream(stream) => stream.trailer,
+        //     };
+        //     Trailer::try_from(dictionary)
+        // }
     }
 }
 

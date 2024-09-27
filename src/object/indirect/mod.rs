@@ -36,17 +36,17 @@ impl<'buffer> Parser<'buffer> for IndirectValue<'buffer> {
         Stream::parse_suppress_recoverable(buffer)
             .or_else(|| DirectValue::parse_suppress_recoverable(buffer))
             .unwrap_or_else(|| {
-                Err(ParseRecoverable {
+                Err(ParseRecoverable::new(
                     buffer,
-                    object: stringify!(IndirectValue),
-                    code: ParseErrorCode::NotFoundUnion,
-                }
+                    stringify!(IndirectValue),
+                    ParseErrorCode::NotFoundUnion,
+                )
                 .into())
             })
     }
 }
 
-mod process {
+mod lookup {
     use ::std::collections::HashMap;
 
     use super::*;

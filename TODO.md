@@ -14,6 +14,7 @@
 
 ## Features
 
+- Introduce a <code>Span</code> type to represent a range of bytes an object occupies in the PDF file. Use this span to report <code>String</code> in errors. In particular, <code>PdfError</code> should have access to the <code>buffer</code> and display the slice of bytes corresponding to the errorous span.
 - Recursively look up indirect reference values.
 - Read stream length from an indirect reference.
 - Parse free and compressed objects.
@@ -45,19 +46,9 @@
 
 - Use <code>num_traits</code> to refactor the <code>num</code> module
 - Replace <code>println!</code> and <code>eprintln!</code> with <code>log</code> calls.
-- Consider converting the different instances of the <code>escape</code> methods into implementations of a trait <code>Escape</code>.
-- Remove <code>::std::str::from_utf8</code> especially in the context of converting <code>&[Byte]</code> to numeric types.
 - Replace <code>flate2</code> with a library that allows restricting the output size.
-
-### Error Handling
-
-- Combine parse and process error codes.
-- Reconsider <code>Failure</code>s and <code>Recoverable</code>s. Fail as soon as possible, and only warn when further processing is possible.
-- [O] Standardise tests.
-    - [X] Pdf errors.
-    - [X] Parse errors.
-    - [ ] Process errors.
-    - [ ] Other sporadic errors.
+- For comparing files, it might be better to implement a <code>PartialEq</code> trait for <code>Stream</code> using its decoded data.
+- Consider viewing <code>Escape</code> for <code>Name</code> and <code>LiteralString</code> as a <code>Filter</code>, as it is the case for <code>Hexadecimal</code>.
 
 ## Future Work
 

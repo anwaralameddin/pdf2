@@ -36,22 +36,22 @@ impl Parser<'_> for Integer {
         ))(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Integer),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(
+                e.input,
+                stringify!(Integer),
+                ParseErrorCode::NotFound(e.code)
+            )
         ))?;
 
         // REFERENCE: [7.3.3 Numeric objects, p 24]
         // Real numbers cannot be used where integers are expected. Hence, the
         // next character should not be '.'
         if char::<_, NomError<_>>('.')(remains).is_ok() {
-            return Err(ParseRecoverable {
+            return Err(ParseRecoverable::new(
                 buffer,
-                object: stringify!(Integer),
-                code: ParseErrorCode::ObjectType,
-            }
+                stringify!(Integer),
+                ParseErrorCode::WrongObjectType,
+            )
             .into());
         }
         let buffer = remains;
@@ -63,10 +63,8 @@ impl Parser<'_> for Integer {
         // While, initially, the error here seems to be a ParseErr::Failure, it
         // is propagated as ParseErr::Error that some numbers may be too large
         // for i128 yet fit within the f64 range.
-        let value = ascii_to_i128(value).ok_or_else(|| ParseRecoverable {
-            buffer: value,
-            object: stringify!(Integer),
-            code: ParseErrorCode::ParseIntError,
+        let value = ascii_to_i128(value).ok_or_else(|| {
+            ParseRecoverable::new(value, stringify!(Integer), ParseErrorCode::ParseIntError)
         })?;
 
         let value = Self(value);
@@ -151,65 +149,65 @@ mod tests {
     fn numeric_integer_invalid() {
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"+");
-        let expected_error = ParseRecoverable {
-            buffer: b"",
-            object: stringify!(Integer),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"",
+            stringify!(Integer),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"- <");
-        let expected_error = ParseRecoverable {
-            buffer: b" <",
-            object: stringify!(Integer),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b" <",
+            stringify!(Integer),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"+<");
-        let expected_error = ParseRecoverable {
-            buffer: b"<",
-            object: stringify!(Integer),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"<",
+            stringify!(Integer),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
         let parse_result = Integer::parse(b"<");
-        let expected_error = ParseRecoverable {
-            buffer: b"<",
-            object: stringify!(Integer),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"<",
+            stringify!(Integer),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Found real number
         let parse_result = Integer::parse(b"-1.0 ");
-        let expected_error = ParseRecoverable {
-            buffer: b"-1.0 ",
-            object: stringify!(Integer),
-            code: ParseErrorCode::ObjectType,
-        };
+        let expected_error = ParseRecoverable::new(
+            b"-1.0 ",
+            stringify!(Integer),
+            ParseErrorCode::WrongObjectType,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
         let parse_result = Integer::parse(b"-170141183460469231731687303715884105729<");
-        let expected_error = ParseRecoverable {
-            buffer: b"-170141183460469231731687303715884105729",
-            object: stringify!(Integer),
-            code: ParseErrorCode::ParseIntError,
-        };
+        let expected_error = ParseRecoverable::new(
+            b"-170141183460469231731687303715884105729",
+            stringify!(Integer),
+            ParseErrorCode::ParseIntError,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
         let parse_result = Integer::parse(b"+170141183460469231731687303715884105728<");
-        let expected_error = ParseRecoverable {
-            buffer: b"+170141183460469231731687303715884105728",
-            object: stringify!(Integer),
-            code: ParseErrorCode::ParseIntError,
-        };
+        let expected_error = ParseRecoverable::new(
+            b"+170141183460469231731687303715884105728",
+            stringify!(Integer),
+            ParseErrorCode::ParseIntError,
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }

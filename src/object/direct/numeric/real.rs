@@ -46,21 +46,15 @@ impl Parser<'_> for Real {
         ))(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Real),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(e.input, stringify!(Real), ParseErrorCode::NotFound(e.code))
         ))?;
         // Here, we know that the buffer starts with a real number, and the
         // following errors should be propagated as RealFailure
 
         // It is not guaranteed that the string of digits and '.' is a valid
         // f64, e.g.  the value could overflow
-        let value = ascii_to_f64(value).ok_or_else(|| ParseFailure {
-            buffer: value,
-            object: stringify!(Real),
-            code: ParseErrorCode::ParseFloatError,
+        let value = ascii_to_f64(value).ok_or_else(|| {
+            ParseFailure::new(value, stringify!(Real), ParseErrorCode::ParseFloatError)
         })?;
 
         let value = Self(value);
@@ -122,68 +116,56 @@ mod tests {
     fn numeric_real_invalid() {
         // Real number: Missing digits
         let real_incomplete = Real::parse(b"+.");
-        let expected_error = ParseRecoverable {
-            buffer: b"",
-            object: stringify!(Real),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"",
+            stringify!(Real),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(real_incomplete, expected_error);
 
         // Real number: Missing digits
         let parse_result = Real::parse(b" <");
-        let expected_error = ParseRecoverable {
-            buffer: b" <",
-            object: stringify!(Real),
-            code: ParseErrorCode::NotFound(ErrorKind::Char),
-        };
+        let expected_error = ParseRecoverable::new(
+            b" <",
+            stringify!(Real),
+            ParseErrorCode::NotFound(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Real number: Missing digits
         let parse_result = Real::parse(b"+.<");
-        let expected_error = ParseRecoverable {
-            buffer: b"<",
-            object: stringify!(Real),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"<",
+            stringify!(Real),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // TODO(QUESTION) Is there a need to allow such large numbers?
         // f64::MIN = -1.7976931348623157E+308f64
         let buffer = b"-179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
         let parse_result = Real::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer,
-            object: stringify!(Real),
-            code: ParseErrorCode::ParseFloatError,
-        };
+        let expected_error =
+            ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::MAX = 1.7976931348623157E+308f64
         let buffer = b"179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
         let parse_result = Real::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer,
-            object: stringify!(Real),
-            code: ParseErrorCode::ParseFloatError,
-        };
+        let expected_error =
+            ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::NEG_INFINITY
         let buffer = b"-179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
         let parse_result = Real::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer,
-            object: stringify!(Real),
-            code: ParseErrorCode::ParseFloatError,
-        };
+        let expected_error =
+            ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::INFINITY
         let buffer =
             b"179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
         let parse_result = Real::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer,
-            object: stringify!(Real),
-            code: ParseErrorCode::ParseFloatError,
-        };
+        let expected_error =
+            ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
     }
 }

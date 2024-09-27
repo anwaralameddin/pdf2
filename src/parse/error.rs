@@ -2,9 +2,6 @@ use ::nom::error::ErrorKind;
 use ::thiserror::Error;
 
 use crate::fmt::debug_bytes;
-use crate::object::direct::dictionary::error::DataTypeError;
-use crate::object::direct::name::OwnedName;
-use crate::process::error::NewProcessErr;
 use crate::Byte;
 use crate::ObjectNumberOrZero;
 
@@ -26,58 +23,50 @@ pub enum ParseErr<'buffer> {
     Failure(ParseFailure<'buffer>),
 }
 
-// TODO This type's constructors are too verbose. Use a macro to make it more
-// concise
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{object}. {code}. Buffer: {}", debug_bytes(.buffer))]
+#[error("{object}. Error: {code}. Buffer: {}", debug_bytes(.buffer))]
 pub struct ParseError<'buffer, const RECOVERABLE: bool> {
-    pub(crate) buffer: &'buffer [Byte],
-    pub(crate) object: &'static str,
-    pub(crate) code: ParseErrorCode,
+    buffer: &'buffer [Byte],
+    object: &'static str,
+    code: ParseErrorCode,
 }
 
-// TODO IncrementErrorCode does not implement Copy. This is due to
-// `Trailer::try_from` resulting in NewProcessErr
+// Box<_>, DictionaryErr and String do not implement Copy
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ParseErrorCode {
     // Whole buffer errors
     #[error("Buffer is too small")]
     TooSmallBuffer,
     // Whole object errors
-    #[error("Object type")]
-    ObjectType,
-    #[error("Not found. Error: {}", .0.description())]
+    #[error("Wrong object type")]
+    WrongObjectType,
+    #[error("Not found. Nom: {}", .0.description())]
     NotFound(ErrorKind),
-    #[error("Missing data. Error: {}", .0.description())]
-    MissingData(ErrorKind),
-    #[error("Missing closing. Error: {}", .0.description())]
+    #[error("Stream data. Nom: {}", .0.description())]
+    StreamData(ErrorKind),
+    #[error("Missing closing. Nom: {}", .0.description())]
     MissingClosing(ErrorKind),
     // Union Errors
     #[error("Not found")]
     NotFoundUnion,
     // Collection Errors
-    // TODO (TEMP) Replace with &'buffer ParseErrorCode<'buffer>
-    #[error("Not found. Error: {0}")]
+    #[error("Not found. Parse: {0}")]
     RecNotFound(Box<ParseErrorCode>),
-    #[error("Missing subobject {0}. Error: {1}")]
+    #[error("Missing subobject: {0}. Parse: {1}")]
     RecMissingSubobject(&'static str, Box<ParseErrorCode>),
-    #[error("Missing key: Error: {0}")]
-    RecMissingKey(&'static str),
-    // TODO (TEMP) Remove when OwnedName is discarded
-    #[error("Missing value. Key {0}. Error: {1}")]
-    RecMissingValueCloned(OwnedName, Box<ParseErrorCode>),
-    // #[error("Missing value. Key {0}. Error: {1}")]
-    // RecMissingValue(Name<'buffer>, Box<ParseErrorCode>),
-    #[error("Missing closing. Error: {0}")]
+    // TODO Replace Vec<Byte> with the object's span
+    #[error("Missing value. Key: {}. Parse: {1}", debug_bytes(.0))]
+    RecMissingValue(Vec<Byte>, Box<ParseErrorCode>),
+    #[error("Missing closing. Parse: {0}")]
     RecMissingClosing(Box<ParseErrorCode>),
     #[error(
-        "Entry number {} in subsection {} {}. Error: {}",
+        "Entry number {} in subsection {} {}. Parse: {}",
         index,
         first_object_number,
         entry_count,
         code
     )]
-    Entry {
+    SubsectionEntry {
         index: usize,
         first_object_number: ObjectNumberOrZero,
         entry_count: usize,
@@ -97,17 +86,15 @@ pub enum ParseErrorCode {
     #[error("Entry type")]
     EntryType, // f or n
     #[error("Entry count")]
-    EntryCount, // TODO ascii_to_usize
+    EntryCount, // ascii_to_usize
     #[error("Parse as i128")]
     ParseIntError, // ascii_to_i128
     #[error("Parse as f64")]
     ParseFloatError, // ascii_to_f64
-    // Errors requiring processing
-    #[error("Invalid trailer dictionary. Error: {0}")]
-    InvalidTrailerDictionary(NewProcessErr),
-    // TODO(TEMP) Refactor into a variant of this enum
-    #[error("Value type. Error: {0}")]
-    ValueType(#[from] DataTypeError<'static>),
+    //
+    #[error("Object: {0}")]
+    // TODO (TEMP) Replace with ObjectErr when objects are replaced with Span
+    Object(String),
 }
 
 #[macro_export]
@@ -136,6 +123,22 @@ macro_rules! parse_recoverable {
 
 mod convert {
     use super::*;
+    use crate::impl_from_ref;
+
+    impl_from_ref!('buffer, ParseFailure<'buffer>, Failure, ParseErr<'buffer>);
+    impl_from_ref!('buffer, ParseRecoverable<'buffer>, Recoverable, ParseErr<'buffer>);
+
+    // impl_from_ref!('buffer, ObjectErr<'buffer>, Object, ParseErrorCode<'buffer>);
+
+    impl<'buffer, const RECOVERABLE: bool> ParseError<'buffer, RECOVERABLE> {
+        pub fn new(buffer: &'buffer [Byte], object: &'static str, code: ParseErrorCode) -> Self {
+            Self {
+                buffer,
+                object,
+                code,
+            }
+        }
+    }
 
     impl<'buffer> ParseErr<'buffer> {
         pub fn buffer(&self) -> &'buffer [Byte] {
@@ -152,18 +155,6 @@ mod convert {
                 Self::Recoverable(err) => err.code,
                 Self::Failure(err) => err.code,
             }
-        }
-    }
-
-    impl<'buffer> From<ParseFailure<'buffer>> for ParseErr<'buffer> {
-        fn from(err: ParseFailure<'buffer>) -> Self {
-            ParseErr::Failure(err)
-        }
-    }
-
-    impl<'buffer> From<ParseRecoverable<'buffer>> for ParseErr<'buffer> {
-        fn from(err: ParseRecoverable<'buffer>) -> Self {
-            ParseErr::Recoverable(err)
         }
     }
 }

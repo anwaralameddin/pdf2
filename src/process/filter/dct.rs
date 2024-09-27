@@ -1,6 +1,6 @@
 use super::Filter;
 use crate::object::direct::dictionary::Dictionary;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
 /// The DCT (discrete cosine transform) filter
@@ -8,17 +8,25 @@ use crate::Byte;
 pub(super) struct Dct {}
 
 impl Dct {
-    pub(super) fn new(_decode_parms: Option<&Dictionary>) -> ProcessResult<Self> {
+    pub(super) fn new<'buffer>(
+        _decode_parms: Option<&'buffer Dictionary>,
+    ) -> FilterResult<'buffer, Self> {
         todo!("Implement Dct::new")
     }
 }
 
-impl Filter for Dct {
-    fn filter(&self, _bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+impl<'buffer> Filter<'buffer> for Dct {
+    fn filter(
+        &self,
+        _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         todo!("Implement Dct::filter")
     }
 
-    fn defilter(&self, _bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         todo!("Implement Dct::defilter")
     }
 }
