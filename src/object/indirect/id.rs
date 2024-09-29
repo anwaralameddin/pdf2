@@ -41,29 +41,24 @@ impl Parser<'_> for Id {
         )(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Id),
-                code: ParseErrorCode::NotFound(e.code)
-            }
+            ParseRecoverable::new(e.input, stringify!(Id), ParseErrorCode::NotFound(e.code))
         ))?;
         // This method should not return failure, as the pair of numbers could
         // be part of an array of numbers, not an Id.
 
         let object_number = ascii_to_u64(object_number)
             .and_then(ObjectNumber::new)
-            .ok_or_else(|| ParseRecoverable {
-                buffer: object_number,
-                object: stringify!(Id),
-                code: ParseErrorCode::ObjectNumber,
+            .ok_or_else(|| {
+                ParseRecoverable::new(object_number, stringify!(Id), ParseErrorCode::ObjectNumber)
             })?;
 
-        let generation_number =
-            ascii_to_u16(generation_number).ok_or_else(|| ParseRecoverable {
-                buffer: generation_number,
-                object: stringify!(Id),
-                code: ParseErrorCode::GenerationNumber,
-            })?;
+        let generation_number = ascii_to_u16(generation_number).ok_or_else(|| {
+            ParseRecoverable::new(
+                generation_number,
+                stringify!(Id),
+                ParseErrorCode::GenerationNumber,
+            )
+        })?;
 
         let id = Self {
             object_number,
@@ -124,66 +119,57 @@ mod tests {
         // Synthetic tests
         // Id: Not found
         let parse_result = Id::parse(b"/Name");
-        let expected_error = ParseRecoverable {
-            buffer: b"/Name",
-            object: stringify!(Id),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"/Name",
+            stringify!(Id),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
 
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Missing generation number
         let parse_result = Id::parse(b"56789 ");
-        let expected_error = ParseRecoverable {
-            buffer: b"",
-            object: stringify!(Id),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"",
+            stringify!(Id),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Starts with a negative number
         let parse_result = Id::parse(b"-12345 65535 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"-12345 65535 R other objects",
-            object: stringify!(Id),
-            code: ParseErrorCode::NotFound(ErrorKind::Digit),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"-12345 65535 R other objects",
+            stringify!(Id),
+            ParseErrorCode::NotFound(ErrorKind::Digit),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Zero Object number
         let parse_result = Id::parse(b"0 65535 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"0",
-            object: stringify!(Id),
-            code: ParseErrorCode::ObjectNumber,
-        };
+        let expected_error =
+            ParseRecoverable::new(b"0", stringify!(Id), ParseErrorCode::ObjectNumber);
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Object number too large
         let parse_result = Id::parse(b"98765432109876543210 65535 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"98765432109876543210",
-            object: stringify!(Id),
-            code: ParseErrorCode::ObjectNumber,
-        };
+        let expected_error = ParseRecoverable::new(
+            b"98765432109876543210",
+            stringify!(Id),
+            ParseErrorCode::ObjectNumber,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Generation number too large
         let parse_result = Id::parse(b"1 65536 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"65536",
-            object: stringify!(Id),
-            code: ParseErrorCode::GenerationNumber,
-        };
+        let expected_error =
+            ParseRecoverable::new(b"65536", stringify!(Id), ParseErrorCode::GenerationNumber);
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Generation number too large
         let parse_result = Id::parse(b"1 6553500 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"6553500",
-            object: stringify!(Id),
-            code: ParseErrorCode::GenerationNumber,
-        };
+        let expected_error =
+            ParseRecoverable::new(b"6553500", stringify!(Id), ParseErrorCode::GenerationNumber);
         assert_err_eq!(parse_result, expected_error);
     }
 }

@@ -1,9 +1,9 @@
 use ::std::collections::HashMap;
 
-use self::error::LzwError;
+use self::error::LzwErrorCode;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::Byte;
 use crate::DECODED_LIMIT;
 
@@ -23,9 +23,12 @@ pub(super) struct Lzw {
     early_change: EarlyChange,
 }
 
-impl Filter for Lzw {
+impl<'buffer> Filter<'buffer> for Lzw {
     /// REFERENCE: [7.4.4.2 Details of LZW encoding, p38-40]
-    fn filter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn filter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = self.predictor.filter(bytes)?;
 
         let mut filter = LzwFilter::default();
@@ -72,7 +75,10 @@ impl Filter for Lzw {
         Ok(filtered)
     }
 
-    fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let mut defilter = LzwDefilter::default();
@@ -81,7 +87,7 @@ impl Filter for Lzw {
 
         for (i, &byte) in bytes.iter().enumerate() {
             if defilter.eod {
-                return Err(LzwError::ByteAfterEod(byte).into());
+                return Err(LzwErrorCode::ByteAfterEod(byte).into());
             }
 
             if *self.early_change && defilter.len == (1 << *defilter.code_size) {
@@ -117,11 +123,11 @@ impl Filter for Lzw {
             }
 
             if defilter.len > (1 << MAX_CODE_SIZE) {
-                return Err(LzwError::FullTable.into());
+                return Err(LzwErrorCode::FullTable.into());
             }
 
             if code >= defilter.len {
-                return Err(LzwError::OutOfBounds {
+                return Err(LzwErrorCode::OutOfBounds {
                     code,
                     len: defilter.len,
                 }
@@ -153,7 +159,7 @@ impl Filter for Lzw {
             defilter.update_table(output);
 
             if defiltered.len() > DECODED_LIMIT {
-                return Err(LzwError::TooLarge(i, bytes.len()).into());
+                return Err(LzwErrorCode::TooLarge(i, bytes.len()).into());
             }
         }
 
@@ -161,9 +167,9 @@ impl Filter for Lzw {
         let code = defilter.prev_byte & ((1 << defilter.leftover_bits) - 1);
         if code != 0 {
             if defilter.eod {
-                return Err(LzwError::CodeAfterEod(code).into());
+                return Err(LzwErrorCode::CodeAfterEod(code).into());
             }
-            return Err(LzwError::LeftoverBits(code).into());
+            return Err(LzwErrorCode::LeftoverBits(code).into());
         }
 
         let defiltered = self.predictor.defilter(defiltered)?;
@@ -314,18 +320,18 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
-    use crate::object::BorrowedBuffer;
-    use crate::process::error::ProcessErr;
-    use crate::process::filter::predictor::error::PredictorError;
+    use crate::process::filter::error::FilterErr;
+    use crate::process::filter::error::FilterErrorCode;
+    use crate::process::filter::error::FilterResult;
 
     impl Lzw {
-        pub(in crate::process::filter) fn new(
-            decode_parms: Option<&Dictionary>,
-        ) -> ProcessResult<Self> {
+        pub(in crate::process::filter) fn new<'buffer>(
+            decode_parms: Option<&'buffer Dictionary>,
+        ) -> FilterResult<'buffer, Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
                 let early_change = decode_parms
-                    .get(KEY_EARLY_CHANGE)
+                    .opt_get(KEY_EARLY_CHANGE)
                     .map(EarlyChange::try_from)
                     .transpose()?
                     .unwrap_or_default();
@@ -345,22 +351,24 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue<'_>> for EarlyChange {
-        type Error = ProcessErr;
+    impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for EarlyChange {
+        type Error = FilterErr<'buffer>;
 
-        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+        fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
-                match **value {
+                match value.deref() {
                     0 => Ok(Self(false)),
                     1 => Ok(Self(true)),
-                    _ => Err(PredictorError::Unsupported(stringify!(Colors), **value).into()),
+                    _ => Err(FilterErr::new(
+                        stringify!(EarlyChange),
+                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                    )),
                 }
             } else {
-                Err(
-                    PredictorError::DataType(stringify!(Colors), value.clone().to_owned_buffer())
-                        .into(),
-                )
-                // TODO (TEMP) Avoid to_owned_buffer
+                Err(FilterErr::new(
+                    stringify!(EarlyChange),
+                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                ))
             }
         }
     }
@@ -387,14 +395,14 @@ mod convert {
     }
 }
 
-pub(in crate::process) mod error {
+pub(in crate::process::filter) mod error {
     use ::thiserror::Error;
 
     use crate::Byte;
     use crate::DECODED_LIMIT;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum LzwError {
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum LzwErrorCode {
         #[error("Unexpected byte after the EOD marker: {0:02x}")]
         ByteAfterEod(Byte),
         #[error("Unexpected code after the EOD marker: {0}")]
@@ -417,8 +425,10 @@ pub(in crate::process) mod error {
 mod tests {
     use super::*;
     use crate::assert_err_eq;
-    // use crate::process::filter::tests::lax_stream_defilter_filter;
-    use crate::process::filter::tests::strict_stream_defilter_filter;
+    use crate::object::indirect::stream::Stream;
+    use crate::parse::Parser;
+    // use crate::lax_stream_defilter_filter;
+    use crate::strict_stream_defilter_filter;
 
     #[test]
     fn lzw_valid() {
@@ -428,7 +438,7 @@ mod tests {
             include_bytes!("../../../tests/data/0aa43346a9df321584b2181fa2a4b17d_lzw_671.bin");
         let expected =
             include_bytes!("../../../tests/code/0aa43346a9df321584b2181fa2a4b17d_lzw_671.data");
-        strict_stream_defilter_filter(buffer, expected).unwrap();
+        strict_stream_defilter_filter!(buffer, expected);
 
         // TODO Add tests, especially those not requiring an early change
         let _filtering = Lzw {
@@ -456,10 +466,10 @@ mod tests {
         // disturbingly large decoded streams. If not for the above decoding
         // checks, namely `FullTable` and `TooLarge`, the following ~400KiB the
         // encoded stream would decode to more than 1GiB.
-        let filtered = include_bytes!("../../../tests/data/SYNTHETIC_lzw_malicious.bin");
-        let defiltered_result = filtering.defilter(filtered);
+        let buffer = include_bytes!("../../../tests/data/SYNTHETIC_lzw_malicious.bin");
+        let defiltered_result = filtering.defilter(buffer);
         // let expected_error = LzwError::TooLarge(422068, 422070);
-        let expected_error = LzwError::FullTable;
+        let expected_error = LzwErrorCode::FullTable;
         assert_err_eq!(defiltered_result, expected_error);
 
         // TODO Add tests

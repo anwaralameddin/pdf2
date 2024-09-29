@@ -136,7 +136,7 @@ pub(crate) fn ascii_to_f64(bytes: &[Byte]) -> Option<f64> {
         }
     }
 
-    // FIXME (TEMP) Refactor the above to avoid the following error when using
+    // FIXME Refactor the above to avoid the following error when using
     // f64::from(integer?): the trait `std::convert::From<i64>` is not
     // implemented for `f64`
     let integer = integer? as f64;

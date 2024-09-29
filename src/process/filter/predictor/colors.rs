@@ -15,28 +15,29 @@ mod convert {
     use super::Colors;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
-    use crate::object::BorrowedBuffer;
-    use crate::process::error::ProcessErr;
-    use crate::process::filter::predictor::error::PredictorError;
+    use crate::process::filter::error::FilterErr;
+    use crate::process::filter::error::FilterErrorCode;
 
-    impl TryFrom<&DirectValue<'_>> for Colors {
-        type Error = ProcessErr;
+    impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for Colors {
+        type Error = FilterErr<'buffer>;
 
-        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+        fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
-                match **value {
+                match value.deref() {
                     1 => Ok(Self::One),
                     2 => Ok(Self::Two),
                     3 => Ok(Self::Three),
                     4 => Ok(Self::Four),
-                    _ => Err(PredictorError::Unsupported(stringify!(Colors), **value).into()),
+                    _ => Err(FilterErr::new(
+                        stringify!(Colors),
+                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                    )),
                 }
             } else {
-                Err(
-                    PredictorError::DataType(stringify!(Colors), value.clone().to_owned_buffer())
-                        .into(),
-                )
-                // TODO (TEMP) Avoid to_owned_buffer
+                Err(FilterErr::new(
+                    stringify!(Colors),
+                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                ))
             }
         }
     }

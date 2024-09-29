@@ -1,5 +1,7 @@
 use super::increment::Increment;
 use super::startxref::StartXRef;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::Byte;
@@ -24,7 +26,14 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
             // hybrid-reference file’s trailer dictionary in
             // REFERENCE: [7.5.8.4 Compatibility with applications that do not
             // support compressed reference streams, p68]
-            prev = increment.prev();
+            prev = increment.prev().map_err(|err| {
+                // FIXME (TEMP) `remains` should be repalced by increment.dictionary.span()
+                ParseFailure::new(
+                    remains,
+                    stringify!(PreTable),
+                    ParseErrorCode::Object(err.to_string()),
+                )
+            })?;
 
             // We first read the last section and then read the previous one. We
             // use `push` to preserve the order of the sections, which
@@ -37,14 +46,14 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
     }
 }
 
-mod process {
+mod table {
     use super::*;
-    use crate::process::error::NewProcessResult;
+    use crate::xref::error::XRefResult;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for PreTable<'_> {
-        fn to_table(&self) -> NewProcessResult<Table> {
+        fn to_table(&self) -> XRefResult<Table> {
             self.iter()
                 .try_fold(Table::default(), |mut table, increment| {
                     table.extend(increment.to_table()?);

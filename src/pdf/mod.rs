@@ -5,11 +5,10 @@ use ::std::fs::File;
 use ::std::io::BufReader;
 use ::std::path::Path;
 
-use self::error::PdfErr;
+use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::IndirectValue;
-use crate::xref::increment::trailer::Trailer;
 use crate::xref::Table;
 use crate::Byte;
 
@@ -33,8 +32,8 @@ pub struct PdfBuilder<'path> {
 pub struct Pdf<'path> {
     path: &'path Path,
     buffer: &'path [Byte],
-    /// • The trailer
-    trailer: Trailer<'path>,
+    // • The trailer
+    // trailer: Trailer<'path>,
     /// • The cross-reference table
     table: Table,
     // • The version of the PDF specification
@@ -72,26 +71,28 @@ impl Pdf<'_> {
     }
 }
 
-mod process {
+mod build {
 
     use super::error::ObjectRecoverable;
     use super::error::PdfErr;
+    use super::error::PdfErrorCode;
     use super::error::PdfResult;
     use super::*;
     use crate::object::indirect::object::IndirectObject;
     use crate::parse::Parser;
-    use crate::xref::increment::trailer::Trailer;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
 
     impl<'path> PdfBuilder<'path> {
-        fn get_trailer(&'path self, pretable: PreTable<'path>) -> PdfResult<Trailer> {
-            let mut pretable = pretable;
-            pretable
-                .pop()
-                .map(|increment| increment.trailer())
-                .ok_or(PdfErr::EmptyPreTable(self.path))
-        }
+        // fn get_trailer(&'path self, pretable: PreTable<'path>) -> PdfResult<Trailer> {
+        //     let mut pretable = pretable;
+        //     pretable
+        //         .pop()
+        //         .map(|increment| increment.trailer())
+        //         .transpose()
+        //         .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err)))?
+        //         .ok_or_else(||PdfErr::new(self.path, PdfErrorCode::EmptyPreTable))
+        // }
 
         fn parse_objects_in_use(
             &'path self,
@@ -134,12 +135,12 @@ mod process {
             // REFERENCE: [7.5.1 General, p54]
             // Apart from linearised PDFs, files should be read from the end
             // using the trailer and cross-reference table.
-            let (_, pretable) =
-                PreTable::parse(&self.buffer).map_err(|err| PdfErr::Parse(self.path, err))?;
+            let (_, pretable) = PreTable::parse(&self.buffer)
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(err)))?;
             let table = pretable
                 .to_table()
-                .map_err(|err| PdfErr::Process(self.path, err))?;
-            let trailer = self.get_trailer(pretable)?;
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err.to_string())))?;
+            // let trailer = self.get_trailer(pretable)?;
             let mut errors = Vec::default();
             let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
             let errors = PdfRecoverable::new(self.path, errors);
@@ -147,7 +148,7 @@ mod process {
             Ok(Pdf {
                 path: self.path,
                 buffer: &self.buffer,
-                trailer,
+                // trailer,
                 table,
                 objects_in_use,
                 errors,
@@ -162,20 +163,22 @@ mod convert {
     use ::std::io::Seek;
     use ::std::io::SeekFrom;
 
+    use super::error::PdfErr;
     use super::error::PdfResult;
     use super::*;
 
     impl<'path> PdfBuilder<'path> {
         pub fn new(path: &'path Path) -> PdfResult<Self> {
-            let file = File::open(path).map_err(|err| PdfErr::OpenFile(path, err.kind()))?;
+            let file = File::open(path)
+                .map_err(|err| PdfErr::new(path, PdfErrorCode::OpenFile(err.kind())))?;
             let mut reader = BufReader::new(file);
             reader
                 .seek(SeekFrom::Start(0))
-                .map_err(|err| PdfErr::Seek(path, err.kind()))?;
+                .map_err(|err| PdfErr::new(path, PdfErrorCode::Seek(err.kind())))?;
             let mut buffer = Vec::default();
             reader
                 .read_to_end(&mut buffer)
-                .map_err(|err| PdfErr::ReadFile(path, err.kind()))?;
+                .map_err(|err| PdfErr::new(path, PdfErrorCode::ReadFile(err.kind())))?;
             Ok(Self { path, buffer })
         }
     }

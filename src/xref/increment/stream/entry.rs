@@ -17,15 +17,15 @@ pub(crate) enum Entry {
 }
 
 mod convert {
-    use super::error::EntryError;
     use super::*;
     use crate::parse::num::bytes_to_u16;
     use crate::parse::num::bytes_to_u64;
     use crate::parse::num::bytes_to_usize;
+    use crate::xref::error::XRefErr;
     use crate::Byte;
 
     impl TryFrom<(&[Byte], &[Byte], &[Byte])> for Entry {
-        type Error = EntryError;
+        type Error = XRefErr<'static>;
         /// REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
         fn try_from(value: (&[Byte], &[Byte], &[Byte])) -> Result<Self, Self::Error> {
             let (field1, field2, field3) = value;
@@ -36,69 +36,45 @@ mod convert {
             } else {
                 // REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
                 // Fields are provided in the big-endian order
-                bytes_to_u64(field1).ok_or(EntryError::FieldOverflow(field1.to_vec()))?
-                // TODO (TEMP) Remove to_vec()
+                bytes_to_u64(field1).ok_or_else(|| XRefErr::StreamFieldOverflow(field1.to_vec()))?
             };
 
             match value1 {
                 0 => {
-                    let next_free =
-                        bytes_to_u64(field2).ok_or(EntryError::NextFree(field2.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                    let next_free = bytes_to_u64(field2)
+                        .ok_or_else(|| XRefErr::StreamNextFree(field2.to_vec()))?;
                     let generation_number = bytes_to_u16(field3)
-                        .ok_or(EntryError::GenerationNumber(field3.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                        .ok_or_else(|| XRefErr::StreamGenerationNumber(field3.to_vec()))?;
                     Ok(Self::Free(next_free, generation_number))
                 }
                 1 => {
-                    let offset =
-                        bytes_to_usize(field2).ok_or(EntryError::OffSet(field2.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                    let offset = bytes_to_usize(field2)
+                        .ok_or_else(|| XRefErr::StreamOffSet(field2.to_vec()))?;
                     let generation_number = bytes_to_u16(field3)
-                        .ok_or(EntryError::GenerationNumber(field3.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                        .ok_or_else(|| XRefErr::StreamGenerationNumber(field3.to_vec()))?;
 
                     Ok(Self::InUse(offset, generation_number))
                 }
                 2 => {
-                    let value2 =
-                        bytes_to_u64(field2).ok_or(EntryError::FieldOverflow(field2.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                    let value2 = bytes_to_u64(field2)
+                        .ok_or_else(|| XRefErr::StreamFieldOverflow(field2.to_vec()))?;
                     let object_number = ObjectNumber::try_from(value2)
-                        .map_err(|err| EntryError::ObjectNumber(field2.to_vec(), value2, err))?; // TODO (TEMP) Remove to_vec()
+                        .map_err(|err| XRefErr::StreamObjectNumber(field2.to_vec(), err))?;
 
                     // REFERENCE: [7.5.8.3 Cross-reference stream data, p68]
                     let id = Id::new(object_number, GenerationNumber::default());
                     let index = bytes_to_u64(field3)
-                        .ok_or(EntryError::GenerationNumber(field3.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                        .ok_or_else(|| XRefErr::StreamGenerationNumber(field3.to_vec()))?;
                     Ok(Self::Compressed(id, index))
                 }
                 _ => {
-                    let value2 =
-                        bytes_to_u64(field2).ok_or(EntryError::FieldOverflow(field2.to_vec()))?; // TODO (TEMP) Remove to_vec()
-                    let value3 =
-                        bytes_to_u64(field3).ok_or(EntryError::FieldOverflow(field3.to_vec()))?; // TODO (TEMP) Remove to_vec()
+                    let value2 = bytes_to_u64(field2)
+                        .ok_or_else(|| XRefErr::StreamFieldOverflow(field2.to_vec()))?;
+                    let value3 = bytes_to_u64(field3)
+                        .ok_or_else(|| XRefErr::StreamFieldOverflow(field3.to_vec()))?;
                     Ok(Self::NullReference(value1, value2, value3))
-                } // TODO (TEMP) Remove to_vec()
+                }
             }
         }
-    }
-}
-
-pub(crate) mod error {
-    use ::std::num::TryFromIntError;
-    use ::thiserror::Error;
-
-    use crate::Byte;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum EntryError {
-        #[error("Field overflow. Input: {0:?}")]
-        FieldOverflow(Vec<Byte>),
-        #[error("Next Free. Input: {0:?}")]
-        OffSet(Vec<u8>),
-        #[error("Next Free. Input: {0:?}")]
-        NextFree(Vec<u8>),
-        #[error("Object number. Input{0:?}. Value: {1}. Error: {2}")]
-        ObjectNumber(Vec<Byte>, u64, TryFromIntError),
-        #[error("Generation number. Input{0:?}")]
-        GenerationNumber(Vec<Byte>),
-        #[error("Index number. Input{0:?}")]
-        IndexNumber(Vec<Byte>),
     }
 }

@@ -1,7 +1,7 @@
-use self::error::TiffError;
+use self::error::TiffErrorCode;
 use super::bits_per_component::BitsPerComponent;
 use super::PredictorParms;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::process::filter::Filter;
 use crate::Byte;
 
@@ -10,12 +10,12 @@ pub(in crate::process::filter) struct Tiff {
     parms: PredictorParms,
 }
 
-impl Filter for Tiff {
+impl<'buffer> Filter<'buffer> for Tiff {
     /// REFERENCE: [7.4.4.4 LZW and Flate predictor functions, p41]
     fn filter(
         &self,
-        bytes: impl Into<Vec<Byte>> + AsRef<[crate::Byte]>,
-    ) -> ProcessResult<Vec<Byte>> {
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         // TODO This predictor can be implemented in place without the additional buffer
@@ -31,7 +31,7 @@ impl Filter for Tiff {
             for colors in row.into_iter() {
                 for (prev_component, component) in prev_colors.iter().zip(colors.iter()) {
                     if prev_colors.len() != colors.len() {
-                        return Err(TiffError::MismatchingComponents(
+                        return Err(TiffErrorCode::MismatchingComponents(
                             prev_colors.len(),
                             colors.len(),
                         )
@@ -52,8 +52,8 @@ impl Filter for Tiff {
 
     fn defilter(
         &self,
-        bytes: impl Into<Vec<Byte>> + AsRef<[crate::Byte]>,
-    ) -> ProcessResult<Vec<Byte>> {
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let mut defiltered = Vec::with_capacity(bytes.len());
@@ -67,7 +67,7 @@ impl Filter for Tiff {
                 let mut colors = Vec::with_capacity(diffs.len());
                 for (prev_component, diff) in prev_colors.iter().zip(diffs.iter()) {
                     if prev_colors.len() != diffs.len() {
-                        return Err(TiffError::MismatchingComponents(
+                        return Err(TiffErrorCode::MismatchingComponents(
                             prev_colors.len(),
                             diffs.len(),
                         )
@@ -89,14 +89,14 @@ impl Filter for Tiff {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BitsReader<'a> {
-    bytes: &'a [Byte],
+struct BitsReader<'buffer> {
+    bytes: &'buffer [Byte],
     parms: PredictorParms,
     location: usize,
 }
 
 impl BitsReader<'_> {
-    fn next_bits(&mut self) -> ProcessResult<Option<Byte>> {
+    fn next_bits(&mut self) -> FilterResult<'static, Option<Byte>> {
         let byte_location = self.location / 8;
         let bit_location = self.location % 8;
 
@@ -107,7 +107,7 @@ impl BitsReader<'_> {
         };
 
         if bit_location + *self.parms.bits_per_component > 8 {
-            return Err(TiffError::BitsOutOfBound(
+            return Err(TiffErrorCode::BitsOutOfBound(
                 *self.parms.bits_per_component,
                 8 - bit_location,
             )
@@ -127,7 +127,7 @@ impl BitsReader<'_> {
         Ok(Some(bits))
     }
 
-    fn next_colors(&mut self) -> ProcessResult<Option<Vec<Byte>>> {
+    fn next_colors(&mut self) -> FilterResult<'static, Option<Vec<Byte>>> {
         if self.location == self.bytes.len() * 8 {
             return Ok(None);
         }
@@ -137,14 +137,14 @@ impl BitsReader<'_> {
         for i in 0..*self.parms.colors {
             let component = self
                 .next_bits()?
-                .ok_or_else(|| TiffError::ColorsOutOfBound(*self.parms.colors, i))?;
+                .ok_or_else(|| TiffErrorCode::ColorsOutOfBound(*self.parms.colors, i))?;
             colors.push(component);
         }
 
         Ok(Some(colors))
     }
 
-    fn next_row(&mut self) -> ProcessResult<Option<Vec<Vec<Byte>>>> {
+    fn next_row(&mut self) -> FilterResult<'static, Option<Vec<Vec<Byte>>>> {
         if self.location == self.bytes.len() * 8 {
             return Ok(None);
         }
@@ -154,7 +154,7 @@ impl BitsReader<'_> {
         for i in 0..*self.parms.columns {
             let colors = self
                 .next_colors()?
-                .ok_or_else(|| TiffError::ColumnsOutOfBound(*self.parms.columns, i))?;
+                .ok_or_else(|| TiffErrorCode::ColumnsOutOfBound(*self.parms.columns, i))?;
             row.push(colors);
         }
 
@@ -165,7 +165,7 @@ impl BitsReader<'_> {
             if let Some(byte) = self.bytes.get(self.location / 8) {
                 let remains = byte & ((1 << padding) - 1);
                 if remains != 0 {
-                    return Err(TiffError::RowMissingPadding(padding, *byte).into());
+                    return Err(TiffErrorCode::RowMissingPadding(padding, *byte).into());
                 }
             }
             self.location += padding;
@@ -176,17 +176,17 @@ impl BitsReader<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct BitsWriter<'a> {
-    buffer: &'a mut Vec<Byte>,
+struct BitsWriter<'buffer> {
+    buffer: &'buffer mut Vec<Byte>,
     parms: PredictorParms,
     cache: Byte,
     bit_location: usize,
 }
 
 impl BitsWriter<'_> {
-    fn write_component(&mut self, component: Byte) -> ProcessResult<()> {
+    fn write_component(&mut self, component: Byte) -> FilterResult<'static, ()> {
         if self.bit_location + *self.parms.bits_per_component > 8 {
-            return Err(TiffError::BitsOutOfBound(
+            return Err(TiffErrorCode::BitsOutOfBound(
                 *self.parms.bits_per_component,
                 8 - self.bit_location,
             )
@@ -200,7 +200,7 @@ impl BitsWriter<'_> {
         }
         if component > ((1 << *self.parms.bits_per_component) - 1) as Byte {
             return Err(
-                TiffError::CorruptComponent(component, *self.parms.bits_per_component).into(),
+                TiffErrorCode::CorruptComponent(component, *self.parms.bits_per_component).into(),
             );
         }
 
@@ -216,7 +216,7 @@ impl BitsWriter<'_> {
         Ok(())
     }
 
-    fn flush_row(&mut self) -> ProcessResult<()> {
+    fn flush_row(&mut self) -> FilterResult<'static, ()> {
         if self.bit_location == 0 {
             return Ok(());
         }
@@ -240,8 +240,8 @@ mod convert {
         }
     }
 
-    impl<'a> BitsReader<'a> {
-        pub(super) fn new(bytes: &'a [Byte], parms: PredictorParms) -> Self {
+    impl<'buffer> BitsReader<'buffer> {
+        pub(super) fn new(bytes: &'buffer [Byte], parms: PredictorParms) -> Self {
             Self {
                 bytes,
                 parms,
@@ -250,8 +250,8 @@ mod convert {
         }
     }
 
-    impl<'a> BitsWriter<'a> {
-        pub(super) fn new(buffer: &'a mut Vec<Byte>, parms: PredictorParms) -> Self {
+    impl<'buffer> BitsWriter<'buffer> {
+        pub(super) fn new(buffer: &'buffer mut Vec<Byte>, parms: PredictorParms) -> Self {
             Self {
                 buffer,
                 parms,
@@ -262,13 +262,13 @@ mod convert {
     }
 }
 
-pub(in crate::process) mod error {
+pub(in crate::process::filter) mod error {
     use ::thiserror::Error;
 
     use super::*;
 
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum TiffError {
+    #[derive(Debug, Error, PartialEq, Clone, Copy)]
+    pub enum TiffErrorCode {
         #[error("Bits out of bound: Requested {0}. Found {1}")]
         BitsOutOfBound(usize, usize),
         #[error("Colors out of bound: Requested {0}. Found {1}")]
@@ -292,7 +292,7 @@ mod tests {
     use crate::process::filter::predictor::bits_per_component::BitsPerComponent;
     use crate::process::filter::predictor::colors::Colors;
     use crate::process::filter::predictor::columns::Columns;
-    use crate::process::filter::predictor::tiff::error::TiffError;
+    use crate::process::filter::predictor::tiff::error::TiffErrorCode;
     use crate::process::filter::predictor::tiff::BitsReader;
     use crate::process::filter::predictor::tiff::BitsWriter;
     use crate::process::filter::predictor::PredictorParms;
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(reader.next_colors().unwrap(), Some(vec![0b10, 0b10, 0b01]));
         assert_eq!(reader.next_colors().unwrap(), Some(vec![0b01, 0b01, 0b00]));
         let result = reader.next_colors();
-        let expected_error = TiffError::ColorsOutOfBound(3, 2);
+        let expected_error = TiffErrorCode::ColorsOutOfBound(3, 2);
         assert_err_eq!(result, expected_error);
     }
 
@@ -368,7 +368,7 @@ mod tests {
             Some(vec![vec![0b1, 0b0, 0b1], vec![0b0, 0b0, 0b1]])
         );
         let result = reader.next_row();
-        let expected_error = TiffError::RowMissingPadding(2, 0b0100_0111);
+        let expected_error = TiffErrorCode::RowMissingPadding(2, 0b0100_0111);
         assert_err_eq!(result, expected_error);
     }
 
@@ -407,7 +407,7 @@ mod tests {
         let mut buffer = Vec::new();
         let mut writer = BitsWriter::new(&mut buffer, parms);
         let result = writer.write_component(0b110);
-        let expected_error = TiffError::CorruptComponent(0b110, 2);
+        let expected_error = TiffErrorCode::CorruptComponent(0b110, 2);
         assert_err_eq!(result, expected_error);
     }
 }

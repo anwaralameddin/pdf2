@@ -3,10 +3,10 @@ use ::flate2::read::ZlibEncoder;
 use ::flate2::Compression;
 use ::std::io::Read;
 
-use self::error::FlateError;
+use self::error::FlErrorCode;
 use super::predictor::Predictor;
 use super::Filter;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
 /// REFERENCE: [7.4.4 LZWDecode and FlateDecode filters, p38]
@@ -16,8 +16,11 @@ pub(super) struct Fl {
     predictor: Predictor,
 }
 
-impl Filter for Fl {
-    fn filter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+impl<'buffer> Filter<'buffer> for Fl {
+    fn filter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = self.predictor.filter(bytes)?;
         let mut filtered = vec![];
 
@@ -25,19 +28,22 @@ impl Filter for Fl {
             ZlibEncoder::new(bytes.as_ref(), Compression::default());
         filter
             .read_to_end(&mut filtered)
-            .map_err(|err| FlateError::Filter(err.to_string()))?; // TODO (TEMP) Avoid to_string
+            .map_err(|err| FlErrorCode::Filter(err.to_string()))?;
 
         Ok(filtered)
     }
 
     // TODO Replace flate2 with a library that allows restricting the output size
-    fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         let mut defiltered = vec![];
 
         let mut defilter = ZlibDecoder::new(bytes.as_ref());
         defilter
             .read_to_end(&mut defiltered)
-            .map_err(|err| FlateError::Defilter(err.to_string()))?; // TODO (TEMP) Avoid to_string
+            .map_err(|err| FlErrorCode::Defilter(err.to_string()))?;
 
         let defiltered = self.predictor.defilter(defiltered)?;
         Ok(defiltered)
@@ -49,9 +55,9 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
 
     impl Fl {
-        pub(in crate::process::filter) fn new(
-            decode_parms: Option<&Dictionary>,
-        ) -> ProcessResult<Self> {
+        pub(in crate::process::filter) fn new<'buffer>(
+            decode_parms: Option<&'buffer Dictionary>,
+        ) -> FilterResult<'buffer, Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
                 Ok(Self { predictor })
@@ -62,13 +68,15 @@ mod convert {
     }
 }
 
-pub(in crate::process) mod error {
+pub(in crate::process::filter) mod error {
     use ::thiserror::Error;
 
     #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum FlateError {
+    pub enum FlErrorCode {
         #[error("Filtering: {0}")]
+        // TODO (TEMP) Avoid to_string when Flate is implemented internally
         Filter(String),
+        // TODO (TEMP) Avoid to_string when Flate is implemented internally
         #[error("Defiltering: {0}")]
         Defilter(String),
     }
@@ -77,11 +85,12 @@ pub(in crate::process) mod error {
 #[cfg(test)]
 mod tests {
 
-    // use super::Fl;
-    // use crate::assert_err_eq;
-    // use crate::object::indirect::stream::Stream;
-    // use crate::process::filter::flate::error::FlateError;
-    use crate::process::filter::tests::lax_stream_defilter_filter;
+    use super::*;
+    use crate::assert_err_eq;
+    use crate::lax_stream_defilter_filter;
+    use crate::object::indirect::stream::Stream;
+    use crate::parse::Parser;
+    use crate::process::filter::error::FilterErr;
 
     #[test]
     fn flate_valid() {
@@ -98,30 +107,32 @@ mod tests {
         let buffer =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.bin");
         let expected = b"/Sh sh\n";
-        lax_stream_defilter_filter(buffer, expected).unwrap();
+        lax_stream_defilter_filter!(buffer, expected);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_stream.bin");
         let expected = include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_data.rs");
-        lax_stream_defilter_filter(buffer, expected).unwrap();
+        lax_stream_defilter_filter!(buffer, expected);
 
         // PDF produced by Microsoft Word for Office 365
         let buffer =
             include_bytes!("../../../tests/data/B72168B54640B245A7CCF42DCDC8C026_stream.bin");
         let expected = include!("../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_data.rs");
-        lax_stream_defilter_filter(buffer, expected).unwrap();
+        lax_stream_defilter_filter!(buffer, expected);
 
         // TODO Add tests
     }
 
-    // TODO Add tests
-    // #[test]
-    // fn flate_invalid() {
-    // let buffer = include_bytes!("../../../tests/process/filter/flate/ID.bin");
-    // let (_, stream) = Stream::parse(buffer).unwrap();
-    // let defiltered_result = Fl::default().defilter(&*stream.data);
-    // let expected_error = FlateError::Defilter("corrupt deflate stream".to_string());
-    // assert_err_eq!(defiltered_result, expected_error);
-    // }
+    #[test]
+    fn flate_invalid() {
+        let buffer = include_bytes!("../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_data.rs");
+        let filtering = Fl::default();
+        let result = filtering.defilter(buffer);
+        let expected_error: FilterErr =
+            FlErrorCode::Defilter("corrupt deflate stream".to_string()).into();
+        assert_err_eq!(result, expected_error);
+
+        // TODO Add tests
+    }
 }

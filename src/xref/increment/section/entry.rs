@@ -79,11 +79,7 @@ impl Parser<'_> for Entry {
             e,
             // Except for Subsection, Section and XRefStream, NotFound errors
             // for xref objects should be propagated as failures.
-            ParseFailure {
-                buffer: e.input,
-                object: stringify!(Entry),
-                code: ParseErrorCode::NotFound(e.code)
-            }
+            ParseFailure::new(e.input, stringify!(Entry), ParseErrorCode::NotFound(e.code))
         ))?;
         let entry = Entry::try_from(entry)?;
         Ok((buffer, entry))
@@ -107,36 +103,36 @@ mod convert {
             let ((num_64, num_16), entry_type) = value;
             match entry_type {
                 b"f" => {
-                    let next_free = ascii_to_u64(num_64).ok_or(Self::Error {
-                        buffer: num_64,
-                        object: stringify!(Entry),
-                        code: ParseErrorCode::NextFree,
-                    })?;
-                    let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
-                        buffer: num_16,
-                        object: stringify!(Entry),
-                        code: ParseErrorCode::GenerationNumber,
-                    })?;
+                    let next_free = ascii_to_u64(num_64).ok_or_else(||Self::Error::new(
+                        num_64,
+                        stringify!(Entry),
+                        ParseErrorCode::NextFree,
+                    ))?;
+                    let generation_number = ascii_to_u16(num_16).ok_or_else(||Self::Error::new(
+                        num_16,
+                        stringify!(Entry),
+                        ParseErrorCode::GenerationNumber,
+                    ))?;
                     Ok(Self::Free(next_free, generation_number))
                 }
                 b"n" => {
-                    let offset = ascii_to_usize(num_64).ok_or(Self::Error {
-                        buffer: num_64,
-                        object: stringify!(Entry),
-                        code: ParseErrorCode::OffSet,
-                    })?;
-                    let generation_number = ascii_to_u16(num_16).ok_or(Self::Error {
-                        buffer: num_16,
-                        object: stringify!(Entry),
-                        code: ParseErrorCode::GenerationNumber,
-                    })?;
+                    let offset = ascii_to_usize(num_64).ok_or_else(||Self::Error::new(
+                        num_64,
+                        stringify!(Entry),
+                        ParseErrorCode::OffSet,
+                    ))?;
+                    let generation_number = ascii_to_u16(num_16).ok_or_else(||Self::Error::new(
+                        num_16,
+                        stringify!(Entry),
+                        ParseErrorCode::GenerationNumber,
+                    ))?;
                     Ok(Self::InUse(offset, generation_number))
                 }
-                _ => Err(Self::Error {
-                    buffer: entry_type,
-                    object: stringify!(Entry),
-                    code: ParseErrorCode::EntryType,
-                }),
+                _ => Err(Self::Error::new(
+                    entry_type,
+                    stringify!(Entry),
+                    ParseErrorCode::EntryType,
+                )),
             }
         }
     }

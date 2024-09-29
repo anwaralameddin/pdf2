@@ -27,10 +27,12 @@ impl Display for Reference {
 
 impl Parser<'_> for Reference {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, id) = Id::parse(buffer).map_err(|err| ParseRecoverable {
-            buffer: err.buffer(),
-            object: stringify!(Reference),
-            code: ParseErrorCode::RecNotFound(Box::new(err.code())),
+        let (buffer, id) = Id::parse(buffer).map_err(|err| {
+            ParseRecoverable::new(
+                err.buffer(),
+                stringify!(Reference),
+                ParseErrorCode::RecNotFound(Box::new(err.code())),
+            )
         })?;
         // At this point, even though we have an Id, it is unclear if it is a
         // reference or a sequence of integers. For example, `12 0` appearing in
@@ -39,11 +41,11 @@ impl Parser<'_> for Reference {
         let (buffer, _) =
             tag::<_, _, NomError<_>>(KW_R.as_bytes())(buffer).map_err(parse_recoverable!(
                 e,
-                ParseRecoverable {
-                    buffer: e.input,
-                    object: stringify!(Reference),
-                    code: ParseErrorCode::NotFound(e.code),
-                }
+                ParseRecoverable::new(
+                    e.input,
+                    stringify!(Reference),
+                    ParseErrorCode::NotFound(e.code)
+                )
             ))?;
 
         let reference = Self(id);
@@ -109,39 +111,39 @@ mod tests {
         // Synthetic tests
         // Reference: Incomplete
         let parse_result = Reference::parse(b"1 0");
-        let expected_error = ParseRecoverable {
-            buffer: b"",
-            object: stringify!(Reference),
-            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Char))),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"",
+            stringify!(Reference),
+            ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Char))),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id not found
         let parse_result = Reference::parse(b"/Name");
-        let expected_error = ParseRecoverable {
-            buffer: b"/Name",
-            object: stringify!(Reference),
-            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Digit))),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"/Name",
+            stringify!(Reference),
+            ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::NotFound(ErrorKind::Digit))),
+        );
 
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id error
         let parse_result = Reference::parse(b"0 65535 R other objects");
-        let expected_error = ParseRecoverable {
-            buffer: b"0",
-            object: stringify!(Reference),
-            code: ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::ObjectNumber)),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"0",
+            stringify!(Reference),
+            ParseErrorCode::RecNotFound(Box::new(ParseErrorCode::ObjectNumber)),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Not found
         let parse_result = Reference::parse(b"12345 65535 <");
-        let expected_error = ParseRecoverable {
-            buffer: b"<",
-            object: stringify!(Reference),
-            code: ParseErrorCode::NotFound(ErrorKind::Tag),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"<",
+            stringify!(Reference),
+            ParseErrorCode::NotFound(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }

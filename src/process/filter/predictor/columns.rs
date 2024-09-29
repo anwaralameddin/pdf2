@@ -15,9 +15,8 @@ mod convert {
     use super::Columns;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
-    use crate::object::BorrowedBuffer;
-    use crate::process::error::ProcessErr;
-    use crate::process::filter::predictor::error::PredictorError;
+    use crate::process::filter::error::FilterErr;
+    use crate::process::filter::error::FilterErrorCode;
 
     impl Columns {
         pub(in crate::process::filter::predictor) fn new(value: usize) -> Self {
@@ -25,22 +24,24 @@ mod convert {
         }
     }
 
-    impl TryFrom<&DirectValue<'_>> for Columns {
-        type Error = ProcessErr;
+    impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for Columns {
+        type Error = FilterErr<'buffer>;
 
-        fn try_from(value: &DirectValue) -> Result<Self, Self::Error> {
+        fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             // TODO Replace with `as_usize`
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
-                let value = usize::try_from(**value)
-                    .map_err(|_| PredictorError::Unsupported(stringify!(Columns), **value))?; // TODO (TEMP) Avoid overriding the error
+                let value = usize::try_from(*value.deref()).map_err(|_| {
+                    FilterErr::new(
+                        stringify!(Columns),
+                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                    )
+                })?;
                 Ok(Self(value))
             } else {
-                // TODO (TEMP) Refactor to avoid cloning
-                Err(
-                    PredictorError::DataType(stringify!(Columns), value.clone().to_owned_buffer())
-                        .into(),
-                )
-                // TODO (TEMP) Avoid to_owned_buffer
+                Err(FilterErr::new(
+                    stringify!(Columns),
+                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                ))
             }
         }
     }

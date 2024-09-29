@@ -10,7 +10,7 @@ use self::columns::Columns;
 use self::png::Png;
 use self::tiff::Tiff;
 use super::Filter;
-use crate::process::error::ProcessResult;
+use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
 const KEY_PREDICTOR: &str = "Predictor";
@@ -28,8 +28,11 @@ pub(super) enum Predictor {
     Png(Png),
 }
 
-impl Filter for Predictor {
-    fn filter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+impl<'buffer> Filter<'buffer> for Predictor {
+    fn filter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::Tiff(predictor) => predictor.filter(bytes),
@@ -37,7 +40,10 @@ impl Filter for Predictor {
         }
     }
 
-    fn defilter(&self, bytes: impl Into<Vec<Byte>> + AsRef<[Byte]>) -> ProcessResult<Vec<Byte>> {
+    fn defilter(
+        &self,
+        bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
+    ) -> FilterResult<'buffer, Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::Tiff(predictor) => predictor.defilter(bytes),
@@ -54,28 +60,32 @@ struct PredictorParms {
 }
 
 mod convert {
-    use super::error::PredictorError;
+    use ::std::ops::Deref;
+
     use super::png::PngAlgorithm;
     use super::*;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
-    use crate::object::BorrowedBuffer;
+    use crate::process::filter::error::FilterErr;
+    use crate::process::filter::error::FilterErrorCode;
 
     impl Predictor {
-        pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> ProcessResult<Self> {
+        pub(in crate::process::filter) fn new<'buffer>(
+            decode_parms: &'buffer Dictionary,
+        ) -> FilterResult<'buffer, Self> {
             let bits_per_component = decode_parms
-                .get(KEY_BITS_PER_COMPONENT)
+                .opt_get(KEY_BITS_PER_COMPONENT)
                 .map(BitsPerComponent::try_from)
                 .transpose()?
                 .unwrap_or_default();
             let colors = decode_parms
-                .get(KEY_COLORS)
+                .opt_get(KEY_COLORS)
                 .map(Colors::try_from)
                 .transpose()?
                 .unwrap_or_default();
             let columns = decode_parms
-                .get(KEY_COLUMNS)
+                .opt_get(KEY_COLUMNS)
                 .map(Columns::try_from)
                 .transpose()?
                 .unwrap_or_default();
@@ -85,8 +95,8 @@ mod convert {
                 columns,
             };
 
-            match decode_parms.get(KEY_PREDICTOR) {
-                Some(DirectValue::Numeric(Numeric::Integer(value))) => match **value {
+            match decode_parms.opt_get(KEY_PREDICTOR) {
+                Some(DirectValue::Numeric(Numeric::Integer(value))) => match value.deref() {
                     1 => Ok(Self::None),
                     2 => Ok(Self::Tiff(Tiff::new(parms))),
                     10 => Ok(Self::Png(Png::new(PngAlgorithm::None, parms))),
@@ -95,31 +105,17 @@ mod convert {
                     13 => Ok(Self::Png(Png::new(PngAlgorithm::Average, parms))),
                     14 => Ok(Self::Png(Png::new(PngAlgorithm::Paeth, parms))),
                     15 => Ok(Self::Png(Png::new(PngAlgorithm::Optimum, parms))),
-                    _ => Err(PredictorError::Unsupported(stringify!(Predictor), **value).into()),
-                },
-                Some(value) => {
-                    Err(PredictorError::DataType(
+                    _ => Err(FilterErr::new(
                         stringify!(Predictor),
-                        value.clone().to_owned_buffer(),
-                    )
-                    .into()) // TODO (TEMP) Avoid to_owned_buffer
-                }
+                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                    )),
+                },
+                Some(value) => Err(FilterErr::new(
+                    stringify!(Predictor),
+                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                )),
                 None => Ok(Self::None),
             }
         }
-    }
-}
-
-pub(in crate::process) mod error {
-    use ::thiserror::Error;
-
-    use crate::object::direct::OwnedDirectValue;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum PredictorError {
-        #[error("{0}: Invalid data type. Input: {1}")]
-        DataType(&'static str, OwnedDirectValue),
-        #[error("{0}: Unsupport value. Input: {1}")]
-        Unsupported(&'static str, i128),
     }
 }

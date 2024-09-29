@@ -44,38 +44,40 @@ impl Parser<'_> for Subsection {
             terminated(separated_pair(digit1, char(' '), digit1), eol)(buffer).map_err(
                 parse_recoverable!(
                     e,
-                    ParseRecoverable {
-                        buffer: e.input,
-                        object: stringify!(Subsection),
-                        code: ParseErrorCode::NotFound(e.code)
-                    }
+                    ParseRecoverable::new(
+                        e.input,
+                        stringify!(Subsection),
+                        ParseErrorCode::NotFound(e.code)
+                    )
                 ),
             )?;
         // Here, we know that the buffer starts with a cross-reference subsection, and
         // the following errors should be propagated as SubsectionFail
 
-        let first_object_number = ascii_to_u64(first_object_number).ok_or(ParseFailure {
-            buffer: first_object_number,
-            object: stringify!(Subsection),
-            code: ParseErrorCode::FirstObjectNumber,
-        })?;
-        let entry_count = ascii_to_usize(entry_count).ok_or(ParseFailure {
-            buffer: entry_count,
-            object: stringify!(Subsection),
-            code: ParseErrorCode::EntryCount,
-        })?;
+        let first_object_number = ascii_to_u64(first_object_number).ok_or_else(||ParseFailure::new(
+            first_object_number,
+            stringify!(Subsection),
+            ParseErrorCode::FirstObjectNumber,
+        ))?;
+        let entry_count = ascii_to_usize(entry_count).ok_or_else(||ParseFailure::new(
+            entry_count,
+            stringify!(Subsection),
+            ParseErrorCode::EntryCount,
+        ))?;
 
         (0..entry_count)
             .try_fold(Vec::with_capacity(entry_count), |mut entries, index| {
-                let (remains, entry) = Entry::parse(buffer).map_err(|err| ParseFailure {
-                    buffer: err.buffer(),
-                    object: stringify!(Subsection),
-                    code: ParseErrorCode::Entry {
-                        index,
-                        first_object_number,
-                        entry_count,
-                        code: Box::new(err.code()),
-                    },
+                let (remains, entry) = Entry::parse(buffer).map_err(|err| {
+                    ParseFailure::new(
+                        err.buffer(),
+                        stringify!(Subsection),
+                        ParseErrorCode::SubsectionEntry {
+                            index,
+                            first_object_number,
+                            entry_count,
+                            code: Box::new(err.code()),
+                        },
+                    )
                 })?;
                 buffer = remains;
                 entries.push(entry);
@@ -140,11 +142,11 @@ mod tests {
         // Subsection: Not found
         let buffer = b"0 1 R\r\n";
         let parse_result = Subsection::parse(buffer);
-        let expected_error = ParseRecoverable {
-            buffer: b"R\r\n",
-            object: stringify!(Subsection),
-            code: ParseErrorCode::NotFound(ErrorKind::Tag),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"R\r\n",
+            stringify!(Subsection),
+            ParseErrorCode::NotFound(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Subsection: Incomplete buffer
@@ -155,16 +157,16 @@ mod tests {
         0000000300 00001 f\r\n\
         0000000400 00000 n\r\n";
         let parse_result = Subsection::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(Subsection),
-            code: ParseErrorCode::Entry {
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(Subsection),
+            ParseErrorCode::SubsectionEntry {
                 index: 5,
                 first_object_number: 0,
                 entry_count: 6,
                 code: Box::new(ParseErrorCode::NotFound(ErrorKind::TakeWhileMN)),
             },
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Subsection: Corrupted entry: Missing eol separator
@@ -175,20 +177,20 @@ mod tests {
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
         let parse_result = Subsection::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer: b"0000000100 00000 n\r\n\
+        let expected_error = ParseFailure::new(
+            b"0000000100 00000 n\r\n\
                 0000000200 00000 n\r\n\
                 0000000300 00001 f\r\n\
                 0000000400 00000 n\r\n\
                 0000000500 00000 n\r\n",
-            object: stringify!(Subsection),
-            code: ParseErrorCode::Entry {
+            stringify!(Subsection),
+            ParseErrorCode::SubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,
                 code: Box::new(ParseErrorCode::NotFound(ErrorKind::TakeWhileMN)),
             },
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Subsection: Missing generation number
@@ -200,20 +202,20 @@ mod tests {
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
         let parse_result = Subsection::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer: b"n\r\n\
+        let expected_error = ParseFailure::new(
+            b"n\r\n\
             0000000200 00000 n\r\n\
             0000000300 00001 f\r\n\
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
-            object: stringify!(Subsection),
-            code: ParseErrorCode::Entry {
+            stringify!(Subsection),
+            ParseErrorCode::SubsectionEntry {
                 index: 1,
                 first_object_number: 0,
                 entry_count: 6,
                 code: Box::new(ParseErrorCode::NotFound(ErrorKind::TakeWhileMN)),
             },
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Subsection: Invalid entry type
@@ -225,21 +227,21 @@ mod tests {
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
         let parse_result = Subsection::parse(buffer);
-        let expected_error = ParseFailure {
-            buffer: b"r\r\n\
+        let expected_error = ParseFailure::new(
+            b"r\r\n\
             0000000100 00000 n\r\n\
             0000000200 00000 n\r\n\
             0000000300 00001 f\r\n\
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
-            object: stringify!(Subsection),
-            code: ParseErrorCode::Entry {
+            stringify!(Subsection),
+            ParseErrorCode::SubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,
                 code: Box::new(ParseErrorCode::NotFound(ErrorKind::Tag)),
             },
-        };
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // TODO Add tests

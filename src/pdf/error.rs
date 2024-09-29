@@ -7,28 +7,34 @@ use ::thiserror::Error;
 use super::*;
 use crate::object::indirect::id::Id;
 use crate::parse::error::ParseErr;
-use crate::process::error::NewProcessErr;
 use crate::Offset;
 
-pub type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
+pub(crate) type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
 
-// Include the path in all PdfErr variants to simplify debugging
 #[derive(Debug, Error, PartialEq, Clone)]
-pub enum PdfErr<'path> {
-    #[error("Parse. File: {0}. Error: {1}")]
-    Parse(&'path Path, ParseErr<'path>),
-    #[error("Process. File: {0}. Error: {1}")]
-    Process(&'path Path, NewProcessErr),
-    #[error("Empty cross-reference table. File: {0}")]
-    EmptyPreTable(&'path Path),
+#[error("PDF Failure. Error: {code}. File: {path}")]
+pub struct PdfErr<'path> {
+    pub(crate) path: &'path Path,
+    pub(crate) code: PdfErrorCode<'path>,
+}
+
+#[derive(Debug, Error, PartialEq, Clone)]
+pub enum PdfErrorCode<'path> {
+    #[error("Parse. Error: {0}")]
+    Parse(ParseErr<'path>),
+    #[error("XRef. Error: {0}")]
+    XRef(String),
+    // XRef(XRefErr),
+    #[error("Empty cross-reference table")]
+    EmptyPreTable,
     // ::std::io::Error as IoError; does not implement PartialEq or Clone,
     // and it's mor convenient to use ::std::io::ErrorKind here instead
-    #[error("Open. File: {0}. Error kind: {1}")]
-    OpenFile(&'path Path, ErrorKind),
-    #[error("Seek. File: {0}. Error kind: {1}")]
-    Seek(&'path Path, ErrorKind),
-    #[error("Read. File: {0}. Error kind: {1}")]
-    ReadFile(&'path Path, ErrorKind),
+    #[error("Open. Error kind: {0}")]
+    OpenFile(ErrorKind),
+    #[error("Seek. Error kind: {0}")]
+    Seek(ErrorKind),
+    #[error("Read. Error kind: {0}")]
+    ReadFile(ErrorKind),
 }
 
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -46,7 +52,7 @@ impl Display for PdfRecoverable<'_> {
             self.errors.len()
         )?;
         for err in &self.errors {
-            writeln!(f, "File: {}. Error {}", self.path.display(), err)?;
+            writeln!(f, "File: {}. Error: {}", self.path.display(), err)?;
         }
         Ok(())
     }
@@ -67,6 +73,12 @@ mod convert {
     use ::std::ops::Deref;
 
     use super::*;
+
+    impl<'path> PdfErr<'path> {
+        pub fn new(path: &'path Path, code: PdfErrorCode<'path>) -> Self {
+            Self { path, code }
+        }
+    }
 
     impl<'path> PdfRecoverable<'path> {
         pub fn new(path: &'path Path, errors: Vec<ObjectRecoverable<'path>>) -> Self {

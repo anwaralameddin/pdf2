@@ -9,8 +9,6 @@ use ::std::fmt::Result as FmtResult;
 use ::std::ops::Deref;
 
 use super::DirectValue;
-use crate::object::direct::OwnedDirectValue;
-use crate::object::BorrowedBuffer;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
@@ -25,9 +23,6 @@ use crate::Byte;
 #[derive(Debug, Default, Clone)]
 pub struct Array<'buffer>(Vec<DirectValue<'buffer>>);
 
-#[derive(Debug, Default, Clone)]
-pub struct OwnedArray(Vec<OwnedDirectValue>);
-
 impl Display for Array<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "[")?;
@@ -38,13 +33,6 @@ impl Display for Array<'_> {
             write!(f, "{}", obj)?;
         }
         write!(f, "]")
-    }
-}
-
-impl Display for OwnedArray {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        // TODO (TEMP) Array::from involves reallocation
-        Display::fmt(&Array::from(self), f)
     }
 }
 
@@ -62,13 +50,6 @@ impl PartialEq for Array<'_> {
     }
 }
 
-impl PartialEq for OwnedArray {
-    fn eq(&self, other: &Self) -> bool {
-        // TODO (TEMP) Array::from involves reallocation
-        Array::from(self) == Array::from(other)
-    }
-}
-
 impl<'buffer> Parser<'buffer> for Array<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
         let mut array = vec![];
@@ -76,11 +57,7 @@ impl<'buffer> Parser<'buffer> for Array<'buffer> {
         let (mut buffer, _) = terminated(char('['), opt(white_space_or_comment))(buffer).map_err(
             parse_recoverable!(
                 e,
-                ParseRecoverable {
-                    buffer: e.input,
-                    object: stringify!(Array),
-                    code: ParseErrorCode::NotFound(e.code)
-                }
+                ParseRecoverable::new(e.input, stringify!(Array), ParseErrorCode::NotFound(e.code))
             ),
         )?;
         // Here, we know that the buffer starts with an array, and the following
@@ -92,10 +69,12 @@ impl<'buffer> Parser<'buffer> for Array<'buffer> {
                 break;
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse(buffer).map_err(|err| ParseFailure {
-                buffer: err.buffer(),
-                object: stringify!(Array),
-                code: ParseErrorCode::RecMissingClosing(Box::new(err.code())),
+            (buffer, value) = DirectValue::parse(buffer).map_err(|err| {
+                ParseFailure::new(
+                    err.buffer(),
+                    stringify!(Array),
+                    ParseErrorCode::RecMissingClosing(Box::new(err.code())),
+                )
             })?;
 
             array.push(value);
@@ -111,34 +90,8 @@ impl<'buffer> Parser<'buffer> for Array<'buffer> {
     }
 }
 
-impl Parser<'_> for OwnedArray {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Array::parse(buffer).map(|(remains, array)| (remains, array.to_owned_buffer()))
-    }
-}
-
 mod convert {
     use super::*;
-    use crate::object::BorrowedBuffer;
-
-    impl BorrowedBuffer for Array<'_> {
-        type OwnedBuffer = OwnedArray;
-
-        fn to_owned_buffer(self) -> Self::OwnedBuffer {
-            OwnedArray(
-                self.0
-                    .into_iter()
-                    .map(DirectValue::to_owned_buffer)
-                    .collect(),
-            )
-        }
-    }
-
-    impl<'buffer> From<&'buffer OwnedArray> for Array<'buffer> {
-        fn from(value: &'buffer OwnedArray) -> Self {
-            Array(value.0.iter().map(DirectValue::from).collect())
-        }
-    }
 
     impl<'buffer> From<Vec<DirectValue<'buffer>>> for Array<'buffer> {
         fn from(value: Vec<DirectValue<'buffer>>) -> Self {
@@ -146,20 +99,8 @@ mod convert {
         }
     }
 
-    impl From<Vec<OwnedDirectValue>> for OwnedArray {
-        fn from(value: Vec<OwnedDirectValue>) -> Self {
-            Self(value)
-        }
-    }
-
     impl<'buffer> FromIterator<DirectValue<'buffer>> for Array<'buffer> {
         fn from_iter<T: IntoIterator<Item = DirectValue<'buffer>>>(iter: T) -> Array<'buffer> {
-            Self(Vec::from_iter(iter))
-        }
-    }
-
-    impl FromIterator<OwnedDirectValue> for OwnedArray {
-        fn from_iter<T: IntoIterator<Item = OwnedDirectValue>>(iter: T) -> OwnedArray {
             Self(Vec::from_iter(iter))
         }
     }
@@ -172,26 +113,9 @@ mod convert {
         }
     }
 
-    impl Deref for OwnedArray {
-        type Target = Vec<OwnedDirectValue>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
     impl<'buffer> IntoIterator for Array<'buffer> {
         type Item = DirectValue<'buffer>;
         type IntoIter = <Vec<DirectValue<'buffer>> as IntoIterator>::IntoIter;
-
-        fn into_iter(self) -> Self::IntoIter {
-            self.0.into_iter()
-        }
-    }
-
-    impl IntoIterator for OwnedArray {
-        type Item = OwnedDirectValue;
-        type IntoIter = <Vec<OwnedDirectValue> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()
@@ -257,20 +181,20 @@ mod tests {
 
         // Array: Not found
         let parse_result = Array::parse(b"1 1.0 true null(A literal string)/Name");
-        let expected_error = ParseRecoverable {
-            buffer: b"1 1.0 true null(A literal string)/Name",
-            object: stringify!(Array),
-            code: ParseErrorCode::NotFound(ErrorKind::Char),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"1 1.0 true null(A literal string)/Name",
+            stringify!(Array),
+            ParseErrorCode::NotFound(ErrorKind::Char),
+        );
         assert_err_eq!(parse_result, expected_error);
 
         // Array: Missing closing square bracket
         let parse_result = Array::parse(b"[1 1.0 true null(A literal string)/Name");
-        let expected_error = ParseFailure {
-            buffer: b"",
-            object: stringify!(Array),
-            code: ParseErrorCode::RecMissingClosing(Box::new(ParseErrorCode::NotFoundUnion)),
-        };
+        let expected_error = ParseFailure::new(
+            b"",
+            stringify!(Array),
+            ParseErrorCode::RecMissingClosing(Box::new(ParseErrorCode::NotFoundUnion)),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }

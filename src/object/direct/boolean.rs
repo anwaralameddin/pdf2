@@ -35,11 +35,11 @@ impl Parser<'_> for Boolean {
         ))(buffer)
         .map_err(parse_recoverable!(
             e,
-            ParseRecoverable {
-                buffer: e.input,
-                object: stringify!(Boolean),
-                code: ParseErrorCode::NotFound(e.code),
-            }
+            ParseRecoverable::new(
+                e.input,
+                stringify!(Boolean),
+                ParseErrorCode::NotFound(e.code)
+            )
         ))?;
 
         Ok((buffer, value))
@@ -93,11 +93,11 @@ mod tests {
     fn boolean_invalid() {
         // Boolean: Not found
         let parse_result = Boolean::parse(b"tr");
-        let expected_error = ParseRecoverable {
-            buffer: b"tr",
-            object: stringify!(Boolean),
-            code: ParseErrorCode::NotFound(ErrorKind::Tag),
-        };
+        let expected_error = ParseRecoverable::new(
+            b"tr",
+            stringify!(Boolean),
+            ParseErrorCode::NotFound(ErrorKind::Tag),
+        );
         assert_err_eq!(parse_result, expected_error);
     }
 }
