@@ -99,7 +99,7 @@ mod build {
             // collect all errors and report them at the end.
             let mut objects = HashMap::default();
             for (offset, id) in table.in_use.iter() {
-                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
+                let (_, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
                     Ok((remains, object)) => (remains, object),
                     Err(err) => {
                         errors.push(ObjectRecoverable::Parse(*id, *offset, err));
@@ -111,12 +111,12 @@ mod build {
                 let IndirectObject {
                     id: parsed_id,
                     value,
+                    span,
                 } = object;
                 if parsed_id != *id {
                     errors.push(ObjectRecoverable::MismatchedId(*id, parsed_id));
                     // continue;
                 }
-                let span = Span::new(*offset, self.buffer[*offset..].len() - remains.len());
 
                 objects.insert(*id, (value, span));
             }

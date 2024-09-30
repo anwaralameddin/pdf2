@@ -27,7 +27,7 @@ pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub struct Span {
     start: usize,
     end: usize,
@@ -140,7 +140,7 @@ mod tests {
             );
         };
         // The two patterns differ only in the trailing comma
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
+        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
             assert_eq!(
                 Parser::parse_span($buffer, 0).unwrap(),
                 ($expected_remains, $expected_parsed)

@@ -212,7 +212,7 @@ mod tests {
                 ("Size".into(), 1.into()),
                 (
                     "Root".into(),
-                    unsafe { Reference::new_unchecked(1, 0) }.into(),
+                    unsafe { Reference::new_unchecked(1, 0, 0, 0) }.into(),
                 ),
             ]),
         );

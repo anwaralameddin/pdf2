@@ -62,6 +62,7 @@ mod convert {
                         .map_err(|err| XRefErr::StreamObjectNumber(field2.to_vec(), err))?;
 
                     // REFERENCE: [7.5.8.3 Cross-reference stream data, p68]
+                    // TODO Span??
                     let id = Id::new(object_number, GenerationNumber::default());
                     let index = bytes_to_u64(field3)
                         .ok_or_else(|| XRefErr::StreamGenerationNumber(field3.to_vec()))?;

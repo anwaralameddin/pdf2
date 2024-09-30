@@ -36,10 +36,11 @@ Stream::new(
         ),
         (
             "Resources".into(),
-            unsafe { Reference::new_unchecked(11, 0).into() },
+            unsafe { Reference::new_unchecked(11, 0, 0, 0).into() },
         ),
         ("Length".into(), 15.into()),
         ("Filter".into(), Name::from("FlateDecode").into()),
     ]),
     &buffer[155..170],
+    Span::new(0, buffer.len()),
 )

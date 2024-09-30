@@ -23,6 +23,7 @@ use crate::Offset;
 pub(crate) struct XRefStream<'buffer> {
     pub(crate) id: Id,
     pub(crate) stream: Stream<'buffer>,
+    pub(crate) span: Span,
 }
 
 impl Display for XRefStream<'_> {
@@ -36,11 +37,11 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value }) = Parser::parse_span(buffer, offset)?;
+        let (remains, IndirectObject { id, value, span }) = Parser::parse_span(buffer, offset)?;
 
         let stream = Stream::try_from(value)?;
 
-        let xref_stream = XRefStream::new(id, stream);
+        let xref_stream = XRefStream::new(id, stream, span);
 
         let buffer = remains;
 
@@ -48,9 +49,7 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
     }
 
     fn span(&self) -> Span {
-        let start = self.id.span().start();
-        let end = self.stream.span().end();
-        Span::new(start, end)
+        self.span
     }
 }
 
@@ -206,8 +205,8 @@ mod convert {
     use super::*;
 
     impl<'buffer> XRefStream<'buffer> {
-        pub(crate) fn new(id: Id, stream: Stream<'buffer>) -> Self {
-            Self { id, stream }
+        pub(crate) fn new(id: Id, stream: Stream<'buffer>, span: Span) -> Self {
+            Self { id, stream, span }
         }
     }
 }
@@ -263,7 +262,8 @@ mod tests {
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },
-            stream: Stream::new(dictionary, &buffer[215..1975]),
+            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(0, 1975)),
+            span: Span::new(0, 1975),
         };
         parse_span_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
@@ -275,7 +275,8 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
-            Stream::new(dictionary, &buffer[215..1304]),
+            Stream::new(dictionary, &buffer[215..1304], Span::new(0, 1304)),
+            Span::new(0, 1304),
         );
         parse_span_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
@@ -287,7 +288,8 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
-            Stream::new(dictionary, &buffer[215..717]),
+            Stream::new(dictionary, &buffer[215..717], Span::new(0, 717)),
+            Span::new(0, 717),
         );
         parse_span_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }

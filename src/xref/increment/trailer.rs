@@ -479,10 +479,10 @@ mod tests {
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
             let trailer = Trailer::new(750, Span::new(0, 0), &dictionary)
-                .set_root(unsafe { Reference::new_unchecked(747, 0) })
+                .set_root(unsafe { Reference::new_unchecked(747, 0, 0, 0) })
                 .set_w([1, 3, 1])
                 .set_index(vec![(0, 750)])
-                .set_info(unsafe { Reference::new_unchecked(748, 0) })
+                .set_info(unsafe { Reference::new_unchecked(748, 0, 0, 0) })
                 .set_id([
                     Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
                     Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),

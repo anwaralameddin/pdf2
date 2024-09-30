@@ -2,7 +2,7 @@ Dictionary::from_iter([
     ("Type".into(), Name::from("XRef").into()),
     ("Size".into(), 750.into()),
     ("Root".into(), unsafe {
-        Reference::new_unchecked(747, 0).into()
+        Reference::new_unchecked(747, 0, 0, 0).into()
     }),
     (
         "W".into(),
@@ -13,7 +13,7 @@ Dictionary::from_iter([
         Array::from_iter([0.into(), 750.into()]).into(),
     ),
     ("Info".into(), unsafe {
-        Reference::new_unchecked(748, 0).into()
+        Reference::new_unchecked(748, 0, 0, 0).into()
     }),
     (
         "ID".into(),

@@ -16,10 +16,10 @@ Stream::new(
             .into(),
         ),
         ("Root".into(), unsafe {
-            Reference::new_unchecked(437, 0).into()
+            Reference::new_unchecked(437, 0, 0, 0).into()
         }),
         ("Info".into(), unsafe {
-            Reference::new_unchecked(438, 0).into()
+            Reference::new_unchecked(438, 0, 0, 0).into()
         }),
         (
             "ID".into(),
@@ -33,4 +33,5 @@ Stream::new(
         ("Filter".into(), Name::from("FlateDecode").into()),
     ]),
     &buffer[205..1294],
+    Span::new(0, buffer.len()),
 )

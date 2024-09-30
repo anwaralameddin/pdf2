@@ -130,7 +130,7 @@ Dictionary::from_iter([
     ("Size".into(), 74.into()),
     (
         "Root".into(),
-        unsafe { Reference::new_unchecked(116, 0) }.into(),
+        unsafe { Reference::new_unchecked(116, 0, 0, 0) }.into(),
     ),
     (
         "ID".into(),

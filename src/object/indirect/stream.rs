@@ -19,11 +19,13 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse::KW_ENDSTREAM;
 use crate::parse::KW_STREAM;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
+use crate::Offset;
 
 pub(crate) const KEY_LENGTH: &str = "Length";
 pub(crate) const KEY_F: &str = "F";
@@ -34,10 +36,11 @@ pub(crate) const KEY_FDECODEPARMS: &str = "FDecodeParms";
 pub(crate) const KEY_DL: &str = "DL";
 
 /// REFERENCE: [7.3.8 Stream objects, p31]
-#[derive(PartialEq, Default, Clone)]
+#[derive(PartialEq, Clone)]
 pub(crate) struct Stream<'buffer> {
     pub(crate) dictionary: Dictionary<'buffer>,
     pub(crate) data: &'buffer [Byte],
+    pub(crate) span: Span,
 }
 
 impl Display for Stream<'_> {
@@ -62,7 +65,9 @@ impl Debug for Stream<'_> {
 
 impl<'buffer> Parser<'buffer> for Stream<'buffer> {
     /// REFERENCE: [7.3.8 Stream objects, p31-32]
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        let size = buffer.len();
+
         let (remains, dictionary) = Dictionary::parse(buffer)?;
 
         let (remains, _) = tuple((
@@ -121,8 +126,17 @@ impl<'buffer> Parser<'buffer> for Stream<'buffer> {
             )
         ))?;
 
-        let stream = Self { dictionary, data };
+        let span = Span::new(offset, size - buffer.len());
+        let stream = Self {
+            dictionary,
+            data,
+            span,
+        };
         Ok((buffer, stream))
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -198,10 +212,12 @@ mod convert {
         pub(crate) fn new(
             dictionary: impl Into<Dictionary<'buffer>>,
             data: impl Into<&'buffer [Byte]>,
+            span: Span,
         ) -> Self {
             Self {
                 dictionary: dictionary.into(),
                 data: data.into(),
+                span,
             }
         }
     }
@@ -238,7 +254,7 @@ mod tests {
     use crate::object::error::ObjectErrorCode;
     use crate::object::indirect::reference::Reference;
     use crate::parse::error::ParseFailure;
-    use crate::parse_assert_eq;
+    use crate::parse_span_assert_eq;
     use crate::Byte;
 
     #[test]
@@ -248,29 +264,30 @@ mod tests {
         let stream = Stream::new(
             Dictionary::from_iter([(KEY_LENGTH.into(), 0.into())]),
             "".as_bytes(),
+            Span::new(0, buffer.len()),
         );
-        parse_assert_eq!(buffer, stream, "endobj".as_bytes());
+        parse_span_assert_eq!(buffer, stream, "endobj".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.bin");
         let stream: Stream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.rs");
-        parse_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
+        parse_span_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_stream.bin");
         let stream: Stream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_stream.rs");
-        parse_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
+        parse_span_assert_eq!(buffer, stream, "1 0 R\n".as_bytes());
 
         // PDF produced by Microsoft Word for Office 365
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/B72168B54640B245A7CCF42DCDC8C026_stream.bin");
         let stream: Stream =
             include!("../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_stream.rs");
-        parse_assert_eq!(buffer, stream, "endobj\r\n".as_bytes());
+        parse_span_assert_eq!(buffer, stream, "endobj\r\n".as_bytes());
 
         // TODO Add a stream with a length that is an indirect reference
     }
@@ -279,7 +296,7 @@ mod tests {
     fn stream_invalid() {
         // Synthetic tests
         // Stream: Length not found in stream dictionary
-        let parse_result = Stream::parse(b"<<>>\nstream\nendstream");
+        let parse_result = Stream::parse_span(b"<<>>\nstream\nendstream", 0);
         let expected_error = ParseFailure::new(
             b"<<>>\nstream\nendstream", // b"<<>>"
             stringify!(Stream),
@@ -296,7 +313,7 @@ mod tests {
 
         // Stream: Length has the wrong type. Only NonNegative values and References are
         // allowed for Length Stream: Length of invalid value: -1
-        let parse_result = Stream::parse(b"<</Length -1>>\nstream\nendstream");
+        let parse_result = Stream::parse_span(b"<</Length -1>>\nstream\nendstream", 0);
         let value: DirectValue = Integer::from(-1i128).into();
         let expected_error = ParseFailure::new(
             b"<</Length -1>>\nstream\nendstream", // b"-1",
@@ -319,7 +336,7 @@ mod tests {
         // where usize::MAX is less than u64::MAX, e.g. 32-bit systems
 
         // Stream: Data is too short
-        let parse_result = Stream::parse(b"<</Length 10>>\nstream\n0123456\nendstream");
+        let parse_result = Stream::parse_span(b"<</Length 10>>\nstream\n0123456\nendstream", 0);
         let expected_error = ParseFailure::new(
             b"dstream",
             stringify!(Stream),
@@ -328,7 +345,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Stream: Data is too long
-        let parse_result = Stream::parse(b"<</Length 5>>\nstream\n0123456789\nendstream");
+        let parse_result = Stream::parse_span(b"<</Length 5>>\nstream\n0123456789\nendstream", 0);
         let expected_error = ParseFailure::new(
             b"56789\nendstream",
             stringify!(Stream),

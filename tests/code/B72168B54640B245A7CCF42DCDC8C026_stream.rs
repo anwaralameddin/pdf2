@@ -12,10 +12,10 @@ Stream::new(
             .into(),
         ),
         ("Root".into(), unsafe {
-            Reference::new_unchecked(1, 0).into()
+            Reference::new_unchecked(1, 0, 0, 0).into()
         }),
         ("Info".into(), unsafe {
-            Reference::new_unchecked(24, 0).into()
+            Reference::new_unchecked(24, 0, 0, 0).into()
         }),
         (
             "ID".into(),
@@ -29,4 +29,5 @@ Stream::new(
         ("Length".into(), 193.into()),
     ]),
     &buffer[170..363],
+    Span::new(0, buffer.len()),
 )
