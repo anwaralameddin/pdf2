@@ -22,7 +22,9 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE:
 /// - [7.3 Objects, p24]
@@ -59,15 +61,15 @@ impl Display for DirectValue<'_> {
 }
 
 impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        Reference::parse_suppress_recoverable(buffer)
-            .or_else(|| Null::parse_suppress_recoverable(buffer))
-            .or_else(|| Boolean::parse_suppress_recoverable(buffer))
-            .or_else(|| Numeric::parse_suppress_recoverable(buffer))
-            .or_else(|| Name::parse_suppress_recoverable(buffer))
-            .or_else(|| String_::parse_suppress_recoverable(buffer))
-            .or_else(|| Array::parse_suppress_recoverable(buffer))
-            .or_else(|| Dictionary::parse_suppress_recoverable(buffer))
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        Reference::parse_suppress_recoverable_span(buffer, offset)
+            .or_else(|| Null::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| Boolean::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| Numeric::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| Name::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| String_::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| Array::parse_suppress_recoverable_span(buffer, offset))
+            .or_else(|| Dictionary::parse_suppress_recoverable_span(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
                     buffer,
@@ -76,6 +78,19 @@ impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
                 )
                 .into())
             })
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Reference(reference) => reference.span(),
+            Self::Array(array) => array.span(),
+            Self::Boolean(boolean) => boolean.span(),
+            Self::Dictionary(dictionary) => dictionary.span(),
+            Self::Name(name) => name.span(),
+            Self::Null(null) => null.span(),
+            Self::Numeric(numeric) => numeric.span(),
+            Self::String(string) => string.span(),
+        }
     }
 }
 
