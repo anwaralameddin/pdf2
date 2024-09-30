@@ -520,7 +520,7 @@ mod tests {
         let buffer = b"<</Size 1.1/Root 2 0 R/Info 1 0 R>>\nstartxref\n99999\n%%EOF";
         let (_, dictionary) = Dictionary::parse(buffer).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
-        let value = Real::from(1.1).into();
+        let value: DirectValue = Real::new(1.1, Span::new(8, 3)).into();
         let expected_error = ObjectErr::new(
             KEY_SIZE,
             &dictionary,

@@ -133,6 +133,7 @@ mod tests {
     use crate::object::direct::name::Name;
     use crate::object::direct::null::Null;
     use crate::object::direct::numeric::Integer;
+    use crate::object::direct::numeric::Real;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::parse::Span;
@@ -144,7 +145,7 @@ mod tests {
         let buffer = b"[1 1.0 true null(A literal string)/Name]";
         let expected_parsed = Array::from_iter([
             Integer::new(1, Span::new(1, 1)).into(),
-            1.0.into(),
+            Real::new(1.0, Span::new(3, 3)).into(),
             Boolean::new(true, Span::new(6, 4)).into(),
             Null::new(Span::new(12, 4)).into(),
             Literal::from("A literal string").into(),
