@@ -132,6 +132,7 @@ mod tests {
     use crate::object::direct::boolean::Boolean;
     use crate::object::direct::name::Name;
     use crate::object::direct::null::Null;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::parse::Span;
@@ -142,7 +143,7 @@ mod tests {
         // A synthetic test
         let buffer = b"[1 1.0 true null(A literal string)/Name]";
         let expected_parsed = Array::from_iter([
-            1.into(),
+            Integer::new(1, Span::new(1, 1)).into(),
             1.0.into(),
             Boolean::new(true, Span::new(6, 4)).into(),
             Null::new(Span::new(12, 4)).into(),
@@ -159,11 +160,26 @@ mod tests {
 
         // A synthetic test
         // Array: 2D matrix
-        let buffer = b"[[1 2 3] [4 5 6] [7 8 9]]";
+        let buffer = b"[[1 2 3][4 5 6][7 8 9]]";
         let expected_parsed = Array::from_iter([
-            Array::from_iter([1.into(), 2.into(), 3.into()]).into(),
-            Array::from_iter([4.into(), 5.into(), 6.into()]).into(),
-            Array::from_iter([7.into(), 8.into(), 9.into()]).into(),
+            Array::from_iter([
+                Integer::new(1, Span::new(2, 1)).into(),
+                Integer::new(2, Span::new(4, 1)).into(),
+                Integer::new(3, Span::new(6, 1)).into(),
+            ])
+            .into(),
+            Array::from_iter([
+                Integer::new(4, Span::new(9, 1)).into(),
+                Integer::new(5, Span::new(11, 1)).into(),
+                Integer::new(6, Span::new(13, 1)).into(),
+            ])
+            .into(),
+            Array::from_iter([
+                Integer::new(7, Span::new(16, 1)).into(),
+                Integer::new(8, Span::new(18, 1)).into(),
+                Integer::new(9, Span::new(20, 1)).into(),
+            ])
+            .into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
 

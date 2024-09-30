@@ -116,7 +116,7 @@ mod convert {
     impl_from_ref!('buffer, Name<'buffer>, Name, DirectValue<'buffer>);
     impl_from_ref!('buffer, Null, Null, DirectValue<'buffer>);
     impl_from_ref!('buffer, Integer, Numeric, DirectValue<'buffer>);
-    impl_from_ref!('buffer, u64, Numeric, DirectValue<'buffer>);
+    // impl_from_ref!('buffer, u64, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, Real, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, f64, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, Numeric, Numeric, DirectValue<'buffer>);

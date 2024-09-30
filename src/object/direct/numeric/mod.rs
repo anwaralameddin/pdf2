@@ -50,8 +50,8 @@ mod convert {
     use crate::impl_from;
 
     impl_from!(Integer, Integer, Numeric);
-    impl_from!(i128, Integer, Numeric);
-    impl_from!(u64, Integer, Numeric);
+    // impl_from!(i128, Integer, Numeric);
+    // impl_from!(u64, Integer, Numeric);
     impl_from!(Real, Real, Numeric);
     impl_from!(f64, Real, Numeric);
 
@@ -72,26 +72,52 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::parse::error::ParseFailure;
+    use crate::parse::Span;
     use crate::parse_assert_eq;
+    use crate::parse_span_assert_eq;
 
     #[test]
     fn numeric_valid() {
-        parse_assert_eq!(b"0", Numeric::from(0i128), "".as_bytes());
-        parse_assert_eq!(b"-0", Numeric::from(-0i128), "".as_bytes());
-        parse_assert_eq!(b"+1", Numeric::from(1i128), "".as_bytes());
-        parse_assert_eq!(b"-1", Numeric::from(-1i128), "".as_bytes());
-        parse_assert_eq!(b"1", Numeric::from(1i128), "".as_bytes());
-        parse_assert_eq!(
+        parse_span_assert_eq!(
+            b"0",
+            Numeric::from(Integer::new(0, Span::new(0, 1))),
+            "".as_bytes()
+        );
+        parse_span_assert_eq!(
+            b"-0",
+            Numeric::from(Integer::new(0, Span::new(0, 2))),
+            "".as_bytes()
+        );
+        parse_span_assert_eq!(
+            b"+1",
+            Numeric::from(Integer::new(1, Span::new(0, 2))),
+            "".as_bytes()
+        );
+        parse_span_assert_eq!(
+            b"-1",
+            Numeric::from(Integer::new(-1, Span::new(0, 2))),
+            "".as_bytes()
+        );
+        parse_span_assert_eq!(
+            b"1",
+            Numeric::from(Integer::new(1, Span::new(0, 1))),
+            "".as_bytes()
+        );
+        parse_span_assert_eq!(
             b"-170141183460469231731687303715884105728<",
-            Numeric::from(i128::MIN),
+            Numeric::from(Integer::new(i128::MIN, Span::new(0, 39))),
             "<".as_bytes()
         );
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             b"170141183460469231731687303715884105727<",
-            Numeric::from(i128::MAX),
+            Numeric::from(Integer::new(i128::MAX, Span::new(0, 39))),
             "<".as_bytes()
         );
-        parse_assert_eq!(b"-1 2", Numeric::from(-1i128), " 2".as_bytes());
+        parse_span_assert_eq!(
+            b"-1 2",
+            Numeric::from(Integer::new(-1, Span::new(0, 2))),
+            " 2".as_bytes()
+        );
 
         parse_assert_eq!(b"0.0", Numeric::from(0.0), "".as_bytes());
         parse_assert_eq!(b"-0.0", Numeric::from(0.0), "".as_bytes());

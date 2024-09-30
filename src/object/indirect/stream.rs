@@ -262,7 +262,7 @@ mod tests {
         // A synthetic test
         let buffer = b"<</Length 0>>\nstream\n\nendstream\nendobj";
         let stream = Stream::new(
-            Dictionary::from_iter([(KEY_LENGTH.into(), 0.into())]),
+            Dictionary::from_iter([(KEY_LENGTH.into(), Integer::new(0, Span::new(10, 1)).into())]),
             "".as_bytes(),
             Span::new(0, buffer.len()),
         );
@@ -314,14 +314,14 @@ mod tests {
         // Stream: Length has the wrong type. Only NonNegative values and References are
         // allowed for Length Stream: Length of invalid value: -1
         let parse_result = Stream::parse_span(b"<</Length -1>>\nstream\nendstream", 0);
-        let value: DirectValue = Integer::from(-1i128).into();
+        let value: DirectValue = Integer::new(-1, Span::new(10, 2)).into();
         let expected_error = ParseFailure::new(
             b"<</Length -1>>\nstream\nendstream", // b"-1",
             stringify!(Stream),
             ParseErrorCode::Object(
                 ObjectErr::new(
                     KEY_LENGTH,
-                    &Dictionary::from_iter([(KEY_LENGTH.into(), Integer::from(-1i128).into())]),
+                    &Dictionary::from_iter([(KEY_LENGTH.into(), value.clone())]),
                     ObjectErrorCode::Type {
                         expected_type: stringify!(usize),
                         value: &value,

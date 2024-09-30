@@ -123,6 +123,7 @@ mod tests {
     use crate::assert_err_eq;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
+    use crate::object::direct::numeric::Integer;
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::Stream;
     use crate::object::indirect::stream::KEY_LENGTH;
@@ -154,7 +155,7 @@ mod tests {
         let buffer =
             b"1 0 obj\n<</Length 29>>\nstream\nA stream with a direct length\nendstream\nendobj";
         let value = Stream::new(
-            Dictionary::from_iter([(KEY_LENGTH.into(), 29.into())]),
+            Dictionary::from_iter([(KEY_LENGTH.into(), Integer::new(29, Span::new(18, 2)).into())]),
             "A stream with a direct length".as_bytes(),
             Span::new(0, 29),
         );

@@ -197,6 +197,7 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::direct::array::Array;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse::Span;
@@ -209,7 +210,7 @@ mod tests {
         let section = Section::new(
             VecDeque::default(),
             Dictionary::from_iter([
-                ("Size".into(), 1.into()),
+                ("Size".into(), Integer::new(1, Span::new(0, 0)).into()),
                 (
                     "Root".into(),
                     unsafe { Reference::new_unchecked(1, 0, 0, 0) }.into(),
@@ -226,7 +227,7 @@ mod tests {
                 [Entry::new(EntryData::Free(0, 65535), Span::new(0, 20))],
                 Span::new(0, 28),
             )],
-            Dictionary::from_iter([("Size".into(), 1.into())]),
+            Dictionary::from_iter([("Size".into(), Integer::new(1, Span::new(0, 0)).into())]),
         );
         parse_span_assert_eq!(buffer, section, "".as_bytes());
 

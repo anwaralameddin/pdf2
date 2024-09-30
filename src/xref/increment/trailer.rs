@@ -411,6 +411,7 @@ mod tests {
     use crate::assert_err_eq;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::numeric::Real;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
@@ -472,7 +473,7 @@ mod tests {
         let (_, object) = IndirectObject::parse(buffer).unwrap();
         let val_ref: Name = VAL_XREF.into();
         let key_length: Name = KEY_LENGTH.into();
-        let val_length: DirectValue = 1760.into();
+        let val_length: DirectValue = Integer::new(1760, Span::new(0, 0)).into();
         let key_filter: Name = KEY_FILTER.into();
         let val_filter: DirectValue = Name::from("FlateDecode").into();
 

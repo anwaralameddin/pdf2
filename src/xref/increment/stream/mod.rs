@@ -248,6 +248,7 @@ mod tests {
     use crate::object::direct::array::Array;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse_span_assert_eq;
