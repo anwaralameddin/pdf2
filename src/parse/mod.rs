@@ -74,6 +74,22 @@ pub(crate) trait Parser<'buffer> {
             _ => None,
         }
     }
+
+    fn parse_suppress_recoverable_span<O>(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+    ) -> Option<ParseResult<(&[Byte], O)>>
+    where
+        Self: Sized,
+        O: From<Self>,
+    {
+        let result = Self::parse_span(buffer, offset);
+        match result {
+            Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
+            Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
+            _ => None,
+        }
+    }
 }
 
 mod convert {
