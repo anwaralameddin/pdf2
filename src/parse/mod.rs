@@ -2,6 +2,8 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
+use std::vec;
+
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
@@ -48,6 +50,10 @@ pub(crate) trait Parser<'buffer> {
 
     fn span(&self) -> Span {
         unimplemented!()
+    }
+
+    fn spans(&self) -> Vec<Span> {
+        vec![self.span()]
     }
 
     /// Try to parse the buffer and return an option:

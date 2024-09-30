@@ -61,7 +61,7 @@ impl Parser<'_> for StartXRef {
 
     fn parse_span(buffer: &[Byte], _: Offset) -> ParseResult<(&[Byte], Self)> {
         // TODO
-        // - Indicate the offset will be ignored...parse = parse_span(_, 0)?
+        // - Indicate the offset will be ignored
         // - buffer and offset need to be coupled
         let offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
             offset
