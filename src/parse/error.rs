@@ -80,7 +80,7 @@ pub enum ParseErrorCode {
     #[error("First object number")]
     FirstObjectNumber, // ascii_to_u64
     #[error("Offset")]
-    OffSet, // ascii_to_usize
+    Offset, // ascii_to_usize
     #[error("Next free object number")]
     NextFree, // ascii_to_u64
     #[error("Entry type")]

@@ -103,29 +103,29 @@ mod convert {
             let ((num_64, num_16), entry_type) = value;
             match entry_type {
                 b"f" => {
-                    let next_free = ascii_to_u64(num_64).ok_or_else(||Self::Error::new(
-                        num_64,
-                        stringify!(Entry),
-                        ParseErrorCode::NextFree,
-                    ))?;
-                    let generation_number = ascii_to_u16(num_16).ok_or_else(||Self::Error::new(
-                        num_16,
-                        stringify!(Entry),
-                        ParseErrorCode::GenerationNumber,
-                    ))?;
+                    let next_free = ascii_to_u64(num_64).ok_or_else(|| {
+                        Self::Error::new(num_64, stringify!(Entry), ParseErrorCode::NextFree)
+                    })?;
+                    let generation_number = ascii_to_u16(num_16).ok_or_else(|| {
+                        Self::Error::new(
+                            num_16,
+                            stringify!(Entry),
+                            ParseErrorCode::GenerationNumber,
+                        )
+                    })?;
                     Ok(Self::Free(next_free, generation_number))
                 }
                 b"n" => {
-                    let offset = ascii_to_usize(num_64).ok_or_else(||Self::Error::new(
-                        num_64,
-                        stringify!(Entry),
-                        ParseErrorCode::OffSet,
-                    ))?;
-                    let generation_number = ascii_to_u16(num_16).ok_or_else(||Self::Error::new(
-                        num_16,
-                        stringify!(Entry),
-                        ParseErrorCode::GenerationNumber,
-                    ))?;
+                    let offset = ascii_to_usize(num_64).ok_or_else(|| {
+                        Self::Error::new(num_64, stringify!(Entry), ParseErrorCode::Offset)
+                    })?;
+                    let generation_number = ascii_to_u16(num_16).ok_or_else(|| {
+                        Self::Error::new(
+                            num_16,
+                            stringify!(Entry),
+                            ParseErrorCode::GenerationNumber,
+                        )
+                    })?;
                     Ok(Self::InUse(offset, generation_number))
                 }
                 _ => Err(Self::Error::new(

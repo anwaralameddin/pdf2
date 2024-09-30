@@ -9,17 +9,13 @@ use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::IndirectValue;
+use crate::parse::Span;
 use crate::xref::Table;
 use crate::Byte;
 
-type ObjectsInUse<'path> = HashMap<Id, (IndirectValue<'path>, Span)>;
-
 // TODO Add support for spans within object streams
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Span {
-    start: usize,
-    len: usize,
-}
+// FIXME Use object.span instead
+type ObjectsInUse<'path> = HashMap<Id, (IndirectValue<'path>, Span)>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
@@ -120,10 +116,10 @@ mod build {
                     errors.push(ObjectRecoverable::MismatchedId(*id, parsed_id));
                     // continue;
                 }
-                let span = Span {
-                    start: *offset,
-                    len: self.buffer[*offset..].len() - remains.len(),
-                };
+                let span = Span::new(
+                    *offset,
+                    *offset + (self.buffer[*offset..].len() - remains.len()),
+                );
 
                 objects.insert(*id, (value, span));
             }

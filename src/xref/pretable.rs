@@ -12,7 +12,7 @@ pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
 impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (_, startxref) = StartXRef::parse(buffer)?;
+        let (_, startxref) = StartXRef::parse_span(buffer, 0)?;
 
         let mut increments = Vec::default();
 

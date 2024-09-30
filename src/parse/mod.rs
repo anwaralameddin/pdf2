@@ -5,6 +5,7 @@ pub(crate) mod num;
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
+use crate::Offset;
 
 pub(crate) const EOF: &str = "%%EOF";
 pub(crate) const KW_ENDOBJ: &str = "endobj";
@@ -24,10 +25,30 @@ pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Span {
+    start: usize,
+    end: usize,
+}
+
 pub(crate) trait Parser<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
+    fn parse(_: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
+    fn parse_span(_: &'buffer [Byte], _: Offset) -> ParseResult<'buffer, (&[Byte], Self)>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
+    fn span(&self) -> Span {
+        unimplemented!()
+    }
 
     /// Try to parse the buffer and return an option:
     /// - Some(Ok(_)): if the buffer was parsed successfully
@@ -45,6 +66,16 @@ pub(crate) trait Parser<'buffer> {
             Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
             Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
             _ => None,
+        }
+    }
+}
+
+mod convert {
+    use super::*;
+
+    impl Span {
+        pub fn new(start: usize, end: usize) -> Self {
+            Self { start, end }
         }
     }
 }
