@@ -84,7 +84,7 @@ mod convert {
     impl_from_ref!('buffer, Reference, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Array<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Boolean, Direct, IndirectValue<'buffer>);
-    impl_from_ref!('buffer, bool, Direct, IndirectValue<'buffer>);
+    // impl_from_ref!('buffer, bool, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Dictionary<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Name<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Null, Direct, IndirectValue<'buffer>);

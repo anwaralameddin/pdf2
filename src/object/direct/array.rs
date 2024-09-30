@@ -129,6 +129,7 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
+    use crate::object::direct::boolean::Boolean;
     use crate::object::direct::name::Name;
     use crate::object::direct::null::Null;
     use crate::object::direct::string::Hexadecimal;
@@ -143,7 +144,7 @@ mod tests {
         let expected_parsed = Array::from_iter([
             1.into(),
             1.0.into(),
-            true.into(),
+            Boolean::new(true, Span::new(6, 4)).into(),
             Null::new(Span::new(12, 4)).into(),
             Literal::from("A literal string").into(),
             Name::from("Name").into(),
