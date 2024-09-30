@@ -11,7 +11,7 @@ use self::stream::XRefStream;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::Byte;
 
@@ -31,8 +31,8 @@ impl Display for Increment<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for Increment<'buffer> {
-    fn parse_span(
+impl<'buffer> ObjectParser<'buffer> for Increment<'buffer> {
+    fn parse_object(
         buffer: &'buffer [Byte],
         offset: crate::Offset,
     ) -> ParseResult<'buffer, (&[Byte], Self)> {

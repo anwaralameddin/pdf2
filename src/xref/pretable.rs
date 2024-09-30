@@ -3,23 +3,19 @@ use super::startxref::StartXRef;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::PdfParser;
 use crate::parse::Span;
 use crate::Byte;
-use crate::Offset;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
-impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
+impl<'buffer> PdfParser<'buffer> for PreTable<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        Self::parse_span(buffer, 0)
-    }
-
-    fn parse_span(buffer: &'buffer [Byte], _: Offset) -> ParseResult<(&[Byte], Self)> {
         // TODO Indicate the offset will be ignored
-        let (_, startxref) = StartXRef::parse_span(buffer, 0)?;
+        let (_, startxref) = StartXRef::parse(buffer)?;
 
         let mut increments = Vec::default();
 
@@ -27,7 +23,7 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
 
         while let Some(offset) = prev {
             let remains = &buffer[offset..];
-            let (_, increment) = Increment::parse(remains)?;
+            let (_, increment) = Increment::parse_object(remains, offset)?;
 
             // FIXME This does not take intoaccount the notes on
             // hybrid-reference file’s trailer dictionary in

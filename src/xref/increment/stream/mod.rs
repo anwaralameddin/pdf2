@@ -10,7 +10,7 @@ use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
@@ -32,12 +32,13 @@ impl Display for XRefStream<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value, span }) = Parser::parse_span(buffer, offset)?;
+        let (remains, IndirectObject { id, value, span }) =
+            ObjectParser::parse_object(buffer, offset)?;
 
         let stream = Stream::try_from(value)?;
 
@@ -54,6 +55,8 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
 }
 
 mod table {
+    use std::ops::Deref;
+
     use ::nom::bytes::complete::take;
     use ::nom::multi::many0;
     use ::nom::sequence::tuple;
@@ -85,7 +88,7 @@ mod table {
                 .dictionary
                 .required_name(KEY_TYPE)
                 .and_then(|r#type| {
-                    if r#type.ne(&VAL_XREF) {
+                    if r#type.deref() != &VAL_XREF {
                         Err(ObjectErr::new(
                             KEY_TYPE,
                             &self.stream.dictionary,
@@ -263,8 +266,8 @@ mod tests {
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0) },
-            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(0, 1975)),
-            span: Span::new(0, 1975),
+            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
+            span: Span::new(0, 1993),
         };
         parse_span_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
@@ -276,8 +279,8 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0) },
-            Stream::new(dictionary, &buffer[215..1304], Span::new(0, 1304)),
-            Span::new(0, 1304),
+            Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
+            Span::new(0, 1322),
         );
         parse_span_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
@@ -289,8 +292,8 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0) },
-            Stream::new(dictionary, &buffer[215..717], Span::new(0, 717)),
-            Span::new(0, 717),
+            Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
+            Span::new(0, 735),
         );
         parse_span_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }

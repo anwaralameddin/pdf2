@@ -1,8 +1,8 @@
 unsafe {
-    Trailer::new(311, Span::new(0, 0), &dictionary)
-    .set_root(Reference::new_unchecked(303, 0, 0, 0))
+    Trailer::new(311, Span::new(0, 73), &dictionary)
+    .set_root(Reference::new_unchecked(303, 0, 53, 7))
     .set_id([
-        Hexadecimal::from(("8E3F7CBC1ADD2112724D45EBD1E2B0C6", Span::new(0, 32))).into(),
-        Hexadecimal::from(("8E3F7CBC1ADD2112724D45EBD1E2B0C6", Span::new(0, 32))).into(),
+        Literal::new(b"\x8E\x3F\x7C\xBC\x1A\xDD\x21\x12\x72\x4D\x45\xEB\xD1\xE2\xB0\xC6", Span::new(8, 18)).into(),
+        Literal::new(b"\x8E\x3F\x7C\xBC\x1A\xDD\x21\x12\x72\x4D\x45\xEB\xD1\xE2\xB0\xC6", Span::new(27, 18)).into(),
     ])
 }

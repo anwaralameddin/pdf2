@@ -9,7 +9,7 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse::KW_NULL;
 use crate::parse_recoverable;
@@ -28,8 +28,8 @@ impl Display for Null {
     }
 }
 
-impl Parser<'_> for Null {
-    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Null {
+    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (buffer, _) = tag::<_, _, NomError<_>>(KW_NULL)(buffer).map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Null), ParseErrorCode::NotFound(e.code))
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn null_invalid() {
         // Null: Not found
-        let parse_result = Null::parse_span(b"nul", 0);
+        let parse_result = Null::parse_object(b"nul", 0);
         let expected_error = ParseRecoverable::new(
             b"nul",
             stringify!(Null),

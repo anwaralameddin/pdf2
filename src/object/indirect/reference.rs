@@ -10,7 +10,8 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::PdfParser;
 use crate::parse::Span;
 use crate::parse::KW_R;
 use crate::parse_recoverable;
@@ -30,9 +31,11 @@ impl Display for Reference {
     }
 }
 
-impl Parser<'_> for Reference {
-    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Reference {
+    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let size = buffer.len();
+        let start = offset;
+
         let (buffer, id) = Id::parse(buffer).map_err(|err| {
             ParseRecoverable::new(
                 err.buffer(),
@@ -54,7 +57,7 @@ impl Parser<'_> for Reference {
                 )
             ))?;
 
-        let span = Span::new(offset, size - buffer.len());
+        let span = Span::new(start, size - buffer.len());
         let reference = Self { id, span };
         Ok((buffer, reference))
     }
@@ -125,7 +128,7 @@ mod tests {
     fn reference_invalid() {
         // Synthetic tests
         // Reference: Incomplete
-        let parse_result = Reference::parse_span(b"1 0", 0);
+        let parse_result = Reference::parse_object(b"1 0", 0);
         let expected_error = ParseRecoverable::new(
             b"",
             stringify!(Reference),
@@ -134,7 +137,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id not found
-        let parse_result = Reference::parse_span(b"/Name", 0);
+        let parse_result = Reference::parse_object(b"/Name", 0);
         let expected_error = ParseRecoverable::new(
             b"/Name",
             stringify!(Reference),
@@ -144,7 +147,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Id error
-        let parse_result = Reference::parse_span(b"0 65535 R other objects", 0);
+        let parse_result = Reference::parse_object(b"0 65535 R other objects", 0);
         let expected_error = ParseRecoverable::new(
             b"0",
             stringify!(Reference),
@@ -153,7 +156,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Reference: Not found
-        let parse_result = Reference::parse_span(b"12345 65535 <", 0);
+        let parse_result = Reference::parse_object(b"12345 65535 <", 0);
         let expected_error = ParseRecoverable::new(
             b"<",
             stringify!(Reference),

@@ -11,7 +11,7 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse::KW_FALSE;
 use crate::parse::KW_TRUE;
@@ -32,8 +32,8 @@ impl Display for Boolean {
     }
 }
 
-impl Parser<'_> for Boolean {
-    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Boolean {
+    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (buffer, (value, len)) = alt((
             map(tag::<_, _, NomError<_>>(KW_TRUE), |_true| (true, 4)),
             map(tag(KW_FALSE), |_false| (false, 5)),
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn boolean_invalid() {
         // Boolean: Not found
-        let parse_result = Boolean::parse_span(b"tr", 0);
+        let parse_result = Boolean::parse_object(b"tr", 0);
         let expected_error = ParseRecoverable::new(
             b"tr",
             stringify!(Boolean),

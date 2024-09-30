@@ -2,8 +2,6 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
-use std::vec;
-
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
@@ -32,48 +30,20 @@ pub struct Span {
     start: usize,
     end: usize,
 }
-
-pub(crate) trait Parser<'buffer> {
+pub(crate) trait PdfParser<'buffer> {
     fn parse(_: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
     where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
+        Self: Sized;
 
-    fn parse_span(_: &'buffer [Byte], _: Offset) -> ParseResult<'buffer, (&[Byte], Self)>
+    fn spans(&self) -> Vec<Span>;
+}
+
+pub(crate) trait ObjectParser<'buffer> {
+    fn parse_object(_: &'buffer [Byte], _: Offset) -> ParseResult<'buffer, (&[Byte], Self)>
     where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
+        Self: Sized;
 
-    fn span(&self) -> Span {
-        unimplemented!()
-    }
-
-    fn spans(&self) -> Vec<Span> {
-        vec![self.span()]
-    }
-
-    /// Try to parse the buffer and return an option:
-    /// - Some(Ok(_)): if the buffer was parsed successfully
-    /// - Some(Err(ParseErr::Failure(_))): if the parser failed with no possible
-    /// recovery
-    /// - None: if the parser returned another error, which could be recovered
-    /// by another parser
-    fn parse_suppress_recoverable<O>(buffer: &'buffer [Byte]) -> Option<ParseResult<(&[Byte], O)>>
-    where
-        Self: Sized,
-        O: From<Self>,
-    {
-        let result = Self::parse(buffer);
-        match result {
-            Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
-            Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
-            _ => None,
-        }
-    }
+    fn span(&self) -> Span;
 
     fn parse_suppress_recoverable_span<O>(
         buffer: &'buffer [Byte],
@@ -83,7 +53,7 @@ pub(crate) trait Parser<'buffer> {
         Self: Sized,
         O: From<Self>,
     {
-        let result = Self::parse_span(buffer, offset);
+        let result = Self::parse_object(buffer, offset);
         match result {
             Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
             Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
@@ -118,14 +88,14 @@ mod tests {
     macro_rules! parse_assert_eq {
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
             assert_eq!(
-                Parser::parse($buffer).unwrap(),
+                PdfParser::parse($buffer).unwrap(),
                 ($expected_remains, $expected_parsed)
             );
         };
         // The two patterns differ only in the trailing comma
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
             assert_eq!(
-                Parser::parse($buffer).unwrap(),
+                PdfParser::parse($buffer).unwrap(),
                 ($expected_remains, $expected_parsed)
             );
         };
@@ -135,14 +105,14 @@ mod tests {
     macro_rules! parse_span_assert_eq {
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
             assert_eq!(
-                Parser::parse_span($buffer, 0).unwrap(),
+                ObjectParser::parse_object($buffer, 0).unwrap(),
                 ($expected_remains, $expected_parsed)
             );
         };
         // The two patterns differ only in the trailing comma
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
             assert_eq!(
-                Parser::parse_span($buffer, 0).unwrap(),
+                ObjectParser::parse_object($buffer, 0).unwrap(),
                 ($expected_remains, $expected_parsed)
             );
         };

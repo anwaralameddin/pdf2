@@ -426,7 +426,7 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
     // use crate::lax_stream_defilter_filter;
     use crate::strict_stream_defilter_filter;
 

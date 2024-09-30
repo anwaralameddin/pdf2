@@ -27,7 +27,7 @@ const KEY_ROOT: &[Byte] = b"Root";
 const KEY_INDEX: &[Byte] = b"Index";
 pub(super) const KEY_TYPE: &[Byte] = b"Type";
 pub(super) const KEY_W: &[Byte] = b"W";
-pub(super) const VAL_XREF: &str = "XRef";
+pub(super) const VAL_XREF: &[Byte] = b"XRef";
 // Hybrid-reference file trailer dictionary keys
 const KEY_XREF_STM: &[Byte] = b"XRefStm";
 // + Other stream dictionary keys
@@ -124,7 +124,7 @@ mod convert {
     use crate::object::indirect::stream::KEY_FFILTER;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
     use crate::xref::error::XRefErr;
     use crate::ObjectNumberOrZero;
     use crate::Offset;
@@ -378,9 +378,9 @@ mod convert {
 
         pub(crate) fn set_others(
             mut self,
-            others: HashMap<&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>>,
+            others: impl IntoIterator<Item = (&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>)>,
         ) -> Self {
-            self.others = others;
+            self.others = others.into_iter().collect();
             self
         }
 
@@ -427,20 +427,20 @@ mod tests {
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
 
     #[test]
     fn section_trailer_valid() {
         // Synthetic test
         let buffer = include_bytes!("../../../tests/data/SYNTHETIC_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/SYNTHETIC_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
@@ -450,26 +450,26 @@ mod tests {
         let key_rigid = b"rgid".to_vec();
         let vale_rigid: DirectValue = Literal::from((
             "PB:318039020_AS:510882528206848@1498815294792",
-            Span::new(0, 0),
+            Span::new(120, 47),
         ))
         .into();
         let key_habibi = b"habibi-version".to_vec();
-        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
+        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(184, 8))).into();
         let key_comunity = b"comunity-version".to_vec();
-        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(0, 0))).into();
+        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(211, 11))).into();
         let key_worker = b"worker-version".to_vec();
-        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
+        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(239, 8))).into();
         let key_dd = b"dd".to_vec();
-        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(0, 0))).into();
+        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(252, 15))).into();
 
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfunite from PDFs produced by LaTeX
         let buffer =
             include_bytes!("../../../tests/data/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
     }
@@ -479,30 +479,29 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let (_, object) = IndirectObject::parse(buffer).unwrap();
-        let val_ref: Name = (VAL_XREF, Span::new(11, VAL_XREF.len())).into();
+        let (_, object) = IndirectObject::parse_object(buffer, 0).unwrap();
+        let val_ref = Name::new(VAL_XREF, Span::new(19, 5));
         let key_length = KEY_LENGTH.to_vec();
 
-        let val_length: DirectValue = Integer::new(1760, Span::new(0, 0)).into();
+        let val_length: DirectValue = Integer::new(1760, Span::new(173, 4)).into();
         let key_filter = KEY_FILTER.to_vec();
-        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(0, 0))).into();
+        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(192, 12))).into();
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
-            let trailer = Trailer::new(750, Span::new(0, 0), &dictionary)
-                .set_root(unsafe { Reference::new_unchecked(747, 0, 0, 0) })
+            let trailer = Trailer::new(750, Span::new(10, 197), &dictionary)
+                .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 7) })
                 .set_w([1, 3, 1])
                 .set_index(vec![(0, 750)])
-                .set_info(unsafe { Reference::new_unchecked(748, 0, 0, 0) })
+                .set_info(unsafe { Reference::new_unchecked(748, 0, 81, 7) })
                 .set_id([
-                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(0, 0))).into(),
-                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(0, 0))).into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 34)))
+                        .into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(129, 34)))
+                        .into(),
                 ])
                 .set_type(&val_ref)
-                .set_others(HashMap::from_iter([
-                    (&key_length, &val_length),
-                    (&key_filter, &val_filter),
-                ]));
+                .set_others([(&key_length, &val_length), (&key_filter, &val_filter)]);
             assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
         } else {
             panic!("Expected an indirect object with a stream value");
@@ -520,7 +519,7 @@ mod tests {
 
         // Missing required key Size
         let buffer = b"<</Root 2 0 R /Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
 
         let expected_error =
@@ -528,7 +527,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         let buffer = b"<</Size 1.1/Root 2 0 R/Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
         let value: DirectValue = Real::new(1.1, Span::new(8, 3)).into();
         let expected_error = ObjectErr::new(

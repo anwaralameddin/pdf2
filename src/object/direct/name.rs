@@ -6,13 +6,12 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::fmt::debug_bytes;
 use crate::parse::character_set::printable_token;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse_recoverable;
 use crate::process::escape::Escape;
@@ -25,7 +24,7 @@ use crate::Offset;
 // allowed in names
 
 /// REFERENCE: [7.3.5 Name objects, p27-28]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Name<'buffer> {
     value: &'buffer [Byte],
     span: Span,
@@ -41,17 +40,6 @@ impl Display for Name<'_> {
     }
 }
 
-impl Debug for Name<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "Name {{\nvalue: {},\nspan: {:?},\n}}",
-            debug_bytes(self.value),
-            self.span
-        )
-    }
-}
-
 impl PartialEq for Name<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
@@ -64,18 +52,8 @@ impl PartialEq for Name<'_> {
     }
 }
 
-impl PartialEq<&str> for Name<'_> {
-    fn eq(&self, other: &&str) -> bool {
-        if let Ok(name) = self.escape() {
-            name == other.as_bytes()
-        } else {
-            false
-        }
-    }
-}
-
-impl<'buffer> Parser<'buffer> for Name<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for Name<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (buffer, value) =
             preceded(char('/'), printable_token)(buffer).map_err(parse_recoverable!(
                 e,
@@ -273,7 +251,7 @@ mod tests {
     fn name_invalid() {
         // Synthetic tests
         // Name: Not found
-        let parse_result = Name::parse_span(b"Name", 0);
+        let parse_result = Name::parse_object(b"Name", 0);
         let expected_error = ParseRecoverable::new(
             b"Name",
             stringify!(Name),
@@ -286,7 +264,7 @@ mod tests {
     fn name_escape_valid() {
         // Synthetic tests
         assert_eq!(
-            Name::parse_span(b"/#41#20Name", 0)
+            Name::parse_object(b"/#41#20Name", 0)
                 .unwrap()
                 .1
                 .escape()
@@ -294,7 +272,7 @@ mod tests {
             b"A Name"
         );
         assert_eq!(
-            Name::parse_span(b"/#28Name#29", 0)
+            Name::parse_object(b"/#28Name#29", 0)
                 .unwrap()
                 .1
                 .escape()
@@ -302,7 +280,7 @@ mod tests {
             b"(Name)"
         );
         assert_eq!(
-            Name::parse_span(b"/#23Name", 0)
+            Name::parse_object(b"/#23Name", 0)
                 .unwrap()
                 .1
                 .escape()
@@ -320,23 +298,23 @@ mod tests {
         // let object = &Name::from("Name)");
 
         // Name: A non-hexadecimal character following the number sign
-        let (_, object) = Name::parse_span(b"/Name#_", 0).unwrap();
+        let (_, object) = Name::parse_object(b"/Name#_", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::InvalidHexDigit('_'));
 
         escape_assert_err!(object, expected_error);
 
         // Name: Incomplete hex code
-        let (_, object) = Name::parse_span(b"/Name#7_", 0).unwrap();
+        let (_, object) = Name::parse_object(b"/Name#7_", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::IncompleteHexCode(7, '_'));
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing number sign
-        let (_, object) = Name::parse_span(b"/Name#", 0).unwrap();
+        let (_, object) = Name::parse_object(b"/Name#", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingNumberSign);
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing hex digit
-        let (_, object) = Name::parse_span(b"/Name#7", 0).unwrap();
+        let (_, object) = Name::parse_object(b"/Name#7", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingHexDigit(7));
         escape_assert_err!(object, expected_error);
     }

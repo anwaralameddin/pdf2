@@ -22,7 +22,7 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse::KW_TRAILER;
 use crate::parse::KW_XREF;
@@ -48,9 +48,9 @@ impl Display for Section<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for Section<'buffer> {
+impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (mut buffer, recognised) =
             recognize(terminated(tag(KW_XREF), eol))(buffer).map_err(parse_recoverable!(
                 e,
@@ -94,7 +94,7 @@ impl<'buffer> Parser<'buffer> for Section<'buffer> {
 
         offset += recognised.len();
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (buffer, trailer) = Dictionary::parse_span(buffer, offset).map_err(|err| {
+        let (buffer, trailer) = Dictionary::parse_object(buffer, offset).map_err(|err| {
             ParseFailure::new(
                 err.buffer(),
                 stringify!(Section),
@@ -111,6 +111,7 @@ impl<'buffer> Parser<'buffer> for Section<'buffer> {
     }
 
     fn span(&self) -> Span {
+        // FIXME
         let trailer_span = self.trailer.span();
         let start = self
             .subsections
@@ -198,7 +199,7 @@ mod tests {
     use crate::assert_err_eq;
     use crate::object::direct::array::Array;
     use crate::object::direct::numeric::Integer;
-    use crate::object::direct::string::Hexadecimal;
+    use crate::object::direct::string::Literal;
     use crate::object::indirect::reference::Reference;
     use crate::parse::Span;
     use crate::parse_span_assert_eq;
@@ -209,13 +210,16 @@ mod tests {
         let buffer = b"xref\r\ntrailer<</Size 1 /Root 1 0 R>>";
         let section = Section::new(
             VecDeque::default(),
-            Dictionary::from_iter([
-                (b"Size".to_vec(), Integer::new(1, Span::new(0, 0)).into()),
-                (
-                    b"Root".to_vec(),
-                    unsafe { Reference::new_unchecked(1, 0, 0, 0) }.into(),
-                ),
-            ]),
+            Dictionary::new(
+                [
+                    (b"Size".to_vec(), Integer::new(1, Span::new(21, 1)).into()),
+                    (
+                        b"Root".to_vec(),
+                        unsafe { Reference::new_unchecked(1, 0, 29, 5) }.into(),
+                    ),
+                ],
+                Span::new(13, 23),
+            ),
         );
         parse_span_assert_eq!(buffer, section, "".as_bytes());
 
@@ -224,21 +228,24 @@ mod tests {
         let section = Section::new(
             [Subsection::new(
                 0,
-                [Entry::new(EntryData::Free(0, 65535), Span::new(0, 20))],
-                Span::new(0, 28),
+                [Entry::new(EntryData::Free(0, 65535), Span::new(11, 20))],
+                Span::new(6, 25),
             )],
-            Dictionary::from_iter([(b"Size".to_vec(), Integer::new(1, Span::new(0, 0)).into())]),
+            Dictionary::new(
+                [(b"Size".to_vec(), Integer::new(1, Span::new(46, 1)).into())],
+                Span::new(38, 11),
+            ),
         );
         parse_span_assert_eq!(buffer, section, "".as_bytes());
 
         // PDF produced by pdfunite from PDFs produced by Microsoft Word
         let buffer: &[Byte] =
             include_bytes!("../../../../tests/data/F3D45259CBB36D09F04BF0D65BAAD3ED_section.bin");
-        let subsection: Section =
+        let section: Section =
             include!("../../../../tests/code/F3D45259CBB36D09F04BF0D65BAAD3ED_section.rs");
         parse_span_assert_eq!(
             buffer,
-            subsection,
+            section,
             "\r\nstartxref\r\n38912\r\n%%EOF\r\n".as_bytes()
         );
 
@@ -251,7 +258,7 @@ mod tests {
 
         // Incmplte cross-reference section
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n";
-        let parse_result = Section::parse_span(buffer, 0);
+        let parse_result = Section::parse_object(buffer, 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Section),
@@ -261,7 +268,7 @@ mod tests {
 
         // Missing cross-reference section
         let buffer = b"trailer<</Size 1>>";
-        let parse_result = Section::parse_span(buffer, 0);
+        let parse_result = Section::parse_object(buffer, 0);
         let expected_error = ParseRecoverable::new(
             b"trailer<</Size 1>>",
             stringify!(Section),
@@ -272,7 +279,7 @@ mod tests {
         // Missing trailer
         // TOOD Refactor error messages to avoid the repetition below
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n<</Size 1>>";
-        let parse_result = Section::parse_span(buffer, 0);
+        let parse_result = Section::parse_object(buffer, 0);
         let expected_error = ParseFailure::new(
             b"<</Size 1>>",
             stringify!(Section),

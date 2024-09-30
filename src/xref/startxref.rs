@@ -16,7 +16,7 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_usize;
-use crate::parse::Parser;
+use crate::parse::PdfParser;
 use crate::parse::Span;
 use crate::parse::EOF;
 use crate::parse::KW_STARTXREF;
@@ -54,18 +54,15 @@ impl Display for StartXRef {
     }
 }
 
-impl Parser<'_> for StartXRef {
+impl PdfParser<'_> for StartXRef {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        Self::parse_span(buffer, 0)
-    }
-
-    fn parse_span(buffer: &[Byte], _: Offset) -> ParseResult<(&[Byte], Self)> {
         let size = buffer.len();
+
         // TODO
         // - Indicate the offset will be ignored
         // - buffer and offset need to be coupled
-        let mut offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
-            offset
+        let mut start = if let Some(start) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
+            start
         } else {
             return Err(ParseFailure::new(
                 buffer,
@@ -79,10 +76,10 @@ impl Parser<'_> for StartXRef {
         // ´complete` rather than `streaming` variants of `tag` and `char` are
         // used to ensure that the parser does return an Incomplete error when
         // the file ends with the EOF marker without trailing EOL characters.
-        let (buffer, recognised) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[offset..])
-            .unwrap_or((&buffer[offset..], &[]));
+        let (buffer, recognised) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[start..])
+            .unwrap_or((&buffer[start..], &[]));
 
-        offset += recognised.len();
+        start += recognised.len();
         let (buffer, start_xref_offset) = delimited(
             terminated(tag(KW_STARTXREF), eol),
             digit1,
@@ -107,7 +104,7 @@ impl Parser<'_> for StartXRef {
             )
         })?;
 
-        let span = Span::new(offset, size - buffer.len());
+        let span = Span::new(start, size - buffer.len());
         Ok((
             &[],
             Self {
@@ -117,8 +114,8 @@ impl Parser<'_> for StartXRef {
         ))
     }
 
-    fn span(&self) -> Span {
-        self.span
+    fn spans(&self) -> Vec<Span> {
+        vec![self.span]
     }
 }
 

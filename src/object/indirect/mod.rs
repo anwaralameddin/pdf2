@@ -13,8 +13,10 @@ use crate::object::indirect::reference::Reference;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::Byte;
+use crate::Offset;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum IndirectValue<'buffer> {
@@ -31,10 +33,10 @@ impl Display for IndirectValue<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for IndirectValue<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse_suppress_recoverable(buffer)
-            .or_else(|| DirectValue::parse_suppress_recoverable(buffer))
+impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        Stream::parse_suppress_recoverable_span(buffer, offset)
+            .or_else(|| DirectValue::parse_suppress_recoverable_span(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
                     buffer,
@@ -43,6 +45,13 @@ impl<'buffer> Parser<'buffer> for IndirectValue<'buffer> {
                 )
                 .into())
             })
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Stream(stream) => stream.span(),
+            Self::Direct(direct) => direct.span(),
+        }
     }
 }
 

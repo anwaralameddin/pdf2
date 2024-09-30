@@ -13,7 +13,7 @@ use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_u16;
 use crate::parse::num::ascii_to_u64;
-use crate::parse::Parser;
+use crate::parse::PdfParser;
 use crate::parse_recoverable;
 use crate::Byte;
 use crate::GenerationNumber;
@@ -33,7 +33,7 @@ impl Display for Id {
     }
 }
 
-impl Parser<'_> for Id {
+impl PdfParser<'_> for Id {
     fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
         let (buffer, (object_number, generation_number)) = pair(
             terminated(digit1, white_space_or_comment),
@@ -65,6 +65,10 @@ impl Parser<'_> for Id {
             generation_number,
         };
         Ok((buffer, id))
+    }
+
+    fn spans(&self) -> Vec<crate::parse::Span> {
+        unreachable!("Id spans are covered by Reference and Object")
     }
 }
 

@@ -13,14 +13,13 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::fmt::debug_bytes;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse_failure;
 use crate::parse_recoverable;
@@ -30,7 +29,7 @@ use crate::Byte;
 use crate::Offset;
 
 /// REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Hexadecimal<'buffer> {
     value: &'buffer [Byte],
     span: Span,
@@ -46,17 +45,6 @@ impl Display for Hexadecimal<'_> {
     }
 }
 
-impl Debug for Hexadecimal<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "Hexadecimal {{\nvalue: {},\nspan: {:?},\n}}",
-            debug_bytes(self.value),
-            self.span
-        )
-    }
-}
-
 impl PartialEq for Hexadecimal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
@@ -68,8 +56,8 @@ impl PartialEq for Hexadecimal<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for Hexadecimal<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // This check is unnecessary because the start of Names and hexadecimal
         // strings are mutually exclusive. However, this allows early return if
         // a dictionary start is found
@@ -226,7 +214,8 @@ mod tests {
     fn string_hexadecimal_invalid() {
         // Synthetic tests
         // Hexadecimal: Missing closing angle bracket
-        let parse_result = Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67", 0);
+        let parse_result =
+            Hexadecimal::parse_object(b"<412048657861646563696D616C20537472696E67", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Hexadecimal),
@@ -236,7 +225,7 @@ mod tests {
 
         // Hexadecimal: Dictionary opening
         let parse_result =
-            Hexadecimal::parse_span(b"<<412048657861646563696D616C20537472696E67>", 0);
+            Hexadecimal::parse_object(b"<<412048657861646563696D616C20537472696E67>", 0);
         let expected_error = ParseRecoverable::new(
             b"<<412048657861646563696D616C20537472696E67>",
             stringify!(Hexadecimal),
@@ -245,7 +234,8 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Not found
-        let parse_result = Hexadecimal::parse_span(b"412048657861646563696D616C20537472696E67>", 0);
+        let parse_result =
+            Hexadecimal::parse_object(b"412048657861646563696D616C20537472696E67>", 0);
         let expected_error = ParseRecoverable::new(
             b"412048657861646563696D616C20537472696E67>",
             stringify!(Hexadecimal),
@@ -255,7 +245,7 @@ mod tests {
 
         // Hexadecimal: Missing end angle bracket
         let parse_result =
-            Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67<", 0);
+            Hexadecimal::parse_object(b"<412048657861646563696D616C20537472696E67<", 0);
         let expected_error = ParseFailure::new(
             b"<",
             stringify!(Hexadecimal),
@@ -265,7 +255,7 @@ mod tests {
 
         // Hexadecimal: Unsupported digits
         let parse_result =
-            Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67XX>", 0);
+            Hexadecimal::parse_object(b"<412048657861646563696D616C20537472696E67XX>", 0);
         let expected_error = ParseFailure::new(
             b"XX>",
             stringify!(Hexadecimal),

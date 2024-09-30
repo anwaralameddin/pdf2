@@ -16,13 +16,12 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::fmt::debug_bytes;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse_failure;
 use crate::parse_recoverable;
@@ -31,7 +30,7 @@ use crate::Byte;
 use crate::Offset;
 
 /// REFERENCE: [7.3.4.2 Literal strings, p25-28}
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Literal<'buffer> {
     value: &'buffer [Byte],
     span: Span,
@@ -47,17 +46,6 @@ impl Display for Literal<'_> {
     }
 }
 
-impl Debug for Literal<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "Literal {{\nvalue: {},\nspan: {:?},\n}}",
-            debug_bytes(self.value),
-            self.span
-        )
-    }
-}
-
 impl PartialEq for Literal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
@@ -69,8 +57,8 @@ impl PartialEq for Literal<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for Literal<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
         let (buffer, value) = preceded(
@@ -386,7 +374,7 @@ string)",
     fn string_literal_invalid() {
         // Synthetic tests
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse_span(b"(Unbalanced parentheses", 0);
+        let parse_result = Literal::parse_object(b"(Unbalanced parentheses", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -395,7 +383,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse_span(br"(Escaped parentheses\)", 0);
+        let parse_result = Literal::parse_object(br"(Escaped parentheses\)", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -404,7 +392,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
-        let parse_result = Literal::parse_span(b"Unbalanced parentheses)", 0);
+        let parse_result = Literal::parse_object(b"Unbalanced parentheses)", 0);
         let expected_error = ParseRecoverable::new(
             b"Unbalanced parentheses)",
             stringify!(Literal),

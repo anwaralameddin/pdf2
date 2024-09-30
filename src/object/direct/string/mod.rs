@@ -11,7 +11,7 @@ pub(crate) use self::literal::Literal;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::process::encoding::Encoding;
 use crate::Byte;
@@ -43,8 +43,8 @@ impl PartialEq for String_<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for String_<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for String_<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         Literal::parse_suppress_recoverable_span(buffer, offset)
             .or_else(|| Hexadecimal::parse_suppress_recoverable_span(buffer, offset))
             .unwrap_or_else(|| {
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn string_valid() {
         // Synthetic tests
-        let (buffer, string_literal) = String_::parse_span(b"(A Hexadecimal String)", 0).unwrap();
+        let (buffer, string_literal) = String_::parse_object(b"(A Hexadecimal String)", 0).unwrap();
         assert_eq!(buffer, &[]);
         assert_eq!(
             string_literal,
@@ -143,7 +143,7 @@ mod tests {
         );
 
         let (buffer, string_hex) =
-            String_::parse_span(b"<412048657861646563696D616C20537472696E67>", 0).unwrap();
+            String_::parse_object(b"<412048657861646563696D616C20537472696E67>", 0).unwrap();
         assert_eq!(buffer, &[]);
         assert_eq!(
             string_hex,

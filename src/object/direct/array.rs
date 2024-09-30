@@ -16,7 +16,7 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse_recoverable;
 use crate::Byte;
@@ -25,14 +25,14 @@ use crate::Offset;
 /// REFERENCE: [7.3.6 Array objects, p29]
 #[derive(Debug, Clone)]
 pub struct Array<'buffer> {
-    values: Vec<DirectValue<'buffer>>,
+    array: Vec<DirectValue<'buffer>>,
     span: Span,
 }
 
 impl Display for Array<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "[")?;
-        for (i, obj) in self.values.iter().enumerate() {
+        for (i, obj) in self.array.iter().enumerate() {
             if i > 0 {
                 write!(f, " ")?;
             }
@@ -44,12 +44,12 @@ impl Display for Array<'_> {
 
 impl PartialEq for Array<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.values == other.values && self.span == other.span
+        self.array == other.array && self.span == other.span
     }
 }
 
-impl<'buffer> Parser<'buffer> for Array<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let size = buffer.len();
         let start = offset;
 
@@ -73,7 +73,7 @@ impl<'buffer> Parser<'buffer> for Array<'buffer> {
                 break;
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse_span(buffer, offset).map_err(|err| {
+            (buffer, value) = DirectValue::parse_object(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Array),
@@ -92,7 +92,10 @@ impl<'buffer> Parser<'buffer> for Array<'buffer> {
         }
 
         let span = Span::new(start, size - buffer.len());
-        let array = Self { values, span };
+        let array = Self {
+            array: values,
+            span,
+        };
         Ok((buffer, array))
     }
 
@@ -106,7 +109,10 @@ mod convert {
 
     impl<'buffer> Array<'buffer> {
         pub fn new(values: Vec<DirectValue<'buffer>>, span: Span) -> Self {
-            Self { values, span }
+            Self {
+                array: values,
+                span,
+            }
         }
     }
 
@@ -114,7 +120,7 @@ mod convert {
         type Target = Vec<DirectValue<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
-            &self.values
+            &self.array
         }
     }
 
@@ -123,7 +129,7 @@ mod convert {
         type IntoIter = <Vec<DirectValue<'buffer>> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.values.into_iter()
+            self.array.into_iter()
         }
     }
 }
@@ -222,7 +228,7 @@ mod tests {
         // Synthetic tests
 
         // Array: Not found
-        let parse_result = Array::parse_span(b"1 1.0 true null(A literal string)/Name", 0);
+        let parse_result = Array::parse_object(b"1 1.0 true null(A literal string)/Name", 0);
         let expected_error = ParseRecoverable::new(
             b"1 1.0 true null(A literal string)/Name",
             stringify!(Array),
@@ -231,7 +237,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Array: Missing closing square bracket
-        let parse_result = Array::parse_span(b"[1 1.0 true null(A literal string)/Name", 0);
+        let parse_result = Array::parse_object(b"[1 1.0 true null(A literal string)/Name", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Array),

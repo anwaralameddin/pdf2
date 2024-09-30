@@ -21,7 +21,7 @@ use crate::object::indirect::reference::Reference;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::Byte;
 use crate::Offset;
@@ -60,8 +60,8 @@ impl Display for DirectValue<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
-    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for DirectValue<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         Reference::parse_suppress_recoverable_span(buffer, offset)
             .or_else(|| Null::parse_suppress_recoverable_span(buffer, offset))
             .or_else(|| Boolean::parse_suppress_recoverable_span(buffer, offset))

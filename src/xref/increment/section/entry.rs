@@ -17,7 +17,7 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse_failure;
 use crate::Byte;
@@ -71,8 +71,8 @@ impl Display for EntryData {
     }
 }
 
-impl Parser<'_> for Entry {
-    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Entry {
+    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (buffer, entry) = terminated(
             separated_pair(
                 separated_pair(

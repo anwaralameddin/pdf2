@@ -7,6 +7,7 @@ use ::std::collections::HashMap;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use nom::combinator::recognize;
 
 use super::name::Name;
 use super::DirectValue;
@@ -18,19 +19,24 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::parse_recoverable;
 use crate::process::escape::Escape;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.3.7 Dictionary objects, p30-31]
-#[derive(Debug, Default, Clone)]
-pub struct Dictionary<'buffer>(HashMap<Vec<Byte>, DirectValue<'buffer>>);
+#[derive(Debug, Clone)]
+pub struct Dictionary<'buffer> {
+    map: HashMap<Vec<Byte>, DirectValue<'buffer>>,
+    span: Span,
+}
 
 impl Display for Dictionary<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<<")?;
-        for (i, (key, value)) in self.0.iter().enumerate() {
+        for (i, (key, value)) in self.map.iter().enumerate() {
             if i > 0 {
                 write!(f, " ")?;
             }
@@ -42,25 +48,30 @@ impl Display for Dictionary<'_> {
 
 impl PartialEq for Dictionary<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.escape() == other.escape()
+        self.escape() == other.escape() && self.span == other.span
     }
 }
 
-impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        let mut dictionary = HashMap::default();
+impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
+    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        let size = buffer.len();
+        let start = offset;
+
+        let mut map = HashMap::default();
         let mut key: Name;
         let mut value: DirectValue;
-        let (mut buffer, _) = terminated(tag(b"<<"), opt(white_space_or_comment))(buffer).map_err(
-            parse_recoverable!(
-                e,
-                ParseRecoverable::new(
-                    e.input,
-                    stringify!(Dictionary),
-                    ParseErrorCode::NotFound(e.code),
-                )
-            ),
-        )?;
+        let (mut buffer, recognised) =
+            recognize(terminated(tag(b"<<"), opt(white_space_or_comment)))(buffer).map_err(
+                parse_recoverable!(
+                    e,
+                    ParseRecoverable::new(
+                        e.input,
+                        stringify!(Dictionary),
+                        ParseErrorCode::NotFound(e.code),
+                    )
+                ),
+            )?;
+        let mut offset = offset + recognised.len();
         // Here, we know that the buffer starts with a dictionary, and the
         // following errors should be propagated as DictionaryFailure
         loop {
@@ -70,31 +81,34 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
                 break;
             }
             // Parse the key
-            (buffer, key) = Name::parse(buffer).map_err(|err| {
+            (buffer, key) = Name::parse_object(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Dictionary),
                     ParseErrorCode::RecMissingClosing(Box::new(err.code())),
                 )
             })?;
+            offset = key.span().end();
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remains, _)) = opt(white_space_or_comment)(buffer) {
+            if let Ok((remains, recognised)) = recognize(opt(white_space_or_comment))(buffer) {
                 buffer = remains;
+                offset += recognised.len();
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse(buffer).map_err(|err| {
+            (buffer, value) = DirectValue::parse_object(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Dictionary),
                     ParseErrorCode::RecMissingValue(key.to_vec(), Box::new(err.code())),
                 )
             })?;
-
+            offset = value.span().end();
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remains, _)) = opt(white_space_or_comment)(buffer) {
+            if let Ok((remains, recognised)) = recognize(opt(white_space_or_comment))(buffer) {
                 buffer = remains;
+                offset += recognised.len();
             }
             // Record the key-value pair
 
@@ -105,7 +119,7 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
                 key.to_vec()
             };
 
-            if let Some(old_value) = dictionary.insert(escpaed_key.clone(), value) {
+            if let Some(old_value) = map.insert(escpaed_key.clone(), value) {
                 // Dictionary keys should not be duplicated.
                 // REFERENCE: [7.3.7 Dictionary objects, p30]
                 //
@@ -116,13 +130,17 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
                     "Dictionary: Overwriting value for key {}: {} -> {:?}",
                     key,
                     old_value,
-                    dictionary.get(&escpaed_key)
+                    map.get(&escpaed_key)
                 );
             };
         }
 
-        let dictionary = Self(dictionary);
-        Ok((buffer, dictionary))
+        let span = Span::new(start, size - buffer.len());
+        Ok((buffer, Self { map, span }))
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -136,7 +154,7 @@ mod escape {
             // objects, which is the same as having the value null. Also,
             // consider the effect of two references pointing to the same
             // object.
-            self.0
+            self.map
                 .iter()
                 .filter(|(_, value)| !matches!(value, DirectValue::Null(_)))
                 .collect()
@@ -155,17 +173,15 @@ mod convert {
     use crate::object::error::ObjectErrorCode;
     use crate::object::error::ObjectResult;
 
-    impl<'buffer> From<HashMap<Vec<Byte>, DirectValue<'buffer>>> for Dictionary<'buffer> {
-        fn from(value: HashMap<Vec<Byte>, DirectValue<'buffer>>) -> Self {
-            Self(value)
-        }
-    }
-
-    impl<'buffer> FromIterator<(Vec<Byte>, DirectValue<'buffer>)> for Dictionary<'buffer> {
-        fn from_iter<T: IntoIterator<Item = (Vec<Byte>, DirectValue<'buffer>)>>(
-            iter: T,
-        ) -> Dictionary<'buffer> {
-            Self(HashMap::from_iter(iter))
+    impl<'buffer> Dictionary<'buffer> {
+        pub fn new(
+            map: impl IntoIterator<Item = (Vec<Byte>, DirectValue<'buffer>)>,
+            span: Span,
+        ) -> Self {
+            Self {
+                map: map.into_iter().collect(),
+                span,
+            }
         }
     }
 
@@ -173,7 +189,7 @@ mod convert {
         type Target = HashMap<Vec<Byte>, DirectValue<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
-            &self.0
+            &self.map
         }
     }
 
@@ -182,13 +198,13 @@ mod convert {
         type IntoIter = <HashMap<Vec<Byte>, DirectValue<'buffer>> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.0.into_iter()
+            self.map.into_iter()
         }
     }
 
     impl<'buffer> Dictionary<'buffer> {
         pub(crate) fn opt_get(&'buffer self, key: &'static [Byte]) -> Option<&DirectValue> {
-            self.0.get(key)
+            self.map.get(key)
         }
 
         pub(crate) fn required_get(
@@ -343,7 +359,7 @@ mod tests {
         // Synthetic tests
 
         // Dictionary: Not found
-        let parsed_result = Dictionary::parse(b"/Type /Type1");
+        let parsed_result = Dictionary::parse_object(b"/Type /Type1", 0);
         let expected_error = ParseRecoverable::new(
             b"/Type /Type1",
             stringify!(Dictionary),
@@ -352,7 +368,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Single quotes
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1");
+        let parsed_result = Dictionary::parse_object(b"<< /Type /Type1", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Dictionary),
@@ -361,7 +377,8 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Spaced quotes
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>");
+        let parsed_result =
+            Dictionary::parse_object(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>", 0);
         let expected_error = ParseFailure::new(
             b"> > >>",
             stringify!(Dictionary),
@@ -375,7 +392,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Missing value
-        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype >>");
+        let parsed_result = Dictionary::parse_object(b"<< /Type /Type1 /Subtype >>", 0);
         let expected_error = ParseFailure::new(
             b">>",
             stringify!(Dictionary),
@@ -390,8 +407,11 @@ mod tests {
     #[test]
     fn dictionary_escape() {
         assert_eq!(
-            Dictionary::from_iter([(b"Key".to_vec(), Null::new(Span::new(5, 4)).into())]),
-            Dictionary::default()
+            Dictionary::new(
+                HashMap::from([(b"Key".to_vec(), Null::new(Span::new(5, 4)).into())]),
+                Span::new(0, 9)
+            ),
+            Dictionary::new([], Span::new(0, 9))
         );
 
         // TODO Add tests

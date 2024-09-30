@@ -435,7 +435,7 @@ mod tests {
 
     use crate::lax_stream_defilter_filter;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
 
     #[test]
     fn png_valid() {

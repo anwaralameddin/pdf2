@@ -100,7 +100,7 @@ mod tests {
     use ::std::path::PathBuf;
 
     use super::pretable::PreTable;
-    use crate::parse::Parser;
+    use crate::parse::PdfParser;
     use crate::xref::ToTable;
 
     #[test]

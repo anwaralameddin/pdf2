@@ -19,9 +19,9 @@ pub struct ObjectErr<'buffer> {
 
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ObjectErrorCode<'buffer> {
-    #[error("Wrong name. Expetced {expected}. Input {value}")]
+    #[error("Wrong name. Expetced {}. Input {value}", debug_bytes(.expected))]
     Name {
-        expected: &'static str,
+        expected: &'static [Byte],
         value: &'buffer Name<'buffer>,
     },
     #[error("Wrong array. Expetced {expected}. Input {value}")]

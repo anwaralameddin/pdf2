@@ -10,7 +10,7 @@ pub(crate) use self::real::Real;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::Byte;
 use crate::Offset;
@@ -31,8 +31,8 @@ impl Display for Numeric {
     }
 }
 
-impl Parser<'_> for Numeric {
-    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Numeric {
+    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         Integer::parse_suppress_recoverable_span(buffer, offset)
             .or_else(|| Real::parse_suppress_recoverable_span(buffer, offset))
             .unwrap_or_else(|| {
@@ -178,17 +178,17 @@ mod tests {
 
     #[test]
     fn numeric_invalid() {
-        let parse_result = Numeric::parse_span(b" <", 0);
+        let parse_result = Numeric::parse_object(b" <", 0);
         let expected_error =
             ParseRecoverable::new(b" <", stringify!(Numeric), ParseErrorCode::NotFoundUnion);
         assert_err_eq!(parse_result, expected_error);
 
-        let parse_result = Numeric::parse_span(b"+<", 0);
+        let parse_result = Numeric::parse_object(b"+<", 0);
         let expected_error =
             ParseRecoverable::new(b"+<", stringify!(Numeric), ParseErrorCode::NotFoundUnion);
         assert_err_eq!(parse_result, expected_error);
 
-        let parse_result = Numeric::parse_span(b"+.", 0);
+        let parse_result = Numeric::parse_object(b"+.", 0);
         let expected_error =
             ParseRecoverable::new(b"+.", stringify!(Numeric), ParseErrorCode::NotFoundUnion);
         assert_err_eq!(parse_result, expected_error);
@@ -196,14 +196,14 @@ mod tests {
         // TODO(QUESTION) Is there a need to allow such large numbers?
         // Too large for the i128 but within the f64 range
         let buffer = b"-170141183460469231731687303715884105729";
-        let parse_result = Numeric::parse_span(buffer, 0);
+        let parse_result = Numeric::parse_object(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
 
         // Too large for the i128 but within the f64 range
         let buffer = b"170141183460469231731687303715884105728";
-        let parse_result = Numeric::parse_span(buffer, 0);
+        let parse_result = Numeric::parse_object(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
