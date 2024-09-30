@@ -137,7 +137,7 @@ mod tests {
             buffer,
             IndirectObject {
                 id: unsafe { Id::new_unchecked(1, 0) },
-                value: Name::from("Name").into(),
+                value: Name::from(("Name", Span::new(8, 5))).into(),
                 span: Span::new(0, buffer.len())
             },
             "".as_bytes()
@@ -155,7 +155,10 @@ mod tests {
         let buffer =
             b"1 0 obj\n<</Length 29>>\nstream\nA stream with a direct length\nendstream\nendobj";
         let value = Stream::new(
-            Dictionary::from_iter([(KEY_LENGTH.into(), Integer::new(29, Span::new(18, 2)).into())]),
+            Dictionary::from_iter([(
+                KEY_LENGTH.to_vec(),
+                Integer::new(29, Span::new(18, 2)).into(),
+            )]),
             "A stream with a direct length".as_bytes(),
             Span::new(0, 29),
         );

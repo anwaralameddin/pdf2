@@ -13,10 +13,10 @@ use super::Filter;
 use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
-const KEY_PREDICTOR: &str = "Predictor";
-const KEY_BITS_PER_COMPONENT: &str = "BitsPerComponent";
-const KEY_COLORS: &str = "Colors";
-const KEY_COLUMNS: &str = "Columns";
+const KEY_PREDICTOR: &[Byte] = b"Predictor";
+const KEY_BITS_PER_COMPONENT: &[Byte] = b"BitsPerComponent";
+const KEY_COLORS: &[Byte] = b"Colors";
+const KEY_COLUMNS: &[Byte] = b"Columns";
 
 /// REFERENCE: [Table 8 — Optional parameters for LZWDecode and FlateDecode
 /// filters, p40] and [Table 10 — Predictor values. p42]

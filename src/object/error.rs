@@ -4,13 +4,15 @@ use super::direct::array::Array;
 use super::direct::dictionary::Dictionary;
 use super::direct::name::Name;
 use super::direct::DirectValue;
+use crate::fmt::debug_bytes;
+use crate::Byte;
 
 pub(crate) type ObjectResult<'buffer, T> = Result<T, ObjectErr<'buffer>>;
 
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("Object. Key: {key}. Error: {code} in {dictionary}")]
+#[error("Object. Key: {}. Error: {code} in {dictionary}", debug_bytes(.key))]
 pub struct ObjectErr<'buffer> {
-    key: &'static str,
+    key: &'static [Byte],
     dictionary: &'buffer Dictionary<'buffer>,
     code: ObjectErrorCode<'buffer>,
 }
@@ -40,7 +42,7 @@ mod convert {
     use super::*;
     impl<'buffer> ObjectErr<'buffer> {
         pub fn new(
-            key: &'static str,
+            key: &'static [Byte],
             dictionary: &'buffer Dictionary<'buffer>,
             code: ObjectErrorCode<'buffer>,
         ) -> Self {

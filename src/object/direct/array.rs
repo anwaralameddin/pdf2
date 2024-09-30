@@ -149,7 +149,7 @@ mod tests {
             Boolean::new(true, Span::new(6, 4)).into(),
             Null::new(Span::new(12, 4)).into(),
             Literal::from(("A literal string", Span::new(17, 17))).into(),
-            Name::from("Name").into(),
+            Name::from(("Name", Span::new(35, 4))).into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
 

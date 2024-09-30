@@ -2,11 +2,11 @@ Stream::new(
     Dictionary::from_iter([
         (
             "Type".into(),
-            Name::from("XObject").into(),
+            Name::from(("XObject", Span::new(0, 0))).into(),
         ),
         (
             "Subtype".into(),
-            Name::from("Form").into(),
+            Name::from(("Form", Span::new(0, 0))).into(),
         ),
         (
             "BBox".into(),
@@ -39,7 +39,7 @@ Stream::new(
             unsafe { Reference::new_unchecked(11, 0, 0, 0).into() },
         ),
         ("Length".into(), Integer::new(15, Span::new(10, 2)).into(),),
-        ("Filter".into(), Name::from("FlateDecode").into()),
+        ("Filter".into(), Name::from(("FlateDecode", Span::new(0, 0))).into()),
     ]),
     &buffer[155..170],
     Span::new(0, buffer.len()),

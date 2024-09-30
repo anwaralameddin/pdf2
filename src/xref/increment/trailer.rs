@@ -3,31 +3,33 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
+use crate::fmt::debug_bytes;
 use crate::object::direct::dictionary::Dictionary;
 use crate::object::direct::name::Name;
 use crate::object::direct::string::String_;
 use crate::object::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
 use crate::parse::Span;
+use crate::Byte;
 use crate::IndexNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
 // Common dictionary keys
-const KEY_SIZE: &str = "Size";
-pub(crate) const KEY_PREV: &str = "Prev";
+const KEY_SIZE: &[Byte] = b"Size";
+pub(crate) const KEY_PREV: &[Byte] = b"Prev";
 // Section dictionary keys
-const KEY_ENCRYPT: &str = "Encrypt";
-const KEY_ID: &str = "ID";
-const KEY_INFO: &str = "Info";
-const KEY_ROOT: &str = "Root";
-// Stream dictionary keys
-const KEY_INDEX: &str = "Index";
-pub(super) const KEY_TYPE: &str = "Type";
-pub(super) const KEY_W: &str = "W";
+const KEY_ENCRYPT: &[Byte] = b"Encrypt";
+const KEY_ID: &[Byte] = b"ID";
+const KEY_INFO: &[Byte] = b"Info";
+const KEY_ROOT: &[Byte] = b"Root";
+// [Byte]eam dictionary keys
+const KEY_INDEX: &[Byte] = b"Index";
+pub(super) const KEY_TYPE: &[Byte] = b"Type";
+pub(super) const KEY_W: &[Byte] = b"W";
 pub(super) const VAL_XREF: &str = "XRef";
 // Hybrid-reference file trailer dictionary keys
-const KEY_XREF_STM: &str = "XRefStm";
+const KEY_XREF_STM: &[Byte] = b"XRefStm";
 // + Other stream dictionary keys
 
 /// REFERENCE:
@@ -54,7 +56,7 @@ pub(crate) struct Trailer<'buffer> {
     pub(crate) r#type: Option<&'buffer Name<'buffer>>,
     pub(crate) index: Vec<(ObjectNumberOrZero, IndexNumber)>,
     pub(crate) w: Option<[usize; 3]>,
-    pub(crate) others: HashMap<&'buffer Name<'buffer>, &'buffer DirectValue<'buffer>>,
+    pub(crate) others: HashMap<&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>>,
     pub(crate) span: Span,
     pub(crate) dictionary: &'buffer Dictionary<'buffer>, // TODO (TEMP)
 }
@@ -62,44 +64,44 @@ pub(crate) struct Trailer<'buffer> {
 impl Display for Trailer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         writeln!(f, "<<")?;
-        writeln!(f, "{} {}", Name::from(KEY_SIZE), self.size)?;
+        writeln!(f, "/Size {}", self.size)?;
         if let Some(prev) = self.prev {
-            writeln!(f, "{} {}", Name::from(KEY_PREV), prev)?;
+            writeln!(f, "/Prev {}", prev)?;
         }
         if let Some(root) = self.root {
-            writeln!(f, "{} {}", Name::from(KEY_ROOT), root)?;
+            writeln!(f, "/Root {}", root)?;
         }
         if let Some(encrypt) = self.encrypt.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_ENCRYPT), encrypt)?;
+            writeln!(f, "/Encrypt {}", encrypt)?;
         }
         if let Some(info) = self.info {
-            writeln!(f, "{} {}", Name::from(KEY_INFO), info)?;
+            writeln!(f, "/Info {}", info)?;
         }
         if let Some([id1, id2]) = self.id.as_ref() {
-            writeln!(f, "{} [{}{}]", Name::from(KEY_ID), id1, id2)?;
+            writeln!(f, "/ID [{}{}]", id1, id2)?;
         }
         if let Some(xref_stm) = self.xref_stm {
-            writeln!(f, "{} {}", Name::from(KEY_XREF_STM), xref_stm)?;
+            writeln!(f, "/XRefStm {}", xref_stm)?;
         }
         if let Some(r#type) = self.r#type.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_TYPE), r#type)?;
+            writeln!(f, "/Type {}", r#type)?;
         }
         if !self.index.is_empty() {
-            write!(f, "{} [ ", Name::from(KEY_INDEX))?;
+            write!(f, "/Index [ ")?;
             for (first_object_number, entry_count) in self.index.iter() {
                 write!(f, "{} {} ", first_object_number, entry_count)?;
             }
             writeln!(f, "]")?;
         }
         if let Some(w) = self.w {
-            write!(f, "{} [ ", Name::from(KEY_W))?;
+            write!(f, "/w [ ")?;
             for value in w.iter() {
                 write!(f, "{} ", value)?;
             }
             writeln!(f, "]")?;
         }
         for (key, value) in self.others.iter() {
-            writeln!(f, "{} {}", key, value)?;
+            writeln!(f, "{} {}", debug_bytes(key), value)?;
         }
         writeln!(f, ">>")
     }
@@ -275,7 +277,11 @@ mod convert {
                     && key.ne(&&KEY_FDECODEPARMS)
                     && key.ne(&&KEY_DL)
                 {
-                    eprintln!("Trailer contains additional entry: {} {}", key, value);
+                    eprintln!(
+                        "Trailer contains additional entry: {} {}",
+                        debug_bytes(key),
+                        value
+                    );
                 }
             }
 
@@ -372,7 +378,7 @@ mod convert {
 
         pub(crate) fn set_others(
             mut self,
-            others: HashMap<&'buffer Name<'buffer>, &'buffer DirectValue<'buffer>>,
+            others: HashMap<&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>>,
         ) -> Self {
             self.others = others;
             self
@@ -441,19 +447,19 @@ mod tests {
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/8401FBC530C8AE9B8EC1425170A70921_trailer.bin");
-        let key_rigid: Name = "rgid".into();
+        let key_rigid = b"rgid".to_vec();
         let vale_rigid: DirectValue = Literal::from((
             "PB:318039020_AS:510882528206848@1498815294792",
             Span::new(0, 0),
         ))
         .into();
-        let key_habibi: Name = "habibi-version".into();
+        let key_habibi = b"habibi-version".to_vec();
         let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
-        let key_comunity: Name = "comunity-version".into();
+        let key_comunity = b"comunity-version".to_vec();
         let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(0, 0))).into();
-        let key_worker: Name = "worker-version".into();
+        let key_worker = b"worker-version".to_vec();
         let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
-        let key_dd: Name = "dd".into();
+        let key_dd = b"dd".to_vec();
         let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(0, 0))).into();
 
         let (_, dictionary) = Dictionary::parse(buffer).unwrap();
@@ -474,11 +480,12 @@ mod tests {
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
         let (_, object) = IndirectObject::parse(buffer).unwrap();
-        let val_ref: Name = VAL_XREF.into();
-        let key_length: Name = KEY_LENGTH.into();
+        let val_ref: Name = (VAL_XREF, Span::new(11, VAL_XREF.len())).into();
+        let key_length = KEY_LENGTH.to_vec();
+
         let val_length: DirectValue = Integer::new(1760, Span::new(0, 0)).into();
-        let key_filter: Name = KEY_FILTER.into();
-        let val_filter: DirectValue = Name::from("FlateDecode").into();
+        let key_filter = KEY_FILTER.to_vec();
+        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(0, 0))).into();
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;

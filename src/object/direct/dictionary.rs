@@ -10,6 +10,7 @@ use ::std::fmt::Result as FmtResult;
 
 use super::name::Name;
 use super::DirectValue;
+use crate::fmt::debug_bytes;
 use crate::object::indirect::reference::Reference;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
@@ -19,11 +20,12 @@ use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
 use crate::parse_recoverable;
+use crate::process::escape::Escape;
 use crate::Byte;
 
 /// REFERENCE: [7.3.7 Dictionary objects, p30-31]
 #[derive(Debug, Default, Clone)]
-pub struct Dictionary<'buffer>(HashMap<Name<'buffer>, DirectValue<'buffer>>);
+pub struct Dictionary<'buffer>(HashMap<Vec<Byte>, DirectValue<'buffer>>);
 
 impl Display for Dictionary<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -32,7 +34,7 @@ impl Display for Dictionary<'_> {
             if i > 0 {
                 write!(f, " ")?;
             }
-            write!(f, "{} {}", key, value)?;
+            write!(f, "/{} {}", debug_bytes(key), value)?;
         }
         write!(f, ">>")
     }
@@ -95,7 +97,15 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
                 buffer = remains;
             }
             // Record the key-value pair
-            if let Some(old_value) = dictionary.insert(key, value) {
+
+            let escpaed_key = if let Ok(escpaed_key) = key.escape() {
+                escpaed_key
+            } else {
+                eprintln!("Failed to escape key: {}", key);
+                key.to_vec()
+            };
+
+            if let Some(old_value) = dictionary.insert(escpaed_key.clone(), value) {
                 // Dictionary keys should not be duplicated.
                 // REFERENCE: [7.3.7 Dictionary objects, p30]
                 //
@@ -106,7 +116,7 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
                     "Dictionary: Overwriting value for key {}: {} -> {:?}",
                     key,
                     old_value,
-                    dictionary.get(&key)
+                    dictionary.get(&escpaed_key)
                 );
             };
         }
@@ -121,7 +131,7 @@ mod escape {
 
     impl Dictionary<'_> {
         /// REFERENCE: [7.3.7 Dictionary objects, p30] and [7.3.9 Null object, p33]
-        pub(crate) fn escape(&self) -> HashMap<&Name, &DirectValue> {
+        pub(crate) fn escape(&self) -> HashMap<&Vec<Byte>, &DirectValue> {
             // FIXME Take into account values that are references to missing
             // objects, which is the same as having the value null. Also,
             // consider the effect of two references pointing to the same
@@ -145,14 +155,14 @@ mod convert {
     use crate::object::error::ObjectErrorCode;
     use crate::object::error::ObjectResult;
 
-    impl<'buffer> From<HashMap<Name<'buffer>, DirectValue<'buffer>>> for Dictionary<'buffer> {
-        fn from(value: HashMap<Name<'buffer>, DirectValue<'buffer>>) -> Self {
+    impl<'buffer> From<HashMap<Vec<Byte>, DirectValue<'buffer>>> for Dictionary<'buffer> {
+        fn from(value: HashMap<Vec<Byte>, DirectValue<'buffer>>) -> Self {
             Self(value)
         }
     }
 
-    impl<'buffer> FromIterator<(Name<'buffer>, DirectValue<'buffer>)> for Dictionary<'buffer> {
-        fn from_iter<T: IntoIterator<Item = (Name<'buffer>, DirectValue<'buffer>)>>(
+    impl<'buffer> FromIterator<(Vec<Byte>, DirectValue<'buffer>)> for Dictionary<'buffer> {
+        fn from_iter<T: IntoIterator<Item = (Vec<Byte>, DirectValue<'buffer>)>>(
             iter: T,
         ) -> Dictionary<'buffer> {
             Self(HashMap::from_iter(iter))
@@ -160,7 +170,7 @@ mod convert {
     }
 
     impl<'buffer> Deref for Dictionary<'buffer> {
-        type Target = HashMap<Name<'buffer>, DirectValue<'buffer>>;
+        type Target = HashMap<Vec<Byte>, DirectValue<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -168,8 +178,8 @@ mod convert {
     }
 
     impl<'buffer> IntoIterator for Dictionary<'buffer> {
-        type Item = (Name<'buffer>, DirectValue<'buffer>);
-        type IntoIter = <HashMap<Name<'buffer>, DirectValue<'buffer>> as IntoIterator>::IntoIter;
+        type Item = (Vec<Byte>, DirectValue<'buffer>);
+        type IntoIter = <HashMap<Vec<Byte>, DirectValue<'buffer>> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()
@@ -177,16 +187,19 @@ mod convert {
     }
 
     impl<'buffer> Dictionary<'buffer> {
-        pub(crate) fn opt_get(&'buffer self, key: &'static str) -> Option<&DirectValue> {
-            self.0.get(&Name::from(key))
+        pub(crate) fn opt_get(&'buffer self, key: &'static [Byte]) -> Option<&DirectValue> {
+            self.0.get(key)
         }
 
-        pub(crate) fn required_get(&'buffer self, key: &'static str) -> ObjectResult<&DirectValue> {
+        pub(crate) fn required_get(
+            &'buffer self,
+            key: &'static [Byte],
+        ) -> ObjectResult<&DirectValue> {
             self.opt_get(key)
                 .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
         }
 
-        pub(crate) fn opt_array(&self, key: &'static str) -> ObjectResult<Option<&Array>> {
+        pub(crate) fn opt_array(&self, key: &'static [Byte]) -> ObjectResult<Option<&Array>> {
             self.opt_get(key)
                 .map(|value| {
                     value.as_array().ok_or_else(|| {
@@ -203,14 +216,14 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn required_array(&self, key: &'static str) -> ObjectResult<&Array> {
+        pub(crate) fn required_array(&self, key: &'static [Byte]) -> ObjectResult<&Array> {
             self.opt_array(key).and_then(|value| {
                 value
                     .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
             })
         }
 
-        pub(crate) fn opt_name(&self, key: &'static str) -> ObjectResult<Option<&Name>> {
+        pub(crate) fn opt_name(&self, key: &'static [Byte]) -> ObjectResult<Option<&Name>> {
             self.opt_get(key)
                 .map(|value| {
                     value.as_name().ok_or_else(|| {
@@ -227,14 +240,14 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn required_name(&self, key: &'static str) -> ObjectResult<&Name> {
+        pub(crate) fn required_name(&self, key: &'static [Byte]) -> ObjectResult<&Name> {
             self.opt_name(key).and_then(|value| {
                 value
                     .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
             })
         }
 
-        pub(crate) fn opt_u64(&self, key: &'static str) -> ObjectResult<Option<u64>> {
+        pub(crate) fn opt_u64(&self, key: &'static [Byte]) -> ObjectResult<Option<u64>> {
             self.opt_get(key)
                 .map(|value| {
                     value
@@ -255,14 +268,14 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn required_u64(&self, key: &'static str) -> ObjectResult<u64> {
+        pub(crate) fn required_u64(&self, key: &'static [Byte]) -> ObjectResult<u64> {
             self.opt_u64(key).and_then(|value| {
                 value
                     .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
             })
         }
 
-        pub(crate) fn opt_usize(&self, key: &'static str) -> ObjectResult<Option<usize>> {
+        pub(crate) fn opt_usize(&self, key: &'static [Byte]) -> ObjectResult<Option<usize>> {
             self.opt_get(key)
                 .map(|value| {
                     value
@@ -283,14 +296,17 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn required_usize(&self, key: &'static str) -> ObjectResult<usize> {
+        pub(crate) fn required_usize(&self, key: &'static [Byte]) -> ObjectResult<usize> {
             self.opt_usize(key).and_then(|value| {
                 value
                     .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
             })
         }
 
-        pub(crate) fn opt_reference(&self, key: &'static str) -> ObjectResult<Option<&Reference>> {
+        pub(crate) fn opt_reference(
+            &self,
+            key: &'static [Byte],
+        ) -> ObjectResult<Option<&Reference>> {
             self.opt_get(key)
                 .map(|value| {
                     value.as_reference().ok_or_else(|| {
@@ -374,7 +390,7 @@ mod tests {
     #[test]
     fn dictionary_escape() {
         assert_eq!(
-            Dictionary::from_iter([("Key".into(), Null::new(Span::new(5, 4)).into())]),
+            Dictionary::from_iter([(b"Key".to_vec(), Null::new(Span::new(5, 4)).into())]),
             Dictionary::default()
         );
 

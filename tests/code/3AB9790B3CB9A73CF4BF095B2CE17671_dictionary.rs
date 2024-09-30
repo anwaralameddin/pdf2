@@ -1,5 +1,5 @@
 Dictionary::from_iter([
-    ("Type".into(), Name::from("XRef").into()),
+    ("Type".into(), Name::from(("XRef", Span::new(0, 0))).into()),
     ("Size".into(), Integer::new(440, Span::new(0, 3)).into(),),
     ("Root".into(), unsafe {
         Reference::new_unchecked(437, 0, 0, 0).into()
@@ -31,5 +31,5 @@ Dictionary::from_iter([
         .into(),
     ),
     ("Length".into(), Integer::new(1089, Span::new(0, 4)).into(),),
-    ("Filter".into(), Name::from("FlateDecode").into()),
+    ("Filter".into(), Name::from(("FlateDecode", Span::new(0, 0))).into()),
 ])

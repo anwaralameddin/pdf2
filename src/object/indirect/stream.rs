@@ -27,13 +27,13 @@ use crate::parse_recoverable;
 use crate::Byte;
 use crate::Offset;
 
-pub(crate) const KEY_LENGTH: &str = "Length";
-pub(crate) const KEY_F: &str = "F";
-pub(crate) const KEY_FILTER: &str = "Filter";
-pub(crate) const KEY_DECODEPARMS: &str = "DecodeParms";
-pub(crate) const KEY_FFILTER: &str = "FFilter";
-pub(crate) const KEY_FDECODEPARMS: &str = "FDecodeParms";
-pub(crate) const KEY_DL: &str = "DL";
+pub(crate) const KEY_LENGTH: &[Byte] = b"Length";
+pub(crate) const KEY_F: &[Byte] = b"F";
+pub(crate) const KEY_FILTER: &[Byte] = b"Filter";
+pub(crate) const KEY_DECODEPARMS: &[Byte] = b"DecodeParms";
+pub(crate) const KEY_FFILTER: &[Byte] = b"FFilter";
+pub(crate) const KEY_FDECODEPARMS: &[Byte] = b"FDecodeParms";
+pub(crate) const KEY_DL: &[Byte] = b"DL";
 
 /// REFERENCE: [7.3.8 Stream objects, p31]
 #[derive(PartialEq, Clone)]
@@ -262,7 +262,10 @@ mod tests {
         // A synthetic test
         let buffer = b"<</Length 0>>\nstream\n\nendstream\nendobj";
         let stream = Stream::new(
-            Dictionary::from_iter([(KEY_LENGTH.into(), Integer::new(0, Span::new(10, 1)).into())]),
+            Dictionary::from_iter([(
+                KEY_LENGTH.to_vec(),
+                Integer::new(0, Span::new(10, 1)).into(),
+            )]),
             "".as_bytes(),
             Span::new(0, buffer.len()),
         );
@@ -321,7 +324,7 @@ mod tests {
             ParseErrorCode::Object(
                 ObjectErr::new(
                     KEY_LENGTH,
-                    &Dictionary::from_iter([(KEY_LENGTH.into(), value.clone())]),
+                    &Dictionary::from_iter([(KEY_LENGTH.to_vec(), value.clone())]),
                     ObjectErrorCode::Type {
                         expected_type: stringify!(usize),
                         value: &value,

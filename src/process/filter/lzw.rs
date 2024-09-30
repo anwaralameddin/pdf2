@@ -7,7 +7,7 @@ use crate::process::filter::error::FilterResult;
 use crate::Byte;
 use crate::DECODED_LIMIT;
 
-const KEY_EARLY_CHANGE: &str = "EarlyChange";
+const KEY_EARLY_CHANGE: &[Byte] = b"EarlyChange";
 const MIN_CODE_SIZE: usize = 9;
 const MAX_CODE_SIZE: usize = 12;
 const CLEAR_CODE: u16 = 256;

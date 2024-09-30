@@ -1,6 +1,6 @@
 Stream::new(
     Dictionary::from_iter([
-        ("Type".into(), Name::from("XRef").into()),
+        ("Type".into(), Name::from(("XRef", Span::new(0, 0))).into()),
         ("Size".into(), Integer::new(60, Span::new(0, 2)).into()),
         (
             "W".into(),
@@ -25,7 +25,7 @@ Stream::new(
             ])
             .into(),
         ),
-        ("Filter".into(), Name::from("FlateDecode").into()),
+        ("Filter".into(), Name::from(("FlateDecode", Span::new(0, 0))).into()),
         ("Length".into(), Integer::new(193, Span::new(0, 3)).into()),
     ]),
     &buffer[170..363],

@@ -233,11 +233,11 @@ mod convert {
                                 Ok(Filtering::new(filtering, None)?)
                             }
                             (DirectValue::Name(_), _) => Err(FilterErr::new(
-                                KEY_DECODEPARMS,
+                                stringify!(FilteringChain),
                                 FilterErrorCode::ValueType(stringify!(Dictionary), decode_pars),
                             )),
                             _ => Err(FilterErr::new(
-                                KEY_FILTER,
+                                stringify!(FilteringChain),
                                 FilterErrorCode::ValueType(stringify!(Name), filtering),
                             )),
                         })
@@ -250,7 +250,7 @@ mod convert {
                             Ok(Filtering::new(filtering, None)?)
                         } else {
                             Err(FilterErr::new(
-                                KEY_FILTER,
+                                stringify!(FilteringChain),
                                 FilterErrorCode::ValueType(stringify!(Name), filtering),
                             ))
                         }
@@ -261,7 +261,7 @@ mod convert {
                 }
                 (Some(filtering), _) => {
                     return Err(FilterErr::new(
-                        KEY_FILTER,
+                        stringify!(FilteringChain),
                         FilterErrorCode::ValueType(stringify!(Name | Array), filtering),
                     ));
                 }

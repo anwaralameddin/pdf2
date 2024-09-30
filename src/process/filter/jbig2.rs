@@ -2,7 +2,7 @@ use super::Filter;
 use crate::process::filter::error::FilterResult;
 use crate::Byte;
 
-const KEY_JBIG2_GLOBALS: &str = "JBIG2Globals";
+const KEY_JBIG2_GLOBALS: &[Byte] = b"JBIG2Globals";
 
 /// REFERENCE: [Table 12 — Optional parameter for the JBIG2Decode filter. p46]
 #[derive(Debug, PartialEq, Clone, Copy)]
