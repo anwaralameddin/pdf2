@@ -8,6 +8,7 @@ use crate::object::direct::name::Name;
 use crate::object::direct::string::String_;
 use crate::object::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
+use crate::parse::Span;
 use crate::IndexNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
@@ -54,7 +55,8 @@ pub(crate) struct Trailer<'buffer> {
     pub(crate) index: Vec<(ObjectNumberOrZero, IndexNumber)>,
     pub(crate) w: Option<[usize; 3]>,
     pub(crate) others: HashMap<&'buffer Name<'buffer>, &'buffer DirectValue<'buffer>>,
-    pub(crate) dictionary: &'buffer Dictionary<'buffer>,
+    pub(crate) span: Span,
+    pub(crate) dictionary: &'buffer Dictionary<'buffer>, // TODO (TEMP)
 }
 
 impl Display for Trailer<'_> {
@@ -120,6 +122,7 @@ mod convert {
     use crate::object::indirect::stream::KEY_FFILTER;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
+    use crate::parse::Parser;
     use crate::xref::error::XRefErr;
     use crate::ObjectNumberOrZero;
     use crate::Offset;
@@ -288,13 +291,18 @@ mod convert {
                 index,
                 w,
                 others,
+                span: dictionary.span(),
                 dictionary,
             })
         }
     }
 
     impl<'buffer> Trailer<'buffer> {
-        pub(crate) fn new(size: IndexNumber, dictionary: &'buffer Dictionary<'buffer>) -> Self {
+        pub(crate) fn new(
+            size: IndexNumber,
+            span: Span,
+            dictionary: &'buffer Dictionary<'buffer>,
+        ) -> Self {
             Self {
                 size,
                 prev: Default::default(),
@@ -307,6 +315,7 @@ mod convert {
                 index: Default::default(),
                 w: Default::default(),
                 others: Default::default(),
+                span,
                 dictionary,
             }
         }
@@ -465,7 +474,7 @@ mod tests {
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
-            let trailer = Trailer::new(750, &dictionary)
+            let trailer = Trailer::new(750, Span::new(0, 0), &dictionary)
                 .set_root(unsafe { Reference::new_unchecked(747, 0) })
                 .set_w([1, 3, 1])
                 .set_index(vec![(0, 750)])
