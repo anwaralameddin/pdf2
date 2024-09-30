@@ -118,7 +118,6 @@ impl<'buffer> Parser<'buffer> for Dictionary<'buffer> {
 
 mod escape {
     use super::*;
-    use crate::object::direct::null::Null;
 
     impl Dictionary<'_> {
         /// REFERENCE: [7.3.7 Dictionary objects, p30] and [7.3.9 Null object, p33]
@@ -129,7 +128,7 @@ mod escape {
             // object.
             self.0
                 .iter()
-                .filter(|(_, value)| *value != &Null.into())
+                .filter(|(_, value)| !matches!(value, DirectValue::Null(_)))
                 .collect()
         }
     }
@@ -317,6 +316,7 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::direct::null::Null;
+    use crate::parse::Span;
 
     // TODO Add tests, e.g. the trailer dictionaries used in xref
     // #[test]
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn dictionary_escape() {
         assert_eq!(
-            Dictionary::from_iter([("Key".into(), Null.into())]),
+            Dictionary::from_iter([("Key".into(), Null::new(Span::new(5, 4)).into())]),
             Dictionary::default()
         );
 

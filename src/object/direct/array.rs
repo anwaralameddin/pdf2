@@ -133,6 +133,7 @@ mod tests {
     use crate::object::direct::null::Null;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
+    use crate::parse::Span;
     use crate::parse_assert_eq;
 
     #[test]
@@ -143,7 +144,7 @@ mod tests {
             1.into(),
             1.0.into(),
             true.into(),
-            Null.into(),
+            Null::new(Span::new(12, 4)).into(),
             Literal::from("A literal string").into(),
             Name::from("Name").into(),
         ]);
