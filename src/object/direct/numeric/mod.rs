@@ -25,8 +25,8 @@ pub enum Numeric {
 impl Display for Numeric {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Self::Integer(n) => write!(f, "{}", n),
-            Self::Real(r) => write!(f, "{}", r),
+            Self::Integer(integer) => write!(f, "{}", integer),
+            Self::Real(real) => write!(f, "{}", real),
         }
     }
 }
@@ -47,8 +47,8 @@ impl Parser<'_> for Numeric {
 
     fn span(&self) -> Span {
         match self {
-            Self::Integer(v) => v.span(),
-            Self::Real(v) => v.span(),
+            Self::Integer(integer) => integer.span(),
+            Self::Real(real) => real.span(),
         }
     }
 }

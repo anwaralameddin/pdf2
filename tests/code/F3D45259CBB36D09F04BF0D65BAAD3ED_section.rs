@@ -127,7 +127,7 @@ Section::new([
     ),
 ],
 Dictionary::from_iter([
-    ("Size".into(), 74.into()),
+    ("Size".into(), Integer::new(74, Span::new(0, 2)).into()),
     (
         "Root".into(),
         unsafe { Reference::new_unchecked(116, 0, 0, 0) }.into(),
@@ -135,8 +135,8 @@ Dictionary::from_iter([
     (
         "ID".into(),
         Array::from_iter([
-            Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
-            Hexadecimal::from("F3D45259CBB36D09F04BF0D65BAAD3ED").into(),
+            Hexadecimal::from(("F3D45259CBB36D09F04BF0D65BAAD3ED", Span::new(0, 32))).into(),
+            Hexadecimal::from(("F3D45259CBB36D09F04BF0D65BAAD3ED", Span::new(0, 32))).into(),
         ])
         .into(),
     ),

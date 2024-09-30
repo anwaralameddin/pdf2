@@ -442,16 +442,19 @@ mod tests {
         let buffer =
             include_bytes!("../../../tests/data/8401FBC530C8AE9B8EC1425170A70921_trailer.bin");
         let key_rigid: Name = "rgid".into();
-        let vale_rigid: DirectValue =
-            Literal::from("PB:318039020_AS:510882528206848@1498815294792").into();
+        let vale_rigid: DirectValue = Literal::from((
+            "PB:318039020_AS:510882528206848@1498815294792",
+            Span::new(0, 0),
+        ))
+        .into();
         let key_habibi: Name = "habibi-version".into();
-        let val_habibi: DirectValue = Literal::from("8.12.0".as_bytes()).into();
+        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
         let key_comunity: Name = "comunity-version".into();
-        let val_comunity: DirectValue = Literal::from("v189.11.0".as_bytes()).into();
+        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(0, 0))).into();
         let key_worker: Name = "worker-version".into();
-        let val_worker: DirectValue = Literal::from("8.12.0".as_bytes()).into();
+        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(0, 0))).into();
         let key_dd: Name = "dd".into();
-        let val_dd: DirectValue = Literal::from("1498815349362".as_bytes()).into();
+        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(0, 0))).into();
 
         let (_, dictionary) = Dictionary::parse(buffer).unwrap();
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
@@ -485,8 +488,8 @@ mod tests {
                 .set_index(vec![(0, 750)])
                 .set_info(unsafe { Reference::new_unchecked(748, 0, 0, 0) })
                 .set_id([
-                    Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-                    Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(0, 0))).into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(0, 0))).into(),
                 ])
                 .set_type(&val_ref)
                 .set_others(HashMap::from_iter([

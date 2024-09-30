@@ -21,20 +21,25 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::process::encoding::Encoding;
 use crate::process::escape::Escape;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
 #[derive(Clone, Copy)]
-pub struct Hexadecimal<'buffer>(&'buffer [Byte]);
+pub struct Hexadecimal<'buffer> {
+    value: &'buffer [Byte],
+    span: Span,
+}
 
 impl Display for Hexadecimal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<")?;
-        for &byte in self.0.iter() {
+        for &byte in self.value.iter() {
             write!(f, "{}", char::from(byte))?;
         }
         write!(f, ">")
@@ -43,14 +48,19 @@ impl Display for Hexadecimal<'_> {
 
 impl Debug for Hexadecimal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "<{}>", debug_bytes(self.0))
+        write!(
+            f,
+            "Hexadecimal {{\nvalue: {},\nspan: {:?},\n}}",
+            debug_bytes(self.value),
+            self.span
+        )
     }
 }
 
 impl PartialEq for Hexadecimal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
-            self_escaped == other_escaped
+            self_escaped == other_escaped && self.span == other.span
         } else {
             // If an escape call fails, the string is not valid, so we don't need to compare
             false
@@ -59,7 +69,7 @@ impl PartialEq for Hexadecimal<'_> {
 }
 
 impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // This check is unnecessary because the start of Names and hexadecimal
         // strings are mutually exclusive. However, this allows early return if
         // a dictionary start is found
@@ -103,8 +113,13 @@ impl<'buffer> Parser<'buffer> for Hexadecimal<'buffer> {
             )
         ))?;
 
-        let hexadecimal = Self(value);
-        Ok((buffer, hexadecimal))
+        let len = value.len() + 2;
+        let span = Span::new(offset, len);
+        Ok((buffer, Self { value, span }))
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -120,9 +135,9 @@ mod escape {
 
     impl Escape for Hexadecimal<'_> {
         fn escape(&self) -> EscapeResult<Vec<Byte>> {
-            let escaped = AHx
-                .defilter(self.0)
-                .map_err(|err| EscapeErr::new(self.0, EscapeErrorCode::Hexadecimal(err.code)))?;
+            let escaped = AHx.defilter(self.value).map_err(|err| {
+                EscapeErr::new(self.value, EscapeErrorCode::Hexadecimal(err.code))
+            })?;
             Ok(escaped)
         }
     }
@@ -151,7 +166,7 @@ mod encode {
                     AHx.defilter(data)
                         .map_err(|err| EncodingErr::new(data, EncodingErrorCode::Filter(err.code)))
                 },
-                self.0,
+                self.value,
             )
         }
     }
@@ -162,9 +177,15 @@ mod convert {
 
     use super::*;
 
-    impl<'buffer> From<&'buffer str> for Hexadecimal<'buffer> {
-        fn from(value: &'buffer str) -> Self {
-            Self(value.as_bytes())
+    impl<'buffer> Hexadecimal<'buffer> {
+        pub fn new(value: &'buffer [Byte], span: Span) -> Self {
+            Self { value, span }
+        }
+    }
+
+    impl<'buffer> From<(&'buffer str, Span)> for Hexadecimal<'buffer> {
+        fn from((value, span): (&'buffer str, Span)) -> Self {
+            Self::new(value.as_bytes(), span)
         }
     }
 
@@ -172,7 +193,7 @@ mod convert {
         type Target = &'buffer [Byte];
 
         fn deref(&self) -> &Self::Target {
-            &self.0
+            &self.value
         }
     }
 }
@@ -183,25 +204,29 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_assert_eq;
+    use crate::parse_span_assert_eq;
     use crate::process::escape::Escape;
 
     #[test]
     fn string_hexadecimal_valid() {
         // Synthetic tests
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             b"<41 20 48 65 78 61 64 65 63 69 6D 61 6C 20 53 74 72 69 6E 67>",
-            Hexadecimal::from("412048657861646563696D616C20537472696E67"),
+            Hexadecimal::from(("412048657861646563696D616C20537472696E67", Span::new(0, 61))),
             "".as_bytes(),
         );
-        parse_assert_eq!(b"<41 2>", Hexadecimal::from("4120"), "".as_bytes(),);
+        parse_span_assert_eq!(
+            b"<41 2>",
+            Hexadecimal::from(("4120", Span::new(0, 6))),
+            "".as_bytes(),
+        );
     }
 
     #[test]
     fn string_hexadecimal_invalid() {
         // Synthetic tests
         // Hexadecimal: Missing closing angle bracket
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67");
+        let parse_result = Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Hexadecimal),
@@ -210,7 +235,8 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Dictionary opening
-        let parse_result = Hexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>");
+        let parse_result =
+            Hexadecimal::parse_span(b"<<412048657861646563696D616C20537472696E67>", 0);
         let expected_error = ParseRecoverable::new(
             b"<<412048657861646563696D616C20537472696E67>",
             stringify!(Hexadecimal),
@@ -219,7 +245,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Not found
-        let parse_result = Hexadecimal::parse(b"412048657861646563696D616C20537472696E67>");
+        let parse_result = Hexadecimal::parse_span(b"412048657861646563696D616C20537472696E67>", 0);
         let expected_error = ParseRecoverable::new(
             b"412048657861646563696D616C20537472696E67>",
             stringify!(Hexadecimal),
@@ -228,7 +254,8 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Missing end angle bracket
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67<");
+        let parse_result =
+            Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67<", 0);
         let expected_error = ParseFailure::new(
             b"<",
             stringify!(Hexadecimal),
@@ -237,7 +264,8 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Hexadecimal: Unsupported digits
-        let parse_result = Hexadecimal::parse(b"<412048657861646563696D616C20537472696E67XX>");
+        let parse_result =
+            Hexadecimal::parse_span(b"<412048657861646563696D616C20537472696E67XX>", 0);
         let expected_error = ParseFailure::new(
             b"XX>",
             stringify!(Hexadecimal),
@@ -249,20 +277,23 @@ mod tests {
     #[test]
     fn string_hexadecimal_escape() {
         // Synthetic tests
-        let hexadecimal = Hexadecimal::from("412048657861646563696D616C20537472696E67");
+        let hexadecimal =
+            Hexadecimal::from(("412048657861646563696D616C20537472696E67", Span::new(0, 61)));
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"A Hexadecimal String");
 
-        let hexadecimal = Hexadecimal::from("412048");
+        let hexadecimal = Hexadecimal::from(("412048", Span::new(0, 6)));
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"\x41\x20\x48");
 
-        let hexadecimal = Hexadecimal::from("41204");
+        let hexadecimal = Hexadecimal::from(("41204", Span::new(0, 5)));
         let escaped = hexadecimal.escape().unwrap();
         assert_eq!(escaped, b"\x41\x20\x40");
 
-        let hexadecimal_upper = Hexadecimal::from("412048657861646563696D616C20537472696E67");
-        let hexadecimal_lower = Hexadecimal::from("412048657861646563696d616c20537472696e67");
+        let hexadecimal_upper =
+            Hexadecimal::from(("412048657861646563696D616C20537472696E67", Span::new(0, 61)));
+        let hexadecimal_lower =
+            Hexadecimal::from(("412048657861646563696d616c20537472696e67", Span::new(0, 61)));
         assert_eq!(hexadecimal_upper, hexadecimal_lower);
     }
 }

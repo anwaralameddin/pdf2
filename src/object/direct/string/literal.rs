@@ -23,19 +23,24 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::process::escape::Escape;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.3.4.2 Literal strings, p25-28}
 #[derive(Clone, Copy)]
-pub struct Literal<'buffer>(&'buffer [Byte]);
+pub struct Literal<'buffer> {
+    value: &'buffer [Byte],
+    span: Span,
+}
 
 impl Display for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "(")?;
-        for &byte in self.0.iter() {
+        for &byte in self.value.iter() {
             write!(f, "{}", char::from(byte))?;
         }
         write!(f, ")")
@@ -44,14 +49,19 @@ impl Display for Literal<'_> {
 
 impl Debug for Literal<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "({})", debug_bytes(self.0))
+        write!(
+            f,
+            "Literal {{\nvalue: {},\nspan: {:?},\n}}",
+            debug_bytes(self.value),
+            self.span
+        )
     }
 }
 
 impl PartialEq for Literal<'_> {
     fn eq(&self, other: &Self) -> bool {
         if let (Ok(self_escaped), Ok(other_escaped)) = (self.escape(), other.escape()) {
-            self_escaped == other_escaped
+            self_escaped == other_escaped && self.span == other.span
         } else {
             // If an escape call fails, the string is not valid, so we don't need to compare
             false
@@ -60,7 +70,7 @@ impl PartialEq for Literal<'_> {
 }
 
 impl<'buffer> Parser<'buffer> for Literal<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
         let (buffer, value) = preceded(
@@ -89,8 +99,13 @@ impl<'buffer> Parser<'buffer> for Literal<'buffer> {
             )
         ))?;
 
-        let literal = Self(value);
-        Ok((buffer, literal))
+        let len = value.len() + 2;
+        let span = Span::new(offset, len);
+        Ok((buffer, Self { value, span }))
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -138,9 +153,9 @@ mod escape {
         /// - ["Table 3: Escape sequences in literal strings", p25-26]
         fn escape(&self) -> EscapeResult<Vec<Byte>> {
             let mut prev = PrevByte::Other;
-            let mut escaped = Vec::with_capacity(self.0.len());
+            let mut escaped = Vec::with_capacity(self.value.len());
 
-            for &byte in self.0.iter() {
+            for &byte in self.value.iter() {
                 match (byte, prev) {
                     (b'\\', PrevByte::Other | PrevByte::Cr) => {
                         prev = PrevByte::Solidus;
@@ -309,15 +324,15 @@ mod convert {
     use super::*;
     use crate::Byte;
 
-    impl<'buffer> From<&'buffer [Byte]> for Literal<'buffer> {
-        fn from(value: &'buffer [Byte]) -> Self {
-            Self(value)
+    impl<'buffer> Literal<'buffer> {
+        pub fn new(value: &'buffer [Byte], span: Span) -> Self {
+            Self { value, span }
         }
     }
 
-    impl<'buffer> From<&'buffer str> for Literal<'buffer> {
-        fn from(value: &'buffer str) -> Self {
-            Self::from(value.as_bytes())
+    impl<'buffer> From<(&'buffer str, Span)> for Literal<'buffer> {
+        fn from((value, span): (&'buffer str, Span)) -> Self {
+            Self::new(value.as_bytes(), span)
         }
     }
 
@@ -325,7 +340,7 @@ mod convert {
         type Target = &'buffer [Byte];
 
         fn deref(&self) -> &Self::Target {
-            &self.0
+            &self.value
         }
     }
 }
@@ -336,30 +351,33 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_assert_eq;
+    use crate::parse_span_assert_eq;
 
     #[test]
     fn string_literal_valid() {
         // Synthetic tests
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             b"(A literal string)",
-            Literal::from("A literal string"),
+            Literal::from(("A literal string", Span::new(0, 18))),
             "".as_bytes(),
         );
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             b"(A literal
 string)",
-            Literal::from(r"A literal\nstring"),
+            Literal::from((r"A literal\nstring", Span::new(0, 18))),
             "".as_bytes(),
         );
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             br"({A \(literal string!()} with unbalanced escaped parentheses)",
-            Literal::from(r"{A \(literal string!()} with unbalanced escaped parentheses"),
+            Literal::from((
+                r"{A \(literal string!()} with unbalanced escaped parentheses",
+                Span::new(0, 61)
+            )),
             "".as_bytes(),
         );
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             b"(((A))literal(string)(()))",
-            Literal::from("((A))literal(string)(())"),
+            Literal::from(("((A))literal(string)(())", Span::new(0, 26))),
             "".as_bytes()
         );
     }
@@ -368,7 +386,7 @@ string)",
     fn string_literal_invalid() {
         // Synthetic tests
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse(b"(Unbalanced parentheses");
+        let parse_result = Literal::parse_span(b"(Unbalanced parentheses", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -377,7 +395,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse(br"(Escaped parentheses\)");
+        let parse_result = Literal::parse_span(br"(Escaped parentheses\)", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -386,7 +404,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
-        let parse_result = Literal::parse(b"Unbalanced parentheses)");
+        let parse_result = Literal::parse_span(b"Unbalanced parentheses)", 0);
         let expected_error = ParseRecoverable::new(
             b"Unbalanced parentheses)",
             stringify!(Literal),
@@ -398,59 +416,69 @@ string)",
     #[test]
     fn string_literal_escape() {
         // Synthetic tests
-        let literal_solidus_eol = Literal::from(
+        let literal_solidus_eol = Literal::from((
             r"A \
 literal \
 string",
-        );
-        let literal_solidus_eol_escaped = Literal::from("A literal string");
+            Span::new(0, 21),
+        ));
+        let literal_solidus_eol_escaped = Literal::from(("A literal string", Span::new(0, 21)));
         assert_eq!(literal_solidus_eol, literal_solidus_eol_escaped);
 
-        let literal_eol = Literal::from(
+        let literal_eol = Literal::from((
             "A literal string
 ",
-        );
-        let literal_eol_escaped = Literal::from(r"A literal string\n");
+            Span::new(0, 17),
+        ));
+        let literal_eol_escaped = Literal::from((r"A literal string\n", Span::new(0, 17)));
         assert_eq!(literal_eol, literal_eol_escaped);
 
-        let literal_eol_2 = Literal::from(b"A literal string\r\n".as_slice());
-        let literal_eol_2_escaped = Literal::from(b"A literal string\n".as_slice());
+        let literal_eol_2 = Literal::from(("A literal string\r\n", Span::new(0, 19)));
+        let literal_eol_2_escaped = Literal::from(("A literal string\n", Span::new(0, 19)));
         assert_eq!(literal_eol_2, literal_eol_2_escaped);
 
-        let literal_unsupported_solidus = Literal::from(r"Unsupported \ escape.");
-        let literal_unsupported_solidus_escaped = Literal::from("Unsupported  escape.");
+        let literal_unsupported_solidus =
+            Literal::from((r"Unsupported \ escape.", Span::new(0, 22)));
+        let literal_unsupported_solidus_escaped =
+            Literal::from(("Unsupported  escape.", Span::new(0, 22)));
         assert_eq!(
             literal_unsupported_solidus,
             literal_unsupported_solidus_escaped
         );
 
-        let literal_unsupported_escape = Literal::from(r"Unsupported escape \z.");
-        let literal_unsupported_escape_escaped = Literal::from(r"Unsupported escape z.");
+        let literal_unsupported_escape =
+            Literal::from((r"Unsupported escape \z.", Span::new(0, 22)));
+        let literal_unsupported_escape_escaped =
+            Literal::from((r"Unsupported escape z.", Span::new(0, 22)));
         assert_eq!(
             literal_unsupported_escape,
             literal_unsupported_escape_escaped
         );
 
-        let literal = Literal::from(r"\101");
-        let literal_escaped = Literal::from(r"A");
+        let literal = Literal::from((r"\101", Span::new(0, 4)));
+        let literal_escaped = Literal::from((r"A", Span::new(0, 4)));
         assert_eq!(literal, literal_escaped);
 
-        let literal = Literal::from(r"\377");
-        let literal_escaped = Literal::from(b"\xFF".as_slice());
+        let literal = Literal::from((r"\377", Span::new(0, 4)));
+        let literal_escaped = Literal::new(b"\xFF".as_slice(), Span::new(0, 4));
         assert_eq!(literal, literal_escaped);
 
-        let literal = Literal::from(r"\77");
-        let literal_escaped = Literal::from("?");
+        let literal = Literal::from((r"\77", Span::new(0, 3)));
+        let literal_escaped = Literal::from(("?", Span::new(0, 3)));
         assert_eq!(literal, literal_escaped);
 
-        let literal = Literal::from(r"\077");
-        let literal_escaped = Literal::from("?");
+        let literal = Literal::from((r"\077", Span::new(0, 4)));
+        let literal_escaped = Literal::from(("?", Span::new(0, 4)));
         assert_eq!(literal, literal_escaped);
 
-        let literal = Literal::from(
+        let literal = Literal::from((
             r"\124\150\151\163\40\151\163\40\141\40\163\164\162\151\156\147\40\151\156\40\157\143\164\141\154\40\162\145\160\162\145\163\145\156\164\141\164\151\157\156\56",
-        );
-        let literal_escaped = Literal::from(r"This is a string in octal representation.");
+            Span::new(0, 77),
+        ));
+        let literal_escaped = Literal::from((
+            r"This is a string in octal representation.",
+            Span::new(0, 77),
+        ));
         assert_eq!(literal, literal_escaped);
     }
 

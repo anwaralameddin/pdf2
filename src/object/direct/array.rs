@@ -148,7 +148,7 @@ mod tests {
             Real::new(1.0, Span::new(3, 3)).into(),
             Boolean::new(true, Span::new(6, 4)).into(),
             Null::new(Span::new(12, 4)).into(),
-            Literal::from("A literal string").into(),
+            Literal::from(("A literal string", Span::new(17, 17))).into(),
             Name::from("Name").into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
@@ -188,8 +188,8 @@ mod tests {
         // Array: No space between elements
         let buffer = b"[<CD74097EBFE5D8A25FE8A229299730FA><CD74097EBFE5D8A25FE8A229299730FA>]";
         let expected_parsed = Array::from_iter([
-            Hexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
-            Hexadecimal::from("CD74097EBFE5D8A25FE8A229299730FA").into(),
+            Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(1, 32))).into(),
+            Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(33, 32))).into(),
         ]);
         parse_assert_eq!(buffer, expected_parsed, "".as_bytes());
     }

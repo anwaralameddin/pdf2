@@ -11,26 +11,26 @@ Stream::new(
         (
             "BBox".into(),
             Array::from_iter([
-                0.into(),
-                0.into(),
-                100.into(),
-                100.into(),
+                Integer::new(0, Span::new(0, 1)).into(),
+                Integer::new(0, Span::new(2, 1)).into(),
+                Integer::new(100, Span::new(4, 3)).into(),
+                Integer::new(100, Span::new(8, 3)).into(),
             ])
             .into(),
         ),
         (
             "FormType".into(),
-            1.into(),
+            Integer::new(1, Span::new(0, 1)).into(),
         ),
         (
             "Matrix".into(),
             Array::from_iter([
-                1.into(),
-                0.into(),
-                0.into(),
-                1.into(),
-                0.into(),
-                0.into(),
+                Integer::new(1, Span::new(0, 1)).into(),
+                Integer::new(0, Span::new(2, 1)).into(),
+                Integer::new(0, Span::new(4, 1)).into(),
+                Integer::new(1, Span::new(6, 1)).into(),
+                Integer::new(0, Span::new(8, 1)).into(),
+                Integer::new(0, Span::new(10, 1)).into(),
             ])
             .into(),
         ),
@@ -38,7 +38,7 @@ Stream::new(
             "Resources".into(),
             unsafe { Reference::new_unchecked(11, 0, 0, 0).into() },
         ),
-        ("Length".into(), 15.into()),
+        ("Length".into(), Integer::new(15, Span::new(10, 2)).into(),),
         ("Filter".into(), Name::from("FlateDecode").into()),
     ]),
     &buffer[155..170],
