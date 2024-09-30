@@ -116,10 +116,7 @@ mod build {
                     errors.push(ObjectRecoverable::MismatchedId(*id, parsed_id));
                     // continue;
                 }
-                let span = Span::new(
-                    *offset,
-                    *offset + (self.buffer[*offset..].len() - remains.len()),
-                );
+                let span = Span::new(*offset, self.buffer[*offset..].len() - remains.len());
 
                 objects.insert(*id, (value, span));
             }

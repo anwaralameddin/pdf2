@@ -10,6 +10,7 @@ use ::std::collections::VecDeque;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use nom::combinator::recognize;
 
 use self::subsection::Subsection;
 use crate::object::direct::dictionary::Dictionary;
@@ -22,11 +23,13 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse::KW_TRAILER;
 use crate::parse::KW_XREF;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p57]
 #[derive(Debug, PartialEq)]
@@ -47,33 +50,39 @@ impl Display for Section<'_> {
 
 impl<'buffer> Parser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (mut buffer, _) = terminated(tag(KW_XREF), eol)(buffer).map_err(parse_recoverable!(
-            e,
-            ParseRecoverable::new(
-                e.input,
-                stringify!(Section),
-                ParseErrorCode::NotFound(e.code)
-            )
-        ))?;
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        let (mut buffer, recognised) =
+            recognize(terminated(tag(KW_XREF), eol))(buffer).map_err(parse_recoverable!(
+                e,
+                ParseRecoverable::new(
+                    e.input,
+                    stringify!(Section),
+                    ParseErrorCode::NotFound(e.code)
+                )
+            ))?;
         // Here, we know that the buffer starts with a cross-reference section,
         // not a cross-reference stream, and the following errors should be
         // propagated as SectionFail
         let mut subsections = VecDeque::new();
         let mut subsection: Subsection;
-        while let Some(result) = Subsection::parse_suppress_recoverable::<Subsection>(buffer) {
+
+        let mut offset = offset + recognised.len();
+        while let Some(result) =
+            Subsection::parse_suppress_recoverable_span::<Subsection>(buffer, offset)
+        {
             // try_parse propagates only Failure errors
             (buffer, subsection) = result?;
+            offset = subsection.span().end();
             subsections.push_back(subsection);
         }
         // HACK The below addresses the issue with the example PDFs that contain
         // a white space before the trailer keyword that is not accounted for in
         // the standard
-        let (buffer, _) = delimited(
+        let (buffer, recognised) = recognize(delimited(
             opt(white_space), // No comments are allowed between xref and trailer
             tag(KW_TRAILER),
             opt(white_space_or_comment),
-        )(buffer)
+        ))(buffer)
         .map_err(parse_failure!(
             e,
             ParseFailure::new(
@@ -82,8 +91,10 @@ impl<'buffer> Parser<'buffer> for Section<'buffer> {
                 ParseErrorCode::MissingClosing(e.code)
             )
         ))?;
+
+        offset += recognised.len();
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (buffer, trailer) = Dictionary::parse(buffer).map_err(|err| {
+        let (buffer, trailer) = Dictionary::parse_span(buffer, offset).map_err(|err| {
             ParseFailure::new(
                 err.buffer(),
                 stringify!(Section),
@@ -98,12 +109,22 @@ impl<'buffer> Parser<'buffer> for Section<'buffer> {
 
         Ok((buffer, section))
     }
+
+    fn span(&self) -> Span {
+        let trailer_span = self.trailer.span();
+        let start = self
+            .subsections
+            .front()
+            .map_or(trailer_span.start(), |subsection| subsection.span().start());
+        let end = trailer_span.end();
+        Span::new(start, end)
+    }
 }
 
 mod table {
     use ::std::collections::HashSet;
 
-    use super::entry::Entry;
+    use super::entry::EntryData;
     use super::Section;
     use crate::xref::error::XRefErr;
     use crate::xref::error::XRefResult;
@@ -131,16 +152,16 @@ mod table {
                             return Err(XRefErr::DuplicateObjectNumber(object_number));
                         }
 
-                        match entry {
-                            Entry::Free(next_free_object_number, generation_number) => {
+                        match entry.data {
+                            EntryData::Free(next_free_object_number, generation_number) => {
                                 table.insert_free(
                                     object_number,
-                                    *generation_number,
-                                    *next_free_object_number,
+                                    generation_number,
+                                    next_free_object_number,
                                 );
                             }
-                            Entry::InUse(offset, generation_number) => {
-                                table.insert_in_use(object_number, *generation_number, *offset)?;
+                            EntryData::InUse(offset, generation_number) => {
+                                table.insert_in_use(object_number, generation_number, offset)?;
                             }
                         }
                     }
@@ -172,12 +193,14 @@ mod tests {
     use ::nom::error::ErrorKind;
 
     use super::entry::Entry;
+    use super::entry::EntryData;
     use super::*;
     use crate::assert_err_eq;
     use crate::object::direct::array::Array;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
-    use crate::parse_assert_eq;
+    use crate::parse::Span;
+    use crate::parse_span_assert_eq;
 
     #[test]
     fn section_valid() {
@@ -193,22 +216,26 @@ mod tests {
                 ),
             ]),
         );
-        parse_assert_eq!(buffer, section, "".as_bytes());
+        parse_span_assert_eq!(buffer, section, "".as_bytes());
 
         // Synthetic test
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
         let section = Section::new(
-            [Subsection::new(0, [Entry::Free(0, 65535)])],
+            [Subsection::new(
+                0,
+                [Entry::new(EntryData::Free(0, 65535), Span::new(0, 20))],
+                Span::new(0, 28),
+            )],
             Dictionary::from_iter([("Size".into(), 1.into())]),
         );
-        parse_assert_eq!(buffer, section, "".as_bytes());
+        parse_span_assert_eq!(buffer, section, "".as_bytes());
 
         // PDF produced by pdfunite from PDFs produced by Microsoft Word
         let buffer: &[Byte] =
             include_bytes!("../../../../tests/data/F3D45259CBB36D09F04BF0D65BAAD3ED_section.bin");
         let subsection: Section =
             include!("../../../../tests/code/F3D45259CBB36D09F04BF0D65BAAD3ED_section.rs");
-        parse_assert_eq!(
+        parse_span_assert_eq!(
             buffer,
             subsection,
             "\r\nstartxref\r\n38912\r\n%%EOF\r\n".as_bytes()
@@ -223,7 +250,7 @@ mod tests {
 
         // Incmplte cross-reference section
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n";
-        let parse_result = Section::parse(buffer);
+        let parse_result = Section::parse_span(buffer, 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Section),
@@ -233,7 +260,7 @@ mod tests {
 
         // Missing cross-reference section
         let buffer = b"trailer<</Size 1>>";
-        let parse_result = Section::parse(buffer);
+        let parse_result = Section::parse_span(buffer, 0);
         let expected_error = ParseRecoverable::new(
             b"trailer<</Size 1>>",
             stringify!(Section),
@@ -244,7 +271,7 @@ mod tests {
         // Missing trailer
         // TOOD Refactor error messages to avoid the repetition below
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n<</Size 1>>";
-        let parse_result = Section::parse(buffer);
+        let parse_result = Section::parse_span(buffer, 0);
         let expected_error = ParseFailure::new(
             b"<</Size 1>>",
             stringify!(Section),

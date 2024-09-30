@@ -18,6 +18,7 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse_failure;
 use crate::Byte;
 use crate::GenerationNumber;
@@ -28,15 +29,29 @@ use crate::Offset;
 pub(super) const BIG_LEN: usize = 10;
 /// REFERENCE: [7.5.4 Cross-reference table, p56-57]
 pub(super) const SMALL_LEN: usize = 5;
+/// REFERENCE: [7.5.4 Cross-reference table, p56-57]
+const LINE_LEN: usize = 20;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub(crate) enum Entry {
+pub(crate) struct Entry {
+    pub(crate) data: EntryData,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub(crate) enum EntryData {
     // TODO(QUESTION): When can the generation number of free objects be zero?
     Free(ObjectNumberOrZero, GenerationNumber),
     InUse(Offset, GenerationNumber),
 }
 
 impl Display for Entry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.data, f)
+    }
+}
+
+impl Display for EntryData {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         // The trailing space is essential to ensure the entry is exactly 20 bytes.
         // That, on all platforms, the newline character appended by `writeln!` is the
@@ -57,7 +72,7 @@ impl Display for Entry {
 }
 
 impl Parser<'_> for Entry {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse_span(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         let (buffer, entry) = terminated(
             separated_pair(
                 separated_pair(
@@ -81,8 +96,16 @@ impl Parser<'_> for Entry {
             // for xref objects should be propagated as failures.
             ParseFailure::new(e.input, stringify!(Entry), ParseErrorCode::NotFound(e.code))
         ))?;
-        let entry = Entry::try_from(entry)?;
+        let entry_data = EntryData::try_from(entry)?;
+        let entry = Self {
+            data: entry_data,
+            span: Span::new(offset, LINE_LEN),
+        };
         Ok((buffer, entry))
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -94,7 +117,13 @@ mod convert {
     use crate::parse::num::ascii_to_usize;
     use crate::Byte;
 
-    impl<'buffer> TryFrom<((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte])> for Entry {
+    impl Entry {
+        pub(crate) fn new(data: EntryData, span: Span) -> Self {
+            Self { data, span }
+        }
+    }
+
+    impl<'buffer> TryFrom<((&'buffer [Byte], &'buffer [Byte]), &'buffer [Byte])> for EntryData {
         type Error = ParseFailure<'buffer>;
 
         fn try_from(

@@ -60,10 +60,11 @@ impl Parser<'_> for StartXRef {
     }
 
     fn parse_span(buffer: &[Byte], _: Offset) -> ParseResult<(&[Byte], Self)> {
+        let size = buffer.len();
         // TODO
         // - Indicate the offset will be ignored
         // - buffer and offset need to be coupled
-        let offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
+        let mut offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
             offset
         } else {
             return Err(ParseFailure::new(
@@ -78,10 +79,11 @@ impl Parser<'_> for StartXRef {
         // ´complete` rather than `streaming` variants of `tag` and `char` are
         // used to ensure that the parser does return an Incomplete error when
         // the file ends with the EOF marker without trailing EOL characters.
-        let (buffer, consumed) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[offset..])
+        let (buffer, recognised) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[offset..])
             .unwrap_or((&buffer[offset..], &[]));
-        let start = offset + consumed.len();
-        let (remains, start_xref_offset) = delimited(
+
+        offset += recognised.len();
+        let (buffer, start_xref_offset) = delimited(
             terminated(tag(KW_STARTXREF), eol),
             digit1,
             delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
@@ -96,7 +98,6 @@ impl Parser<'_> for StartXRef {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
-        let end = start + (buffer.len() - remains.len());
 
         let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| {
             ParseFailure::new(
@@ -106,11 +107,12 @@ impl Parser<'_> for StartXRef {
             )
         })?;
 
+        let span = Span::new(offset, size - buffer.len());
         Ok((
             &[],
             Self {
                 offset: start_xref_offset,
-                span: Span::new(start, end),
+                span,
             },
         ))
     }
@@ -154,28 +156,28 @@ mod tests {
             include_bytes!("../../tests/data/CD74097EBFE5D8A25FE8A229299730FA_xref_stream.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let (_, start_xref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(start_xref_offset, StartXRef::new(238838, Span::new(7, 30)));
+        assert_eq!(start_xref_offset, StartXRef::new(238838, Span::new(7, 23)));
 
         // PDF produced by MikTeX pdfTeX-1.40.11
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/907C09F6EB56BEAF5235FAC6F37F5B84_trailer.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let (_, start_xref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(start_xref_offset, StartXRef::new(265666, Span::new(7, 30)));
+        assert_eq!(start_xref_offset, StartXRef::new(265666, Span::new(7, 23)));
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xref_stream.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let (_, start_xref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(start_xref_offset, StartXRef::new(309373, Span::new(7, 30)));
+        assert_eq!(start_xref_offset, StartXRef::new(309373, Span::new(7, 23)));
 
         // PDF produced by pdfTeX-1.40.22
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
         let offset = buffer.len() - STARTXREF_MAX_SIZE;
         let (_, start_xref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(start_xref_offset, StartXRef::new(365385, Span::new(7, 30)));
+        assert_eq!(start_xref_offset, StartXRef::new(365385, Span::new(7, 23)));
     }
 
     #[test]

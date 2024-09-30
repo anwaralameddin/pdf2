@@ -96,8 +96,19 @@ mod convert {
     use super::*;
 
     impl Span {
-        pub fn new(start: usize, end: usize) -> Self {
-            Self { start, end }
+        pub fn new(start: usize, len: usize) -> Self {
+            Self {
+                start,
+                end: start + len,
+            }
+        }
+
+        pub fn start(&self) -> usize {
+            self.start
+        }
+
+        pub fn end(&self) -> usize {
+            self.end
         }
     }
 }
@@ -115,6 +126,23 @@ mod tests {
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
             assert_eq!(
                 Parser::parse($buffer).unwrap(),
+                ($expected_remains, $expected_parsed)
+            );
+        };
+    }
+
+    #[macro_export]
+    macro_rules! parse_span_assert_eq {
+        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
+            assert_eq!(
+                Parser::parse_span($buffer, 0).unwrap(),
+                ($expected_remains, $expected_parsed)
+            );
+        };
+        // The two patterns differ only in the trailing comma
+        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
+            assert_eq!(
+                Parser::parse_span($buffer, 0).unwrap(),
                 ($expected_remains, $expected_parsed)
             );
         };
