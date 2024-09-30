@@ -134,11 +134,10 @@ Dictionary::from_iter([
     ),
     (
         "ID".into(),
-        Array::from_iter([
+        Array::new(vec![
             Hexadecimal::from(("F3D45259CBB36D09F04BF0D65BAAD3ED", Span::new(0, 32))).into(),
             Hexadecimal::from(("F3D45259CBB36D09F04BF0D65BAAD3ED", Span::new(0, 32))).into(),
-        ])
-        .into(),
+        ], Span::new(0, 65)).into(),
     ),
 ])
 )

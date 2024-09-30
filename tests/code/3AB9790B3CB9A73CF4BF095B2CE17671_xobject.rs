@@ -10,13 +10,12 @@ Stream::new(
         ),
         (
             "BBox".into(),
-            Array::from_iter([
+            Array::new(vec![
                 Integer::new(0, Span::new(0, 1)).into(),
                 Integer::new(0, Span::new(2, 1)).into(),
                 Integer::new(100, Span::new(4, 3)).into(),
                 Integer::new(100, Span::new(8, 3)).into(),
-            ])
-            .into(),
+            ], Span::new(0, 12)).into(),
         ),
         (
             "FormType".into(),
@@ -24,15 +23,14 @@ Stream::new(
         ),
         (
             "Matrix".into(),
-            Array::from_iter([
+            Array::new(vec![
                 Integer::new(1, Span::new(0, 1)).into(),
                 Integer::new(0, Span::new(2, 1)).into(),
                 Integer::new(0, Span::new(4, 1)).into(),
                 Integer::new(1, Span::new(6, 1)).into(),
                 Integer::new(0, Span::new(8, 1)).into(),
                 Integer::new(0, Span::new(10, 1)).into(),
-            ])
-            .into(),
+            ], Span::new(0, 12)).into(),
         ),
         (
             "Resources".into(),
