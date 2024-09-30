@@ -11,10 +11,12 @@ use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
 use crate::parse::error::ParseResult;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
 use crate::process::filter::FilteringChain;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.5.8 Cross-reference streams, p65-66]
 #[derive(Debug, PartialEq)]
@@ -30,11 +32,11 @@ impl Display for XRefStream<'_> {
 }
 
 impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+    fn parse_span(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value }) = Parser::parse(buffer)?;
+        let (remains, IndirectObject { id, value }) = Parser::parse_span(buffer, offset)?;
 
         let stream = Stream::try_from(value)?;
 
@@ -43,6 +45,12 @@ impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
         let buffer = remains;
 
         Ok((buffer, xref_stream))
+    }
+
+    fn span(&self) -> Span {
+        let start = self.id.span().start();
+        let end = self.stream.span().end();
+        Span::new(start, end)
     }
 }
 
@@ -243,7 +251,7 @@ mod tests {
     use crate::object::direct::name::Name;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
-    use crate::parse_assert_eq;
+    use crate::parse_span_assert_eq;
 
     #[test]
     fn xref_stream_valid() {
@@ -257,7 +265,7 @@ mod tests {
             id: unsafe { Id::new_unchecked(749, 0) },
             stream: Stream::new(dictionary, &buffer[215..1975]),
         };
-        parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
+        parse_span_assert_eq!(buffer, xref_stream, &buffer[1993..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -269,7 +277,7 @@ mod tests {
             unsafe { Id::new_unchecked(439, 0) },
             Stream::new(dictionary, &buffer[215..1304]),
         );
-        parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
+        parse_span_assert_eq!(buffer, xref_stream, &buffer[1322..]);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -281,7 +289,7 @@ mod tests {
             unsafe { Id::new_unchecked(190, 0) },
             Stream::new(dictionary, &buffer[215..717]),
         );
-        parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
+        parse_span_assert_eq!(buffer, xref_stream, &buffer[735..]);
     }
 
     // TODO Add tests
