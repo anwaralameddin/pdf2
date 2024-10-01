@@ -436,14 +436,14 @@ mod tests {
     fn section_trailer_valid() {
         // Synthetic test
         let buffer = include_bytes!("../../../tests/data/SYNTHETIC_trailer.bin");
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/SYNTHETIC_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.bin");
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
@@ -465,14 +465,14 @@ mod tests {
         let key_dd = b"dd".to_vec();
         let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(252, 15))).into();
 
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfunite from PDFs produced by LaTeX
         let buffer =
             include_bytes!("../../../tests/data/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.bin");
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
     }
@@ -482,7 +482,7 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let (_, object) = IndirectObject::parse_object(buffer, 0).unwrap();
+        let object = IndirectObject::parse(buffer, 0).unwrap();
         let val_ref = Name::new(VAL_XREF, Span::new(19, 5));
         let key_length = KEY_LENGTH.to_vec();
 
@@ -522,7 +522,7 @@ mod tests {
 
         // Missing required key Size
         let buffer = b"<</Root 2 0 R /Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
 
         let expected_error =
@@ -530,7 +530,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         let buffer = b"<</Size 1.1/Root 2 0 R/Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse_object(buffer, 0).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
         let value: DirectValue = Real::new(1.1, Span::new(8, 3)).into();
         let expected_error = ObjectErr::new(

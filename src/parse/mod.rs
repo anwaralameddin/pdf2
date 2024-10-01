@@ -39,26 +39,23 @@ pub(crate) trait Parser<'buffer> {
 }
 
 pub(crate) trait ObjectParser<'buffer> {
-    fn parse_object(
-        buffer: &'buffer [Byte],
-        offset: Offset,
-    ) -> ParseResult<'buffer, (&[Byte], Self)>
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<'buffer, Self>
     where
         Self: Sized;
 
     fn span(&self) -> Span;
 
-    fn parse_suppress_recoverable_span<O>(
+    fn parse_suppress_recoverable<O>(
         buffer: &'buffer [Byte],
         offset: Offset,
-    ) -> Option<ParseResult<(&[Byte], O)>>
+    ) -> Option<ParseResult<O>>
     where
         Self: Sized,
         O: From<Self>,
     {
-        let result = Self::parse_object(buffer, offset);
+        let result = Self::parse(buffer, offset);
         match result {
-            Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
+            Ok(object) => Some(Ok(object.into())),
             Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
             _ => None,
         }
@@ -70,6 +67,7 @@ mod convert {
 
     impl Span {
         pub fn new(start: usize, len: usize) -> Self {
+            // TODO: Require that start <= end
             Self {
                 start,
                 end: start + len,
@@ -83,24 +81,22 @@ mod convert {
         pub fn end(&self) -> usize {
             self.end
         }
+
+        pub fn len(&self) -> usize {
+            self.end - self.start
+        }
     }
 }
 
 mod tests {
     #[macro_export]
-    macro_rules! parse_span_assert_eq {
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
-            assert_eq!(
-                ObjectParser::parse_object($buffer, 0).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
+    macro_rules! parse_assert_eq {
+        ($type:ident, $buffer:expr, $expected_parsed:expr) => {
+            assert_eq!($type::parse($buffer, 0).unwrap(), $expected_parsed);
         };
         // The two patterns differ only in the trailing comma
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
-            assert_eq!(
-                ObjectParser::parse_object($buffer, 0).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
+        ($type:ident, $buffer:expr, $expected_parsed:expr,) => {
+            assert_eq!($type::parse($buffer, 0).unwrap(), $expected_parsed);
         };
     }
 }

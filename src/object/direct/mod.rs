@@ -61,18 +61,18 @@ impl Display for DirectValue<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for DirectValue<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        Reference::parse_suppress_recoverable_span(buffer, offset)
-            .or_else(|| Null::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| Boolean::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| Numeric::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| Name::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| String_::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| Array::parse_suppress_recoverable_span(buffer, offset))
-            .or_else(|| Dictionary::parse_suppress_recoverable_span(buffer, offset))
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        Reference::parse_suppress_recoverable(buffer, offset)
+            .or_else(|| Null::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Boolean::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Numeric::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Name::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| String_::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Array::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Dictionary::parse_suppress_recoverable(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
-                    buffer,
+                    &buffer[offset..],
                     stringify!(DirectValue),
                     ParseErrorCode::NotFoundUnion,
                 )

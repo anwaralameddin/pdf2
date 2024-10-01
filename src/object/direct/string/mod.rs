@@ -44,12 +44,12 @@ impl PartialEq for String_<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for String_<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        Literal::parse_suppress_recoverable_span(buffer, offset)
-            .or_else(|| Hexadecimal::parse_suppress_recoverable_span(buffer, offset))
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        Literal::parse_suppress_recoverable(buffer, offset)
+            .or_else(|| Hexadecimal::parse_suppress_recoverable(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
-                    buffer,
+                    &buffer[offset..],
                     stringify!(String),
                     ParseErrorCode::NotFoundUnion,
                 )
@@ -135,18 +135,16 @@ mod tests {
     #[test]
     fn string_valid() {
         // Synthetic tests
-        let (buffer, string_literal) = String_::parse_object(b"(A Hexadecimal String)", 0).unwrap();
-        assert_eq!(buffer, &[]);
+        let parse_result = String_::parse(b"(A Hexadecimal String)", 0).unwrap();
         assert_eq!(
-            string_literal,
+            parse_result,
             Literal::from(("A Hexadecimal String", Span::new(0, 22))).into()
         );
 
-        let (buffer, string_hex) =
-            String_::parse_object(b"<412048657861646563696D616C20537472696E67>", 0).unwrap();
-        assert_eq!(buffer, &[]);
+        let parse_result =
+            String_::parse(b"<412048657861646563696D616C20537472696E67>", 0).unwrap();
         assert_eq!(
-            string_hex,
+            parse_result,
             Hexadecimal::from(("412048657861646563696D616C20537472696E67", Span::new(0, 42)))
                 .into()
         );

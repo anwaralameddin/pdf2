@@ -33,20 +33,17 @@ impl Display for XRefStream<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value, span }) =
-            ObjectParser::parse_object(buffer, offset)?;
+        let IndirectObject { id, value, span } = ObjectParser::parse(buffer, offset)?;
 
         let stream = Stream::try_from(value)?;
 
         let xref_stream = XRefStream::new(id, stream, span);
 
-        let buffer = remains;
-
-        Ok((buffer, xref_stream))
+        Ok(xref_stream)
     }
 
     fn span(&self) -> Span {
@@ -55,13 +52,12 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
 }
 
 mod table {
-    use std::ops::Deref;
-
     use ::nom::bytes::complete::take;
     use ::nom::multi::many0;
     use ::nom::sequence::tuple;
     use ::nom::Err as NomErr;
     use ::std::collections::HashSet;
+    use ::std::ops::Deref;
 
     use super::entry::Entry;
     use super::error::XRefStreamErrorCode;
@@ -254,7 +250,7 @@ mod tests {
     use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn xref_stream_valid() {
@@ -269,7 +265,7 @@ mod tests {
             stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
             span: Span::new(0, 1993),
         };
-        parse_span_assert_eq!(buffer, xref_stream, &buffer[1993..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -282,7 +278,7 @@ mod tests {
             Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
             Span::new(0, 1322),
         );
-        parse_span_assert_eq!(buffer, xref_stream, &buffer[1322..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -295,7 +291,7 @@ mod tests {
             Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
             Span::new(0, 735),
         );
-        parse_span_assert_eq!(buffer, xref_stream, &buffer[735..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
     }
 
     // TODO Add tests

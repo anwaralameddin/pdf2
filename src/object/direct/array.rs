@@ -1,5 +1,6 @@
 use ::nom::character::complete::char;
 use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
@@ -7,7 +8,6 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 use ::std::ops::Deref;
-use nom::combinator::recognize;
 
 use super::DirectValue;
 use crate::parse::character_set::white_space_or_comment;
@@ -49,16 +49,17 @@ impl PartialEq for Array<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let size = buffer.len();
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
         let start = offset;
 
         let mut values = Vec::default();
         let mut value: DirectValue;
-        let (mut buffer, recognised) = recognize(terminated(
+        let (mut remains, recognised) = recognize(terminated(
             char('['),
             opt(white_space_or_comment),
-        ))(buffer)
+        ))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Array), ParseErrorCode::NotFound(e.code))
@@ -68,12 +69,12 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
         // errors should be propagated as ArrayFailure
         loop {
             // Check for the end of the array (closing square bracket)
-            if let Ok((remains, _)) = char::<_, NomError<_>>(']')(buffer) {
-                buffer = remains;
+            if let Ok((buf, _)) = char::<_, NomError<_>>(']')(remains) {
+                remains = buf;
                 break;
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse_object(buffer, offset).map_err(|err| {
+            value = DirectValue::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Array),
@@ -81,22 +82,23 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
                 )
             })?;
             offset = value.span().end();
+            remains = &buffer[offset..];
 
             values.push(value);
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remains, recognised)) = recognize(opt(white_space_or_comment))(buffer) {
-                buffer = remains;
+            if let Ok((buf, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+                remains = buf;
                 offset += recognised.len();
             }
         }
 
-        let span = Span::new(start, size - buffer.len());
+        let span = Span::new(start, remains_len - remains.len());
         let array = Self {
             array: values,
             span,
         };
-        Ok((buffer, array))
+        Ok(array)
     }
 
     fn span(&self) -> Span {
@@ -148,7 +150,7 @@ mod tests {
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::parse::Span;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn array_valid() {
@@ -165,13 +167,13 @@ mod tests {
             ],
             Span::new(0, 40),
         );
-        parse_span_assert_eq!(buffer, expected_parsed, "".as_bytes());
+        parse_assert_eq!(Array, buffer, expected_parsed);
 
         // A synthetic test
         // Array: Empty
         let buffer = b"[]";
         let expected_parsed = Array::new([], Span::new(0, 2));
-        parse_span_assert_eq!(buffer, expected_parsed, "".as_bytes());
+        parse_assert_eq!(Array, buffer, expected_parsed);
 
         // A synthetic test
         // Array: 2D matrix
@@ -208,7 +210,7 @@ mod tests {
             ],
             Span::new(0, 23),
         );
-        parse_span_assert_eq!(buffer, expected_parsed, "".as_bytes());
+        parse_assert_eq!(Array, buffer, expected_parsed);
 
         // PDF produced by pdfTeX-1.40.21
         // Array: No space between elements
@@ -220,7 +222,7 @@ mod tests {
             ],
             Span::new(0, 70),
         );
-        parse_span_assert_eq!(buffer, expected_parsed, "".as_bytes());
+        parse_assert_eq!(Array, buffer, expected_parsed);
     }
 
     #[test]
@@ -228,7 +230,7 @@ mod tests {
         // Synthetic tests
 
         // Array: Not found
-        let parse_result = Array::parse_object(b"1 1.0 true null(A literal string)/Name", 0);
+        let parse_result = Array::parse(b"1 1.0 true null(A literal string)/Name", 0);
         let expected_error = ParseRecoverable::new(
             b"1 1.0 true null(A literal string)/Name",
             stringify!(Array),
@@ -237,7 +239,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Array: Missing closing square bracket
-        let parse_result = Array::parse_object(b"[1 1.0 true null(A literal string)/Name", 0);
+        let parse_result = Array::parse(b"[1 1.0 true null(A literal string)/Name", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Array),

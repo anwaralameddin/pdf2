@@ -22,8 +22,7 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
         let mut prev = Some(*startxref);
 
         while let Some(offset) = prev {
-            let remains = &buffer[offset..];
-            let (_, increment) = Increment::parse_object(remains, offset)?;
+            let increment = Increment::parse(buffer, offset)?;
 
             // FIXME This does not take intoaccount the notes on
             // hybrid-reference file’s trailer dictionary in
@@ -32,7 +31,7 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
             prev = increment.prev().map_err(|err| {
                 // FIXME (TEMP) `remains` should be repalced by increment.dictionary.span()
                 ParseFailure::new(
-                    remains,
+                    &buffer[offset..],
                     stringify!(PreTable),
                     ParseErrorCode::Object(err.to_string()),
                 )

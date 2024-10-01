@@ -37,14 +37,15 @@ impl Display for Id {
 }
 
 impl ObjectParser<'_> for Id {
-    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let size = buffer.len();
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
         let start = offset;
 
-        let (buffer, (object_number, generation_number)) = pair(
+        let (remains, (object_number, generation_number)) = pair(
             terminated(digit1, white_space_or_comment),
             terminated(digit1, white_space_or_comment),
-        )(buffer)
+        )(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Id), ParseErrorCode::NotFound(e.code))
@@ -57,7 +58,6 @@ impl ObjectParser<'_> for Id {
             .ok_or_else(|| {
                 ParseRecoverable::new(object_number, stringify!(Id), ParseErrorCode::ObjectNumber)
             })?;
-
         let generation_number = ascii_to_u16(generation_number).ok_or_else(|| {
             ParseRecoverable::new(
                 generation_number,
@@ -66,13 +66,13 @@ impl ObjectParser<'_> for Id {
             )
         })?;
 
-        let span = Span::new(start, size - buffer.len());
+        let span = Span::new(start, remains_len - remains.len());
         let id = Self {
             object_number,
             generation_number,
             span,
         };
-        Ok((buffer, id))
+        Ok(id)
     }
 
     fn span(&self) -> Span {
@@ -105,7 +105,7 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     impl Id {
         pub(crate) unsafe fn new_unchecked(
@@ -124,18 +124,16 @@ mod tests {
     #[test]
     fn id_valid() {
         // Synthetic tests
-        parse_span_assert_eq!(
-            b"65535 65535 R <<",
-            unsafe { Id::new_unchecked(65535, 65535, 0, 12) },
-            "R <<".as_bytes(),
-        );
+        parse_assert_eq!(Id, b"65535 65535 R <<", unsafe {
+            Id::new_unchecked(65535, 65535, 0, 12)
+        },);
     }
 
     #[test]
     fn id_invalid() {
         // Synthetic tests
         // Id: Not found
-        let parse_result = Id::parse_object(b"/Name", 0);
+        let parse_result = Id::parse(b"/Name", 0);
         let expected_error = ParseRecoverable::new(
             b"/Name",
             stringify!(Id),
@@ -145,7 +143,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Missing generation number
-        let parse_result = Id::parse_object(b"56789 ", 0);
+        let parse_result = Id::parse(b"56789 ", 0);
         let expected_error = ParseRecoverable::new(
             b"",
             stringify!(Id),
@@ -154,7 +152,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Starts with a negative number
-        let parse_result = Id::parse_object(b"-12345 65535 R other objects", 0);
+        let parse_result = Id::parse(b"-12345 65535 R other objects", 0);
         let expected_error = ParseRecoverable::new(
             b"-12345 65535 R other objects",
             stringify!(Id),
@@ -163,13 +161,13 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Zero Object number
-        let parse_result = Id::parse_object(b"0 65535 R other objects", 0);
+        let parse_result = Id::parse(b"0 65535 R other objects", 0);
         let expected_error =
             ParseRecoverable::new(b"0", stringify!(Id), ParseErrorCode::ObjectNumber);
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Object number too large
-        let parse_result = Id::parse_object(b"98765432109876543210 65535 R other objects", 0);
+        let parse_result = Id::parse(b"98765432109876543210 65535 R other objects", 0);
         let expected_error = ParseRecoverable::new(
             b"98765432109876543210",
             stringify!(Id),
@@ -178,13 +176,13 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Generation number too large
-        let parse_result = Id::parse_object(b"1 65536 R other objects", 0);
+        let parse_result = Id::parse(b"1 65536 R other objects", 0);
         let expected_error =
             ParseRecoverable::new(b"65536", stringify!(Id), ParseErrorCode::GenerationNumber);
         assert_err_eq!(parse_result, expected_error);
 
         // Id: Generation number too large
-        let parse_result = Id::parse_object(b"1 6553500 R other objects", 0);
+        let parse_result = Id::parse(b"1 6553500 R other objects", 0);
         let expected_error =
             ParseRecoverable::new(b"6553500", stringify!(Id), ParseErrorCode::GenerationNumber);
         assert_err_eq!(parse_result, expected_error);

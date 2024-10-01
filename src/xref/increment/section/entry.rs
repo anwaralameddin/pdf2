@@ -72,8 +72,10 @@ impl Display for EntryData {
 }
 
 impl ObjectParser<'_> for Entry {
-    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, entry) = terminated(
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
+        let (_, entry) = terminated(
             separated_pair(
                 separated_pair(
                     take_while_m_n(BIG_LEN, BIG_LEN, AsChar::is_dec_digit),
@@ -89,7 +91,7 @@ impl ObjectParser<'_> for Entry {
                 take_while_m_n(1, 1, is_white_space),
                 take_while_m_n(1, 1, |byte| byte == b'\n' || byte == b'\r'),
             ),
-        )(buffer)
+        )(remains)
         .map_err(parse_failure!(
             e,
             // Except for Subsection, Section and XRefStream, NotFound errors
@@ -101,7 +103,7 @@ impl ObjectParser<'_> for Entry {
             data: entry_data,
             span: Span::new(offset, LINE_LEN),
         };
-        Ok((buffer, entry))
+        Ok(entry)
     }
 
     fn span(&self) -> Span {

@@ -277,7 +277,7 @@ mod tests {
     #[macro_export]
     macro_rules! strict_stream_defilter_filter {
         ($buffer:expr, $expected:expr) => {
-            let (_, stream) = Stream::parse_object($buffer, 0).unwrap();
+            let stream = Stream::parse($buffer, 0).unwrap();
             let defiltered = stream.defilter().unwrap();
             assert_eq!(defiltered, $expected);
             let refiltered = stream.filter_buffer(defiltered.as_slice()).unwrap();
@@ -294,7 +294,7 @@ mod tests {
     #[macro_export]
     macro_rules! lax_stream_defilter_filter {
         ($buffer:expr, $expected:expr) => {
-            let (_, stream) = Stream::parse_object($buffer, 0).unwrap();
+            let stream = Stream::parse($buffer, 0).unwrap();
             let defiltered = stream.defilter().unwrap();
             assert_eq!(defiltered, $expected);
             let refiltered = stream.filter_buffer(defiltered.as_slice()).unwrap();

@@ -34,11 +34,13 @@ impl Display for Integer {
 }
 
 impl ObjectParser<'_> for Integer {
-    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
         let (remains, value) = recognize::<_, _, NomError<_>, _>(pair(
             opt(alt((char('-'), (char('+'))))),
             digit1,
-        ))(buffer)
+        ))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(
@@ -53,13 +55,12 @@ impl ObjectParser<'_> for Integer {
         // next character should not be '.'
         if char::<_, NomError<_>>('.')(remains).is_ok() {
             return Err(ParseRecoverable::new(
-                buffer,
+                &buffer[offset..],
                 stringify!(Integer),
                 ParseErrorCode::WrongObjectType,
             )
             .into());
         }
-        let buffer = remains;
         // Here, we know that the buffer starts with an integer, and the
         // following errors should be propagated as IntegerFailure
 
@@ -74,7 +75,7 @@ impl ObjectParser<'_> for Integer {
         })?;
 
         let span = Span::new(offset, len);
-        Ok((buffer, Self { value, span }))
+        Ok(Self { value, span })
     }
 
     fn span(&self) -> Span {
@@ -124,32 +125,32 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn numeric_integer_valid() {
-        parse_span_assert_eq!(b"0", Integer::new(0, Span::new(0, 1)), "".as_bytes());
-        parse_span_assert_eq!(b"-0", Integer::new(0, Span::new(0, 2)), "".as_bytes());
-        parse_span_assert_eq!(b"+1", Integer::new(1, Span::new(0, 2)), "".as_bytes());
-        parse_span_assert_eq!(b"-1", Integer::new(-1, Span::new(0, 2)), "".as_bytes());
-        parse_span_assert_eq!(b"1", Integer::new(1, Span::new(0, 1)), "".as_bytes());
-        parse_span_assert_eq!(
+        parse_assert_eq!(Integer, b"0", Integer::new(0, Span::new(0, 1)));
+        parse_assert_eq!(Integer, b"-0", Integer::new(0, Span::new(0, 2)));
+        parse_assert_eq!(Integer, b"+1", Integer::new(1, Span::new(0, 2)));
+        parse_assert_eq!(Integer, b"-1", Integer::new(-1, Span::new(0, 2)));
+        parse_assert_eq!(Integer, b"1", Integer::new(1, Span::new(0, 1)));
+        parse_assert_eq!(
+            Integer,
             b"-170141183460469231731687303715884105728<",
-            Integer::new(i128::MIN, Span::new(0, 40)),
-            "<".as_bytes()
+            Integer::new(i128::MIN, Span::new(0, 40))
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Integer,
             b"170141183460469231731687303715884105727<",
-            Integer::new(i128::MAX, Span::new(0, 39)),
-            "<".as_bytes()
+            Integer::new(i128::MAX, Span::new(0, 39))
         );
-        parse_span_assert_eq!(b"-1 2", Integer::new(-1, Span::new(0, 2)), " 2".as_bytes());
+        parse_assert_eq!(Integer, b"-1 2", Integer::new(-1, Span::new(0, 2)));
     }
 
     #[test]
     fn numeric_integer_invalid() {
         // Invalid integer number: Missing digits
-        let parse_result = Integer::parse_object(b"+", 0);
+        let parse_result = Integer::parse(b"+", 0);
         let expected_error = ParseRecoverable::new(
             b"",
             stringify!(Integer),
@@ -158,7 +159,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
-        let parse_result = Integer::parse_object(b"- <", 0);
+        let parse_result = Integer::parse(b"- <", 0);
         let expected_error = ParseRecoverable::new(
             b" <",
             stringify!(Integer),
@@ -167,7 +168,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
-        let parse_result = Integer::parse_object(b"+<", 0);
+        let parse_result = Integer::parse(b"+<", 0);
         let expected_error = ParseRecoverable::new(
             b"<",
             stringify!(Integer),
@@ -176,7 +177,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Missing digits
-        let parse_result = Integer::parse_object(b"<", 0);
+        let parse_result = Integer::parse(b"<", 0);
         let expected_error = ParseRecoverable::new(
             b"<",
             stringify!(Integer),
@@ -185,7 +186,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Found real number
-        let parse_result = Integer::parse_object(b"-1.0 ", 0);
+        let parse_result = Integer::parse(b"-1.0 ", 0);
         let expected_error = ParseRecoverable::new(
             b"-1.0 ",
             stringify!(Integer),
@@ -194,7 +195,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
-        let parse_result = Integer::parse_object(b"-170141183460469231731687303715884105729<", 0);
+        let parse_result = Integer::parse(b"-170141183460469231731687303715884105729<", 0);
         let expected_error = ParseRecoverable::new(
             b"-170141183460469231731687303715884105729",
             stringify!(Integer),
@@ -203,7 +204,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range
-        let parse_result = Integer::parse_object(b"+170141183460469231731687303715884105728<", 0);
+        let parse_result = Integer::parse(b"+170141183460469231731687303715884105728<", 0);
         let expected_error = ParseRecoverable::new(
             b"+170141183460469231731687303715884105728",
             stringify!(Integer),

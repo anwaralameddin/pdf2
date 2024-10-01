@@ -53,16 +53,18 @@ impl PartialEq for Name<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Name<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, value) =
-            preceded(char('/'), printable_token)(buffer).map_err(parse_recoverable!(
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
+        let (_, value) =
+            preceded(char('/'), printable_token)(remains).map_err(parse_recoverable!(
                 e,
                 ParseRecoverable::new(e.input, stringify!(Name), ParseErrorCode::NotFound(e.code))
             ))?;
 
         let len = value.len() + 1;
         let span = Span::new(offset, len);
-        Ok((buffer, Self { value, span }))
+        Ok(Self { value, span })
     }
 
     fn span(&self) -> Span {
@@ -211,7 +213,8 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::escape_assert_err;
-    use crate::parse_span_assert_eq;
+    use crate::parse::ObjectParser;
+    use crate::parse_assert_eq;
     use crate::process::escape::error::EscapeErr;
     use crate::process::escape::error::EscapeErrorCode;
     use crate::process::escape::Escape;
@@ -219,31 +222,27 @@ mod tests {
     #[test]
     fn name_valid() {
         // Synthetic tests
-        parse_span_assert_eq!(
-            b"/ABC123",
-            Name::from(("ABC123", Span::new(0, 7))),
-            "".as_bytes()
-        );
-        parse_span_assert_eq!(
+        parse_assert_eq!(Name, b"/ABC123", Name::from(("ABC123", Span::new(0, 7))));
+        parse_assert_eq!(
+            Name,
             b"/A_B+C^1!2@3",
             Name::from(("A_B+C^1!2@3", Span::new(0, 12))),
-            "".as_bytes()
         );
-        parse_span_assert_eq!(b"/123", Name::from(("123", Span::new(0, 4))), "".as_bytes());
-        parse_span_assert_eq!(
-            b"/.@domain(",
+        parse_assert_eq!(Name, b"/123", Name::from(("123", Span::new(0, 4))));
+        parse_assert_eq!(
+            Name,
+            b"/.@domain",
             Name::from((".@domain", Span::new(0, 9))),
-            "(".as_bytes()
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Name,
             b"/#41#20Name",
             Name::from(("A Name", Span::new(0, 11))),
-            "".as_bytes()
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Name,
             b"/#28Name#29",
             Name::from(("(Name)", Span::new(0, 11))),
-            "".as_bytes()
         );
     }
 
@@ -251,7 +250,7 @@ mod tests {
     fn name_invalid() {
         // Synthetic tests
         // Name: Not found
-        let parse_result = Name::parse_object(b"Name", 0);
+        let parse_result = Name::parse(b"Name", 0);
         let expected_error = ParseRecoverable::new(
             b"Name",
             stringify!(Name),
@@ -264,27 +263,15 @@ mod tests {
     fn name_escape_valid() {
         // Synthetic tests
         assert_eq!(
-            Name::parse_object(b"/#41#20Name", 0)
-                .unwrap()
-                .1
-                .escape()
-                .unwrap(),
+            Name::parse(b"/#41#20Name", 0).unwrap().escape().unwrap(),
             b"A Name"
         );
         assert_eq!(
-            Name::parse_object(b"/#28Name#29", 0)
-                .unwrap()
-                .1
-                .escape()
-                .unwrap(),
+            Name::parse(b"/#28Name#29", 0).unwrap().escape().unwrap(),
             b"(Name)"
         );
         assert_eq!(
-            Name::parse_object(b"/#23Name", 0)
-                .unwrap()
-                .1
-                .escape()
-                .unwrap(),
+            Name::parse(b"/#23Name", 0).unwrap().escape().unwrap(),
             b"#Name"
         );
     }
@@ -298,23 +285,22 @@ mod tests {
         // let object = &Name::from("Name)");
 
         // Name: A non-hexadecimal character following the number sign
-        let (_, object) = Name::parse_object(b"/Name#_", 0).unwrap();
+        let object = Name::parse(b"/Name#_", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::InvalidHexDigit('_'));
-
         escape_assert_err!(object, expected_error);
 
         // Name: Incomplete hex code
-        let (_, object) = Name::parse_object(b"/Name#7_", 0).unwrap();
+        let object = Name::parse(b"/Name#7_", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::IncompleteHexCode(7, '_'));
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing number sign
-        let (_, object) = Name::parse_object(b"/Name#", 0).unwrap();
+        let object = Name::parse(b"/Name#", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingNumberSign);
         escape_assert_err!(object, expected_error);
 
         // Name: Trailing hex digit
-        let (_, object) = Name::parse_object(b"/Name#7", 0).unwrap();
+        let object = Name::parse(b"/Name#7", 0).unwrap();
         let expected_error = EscapeErr::new(&object, EscapeErrorCode::TraillingHexDigit(7));
         escape_assert_err!(object, expected_error);
     }

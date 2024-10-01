@@ -34,12 +34,12 @@ impl Display for IndirectValue<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse_suppress_recoverable_span(buffer, offset)
-            .or_else(|| DirectValue::parse_suppress_recoverable_span(buffer, offset))
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        Stream::parse_suppress_recoverable(buffer, offset)
+            .or_else(|| DirectValue::parse_suppress_recoverable(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
-                    buffer,
+                    &buffer[offset..],
                     stringify!(IndirectValue),
                     ParseErrorCode::NotFoundUnion,
                 )

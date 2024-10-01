@@ -37,18 +37,20 @@ impl Display for Real {
 }
 
 impl ObjectParser<'_> for Real {
-    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
         // REFERENCE: [7.3.3 Numeric objects, p24]
         // A real number is represented in its decimal form and does not permit
         // exponential notation.
         // An integer can be used in place of a real number.
-        let (buffer, value) = recognize::<_, _, NomError<_>, _>(pair(
+        let (_, value) = recognize::<_, _, NomError<_>, _>(pair(
             opt(alt((char('-'), (char('+'))))),
             alt((
                 recognize(pair(digit1, opt(preceded(char('.'), digit0)))),
                 recognize(pair(digit0, preceded(char('.'), digit1))),
             )),
-        ))(buffer)
+        ))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Real), ParseErrorCode::NotFound(e.code))
@@ -64,7 +66,7 @@ impl ObjectParser<'_> for Real {
         })?;
 
         let span = Span::new(offset, len);
-        Ok((buffer, Self { value, span }))
+        Ok(Self { value, span })
     }
 
     fn span(&self) -> Span {
@@ -98,48 +100,40 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn numeric_real_valid() {
-        parse_span_assert_eq!(b"-0", Real::new(0.0, Span::new(0, 2)), "".as_bytes());
-        parse_span_assert_eq!(b"-0", Real::new(0.0, Span::new(0, 2)), "".as_bytes());
-        parse_span_assert_eq!(b"0.0", Real::new(0.0, Span::new(0, 3)), "".as_bytes());
-        parse_span_assert_eq!(
-            b"-.0001",
-            Real::new(-0.0001, Span::new(0, 6)),
-            "".as_bytes()
-        );
-        parse_span_assert_eq!(b"1. 2", Real::new(1.0, Span::new(0, 2)), " 2".as_bytes());
-        parse_span_assert_eq!(
-            b"+1 .0 2.0",
-            Real::new(1.0, Span::new(0, 2)),
-            " .0 2.0".as_bytes()
-        );
+        parse_assert_eq!(Real, b"-0", Real::new(0.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"-0", Real::new(0.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"0.0", Real::new(0.0, Span::new(0, 3)));
+        parse_assert_eq!(Real, b"-.0001", Real::new(-0.0001, Span::new(0, 6)),);
+        parse_assert_eq!(Real, b"1. 2", Real::new(1.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"+1 .0 2.0", Real::new(1.0, Span::new(0, 2)),);
         // f64::MIN = -1.7976931348623157E+308f64 but i64::MIN = -9223372036854775808
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Real,
             b"-9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
             Real::new(
                 -9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999,
                 Span::new(0, 313)
             ),
-            "".as_bytes()
         );
         // f64::MAX = 1.7976931348623157E+308f64 but i64::MAX = 9223372036854775807
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Real,
             b"9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
             Real::new(
                 9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999,
                 Span::new(0, 312)
-            ), 
-            "".as_bytes()
+            ),
         );
     }
 
     #[test]
     fn numeric_real_invalid() {
         // Real number: Missing digits
-        let real_incomplete = Real::parse_object(b"+.", 0);
+        let real_incomplete = Real::parse(b"+.", 0);
         let expected_error = ParseRecoverable::new(
             b"",
             stringify!(Real),
@@ -148,7 +142,7 @@ mod tests {
         assert_err_eq!(real_incomplete, expected_error);
 
         // Real number: Missing digits
-        let parse_result = Real::parse_object(b" <", 0);
+        let parse_result = Real::parse(b" <", 0);
         let expected_error = ParseRecoverable::new(
             b" <",
             stringify!(Real),
@@ -157,7 +151,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Real number: Missing digits
-        let parse_result = Real::parse_object(b"+.<", 0);
+        let parse_result = Real::parse(b"+.<", 0);
         let expected_error = ParseRecoverable::new(
             b"<",
             stringify!(Real),
@@ -168,26 +162,26 @@ mod tests {
         // TODO(QUESTION) Is there a need to allow such large numbers?
         // f64::MIN = -1.7976931348623157E+308f64
         let buffer = b"-179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        let parse_result = Real::parse_object(buffer, 0);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::MAX = 1.7976931348623157E+308f64
         let buffer = b"179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        let parse_result = Real::parse_object(buffer, 0);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::NEG_INFINITY
         let buffer = b"-179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
-        let parse_result = Real::parse_object(buffer, 0); 
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::INFINITY
         let buffer =
             b"179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
-        let parse_result = Real::parse_object(buffer, 0);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);

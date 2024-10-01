@@ -68,6 +68,8 @@ pub enum ObjectRecoverable<'path> {
     Parse(ObjectNumber, GenerationNumber, Offset, ParseErr<'path>),
     #[error("Mismatched id: {0} {1} != {2}")]
     MismatchedId(ObjectNumber, GenerationNumber, Id),
+    #[error("Object out of bounds. Id: {0} {1}. Offset {2}. Buffer length {3}")]
+    OutOfBounds(ObjectNumber, GenerationNumber, Offset, usize),
 }
 
 mod convert {

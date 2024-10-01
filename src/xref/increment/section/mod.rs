@@ -3,6 +3,7 @@ pub(crate) mod subsection;
 
 use ::nom::bytes::complete::tag;
 use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::sequence::delimited;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
@@ -10,7 +11,6 @@ use ::std::collections::VecDeque;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
-use nom::combinator::recognize;
 
 use self::subsection::Subsection;
 use crate::object::direct::dictionary::Dictionary;
@@ -51,12 +51,12 @@ impl Display for Section<'_> {
 
 impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let size = buffer.len();
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
         let start = offset;
 
-        let (mut buffer, recognised) =
-            recognize(terminated(tag(KW_XREF), eol))(buffer).map_err(parse_recoverable!(
+        let (_, recognised) =
+            recognize(terminated(tag(KW_XREF), eol))(remains).map_err(parse_recoverable!(
                 e,
                 ParseRecoverable::new(
                     e.input,
@@ -72,21 +72,22 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
 
         let mut offset = offset + recognised.len();
         while let Some(result) =
-            Subsection::parse_suppress_recoverable_span::<Subsection>(buffer, offset)
+            Subsection::parse_suppress_recoverable::<Subsection>(buffer, offset)
         {
             // try_parse propagates only Failure errors
-            (buffer, subsection) = result?;
+            subsection = result?;
             offset = subsection.span().end();
             subsections.push_back(subsection);
         }
+        let remains = &buffer[offset..];
         // HACK The below addresses the issue with the example PDFs that contain
         // a white space before the trailer keyword that is not accounted for in
         // the standard
-        let (buffer, recognised) = recognize(delimited(
+        let (_, recognised) = recognize(delimited(
             opt(white_space), // No comments are allowed between xref and trailer
             tag(KW_TRAILER),
             opt(white_space_or_comment),
-        ))(buffer)
+        ))(remains)
         .map_err(parse_failure!(
             e,
             ParseFailure::new(
@@ -95,10 +96,10 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
                 ParseErrorCode::MissingClosing(e.code)
             )
         ))?;
-
         offset += recognised.len();
+
         // REFERENCE: [7.5.5 File trailer, p58-59]
-        let (buffer, trailer) = Dictionary::parse_object(buffer, offset).map_err(|err| {
+        let trailer = Dictionary::parse(buffer, offset).map_err(|err| {
             ParseFailure::new(
                 err.buffer(),
                 stringify!(Section),
@@ -106,13 +107,13 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
             )
         })?;
 
-        let span = Span::new(start, size - buffer.len());
+        let span = Span::new(start, trailer.span().end() - start);
         let section = Section {
             subsections,
             trailer,
             span,
         };
-        Ok((buffer, section))
+        Ok(section)
     }
 
     fn span(&self) -> Span {
@@ -202,7 +203,7 @@ mod tests {
     use crate::object::direct::string::Literal;
     use crate::object::indirect::reference::Reference;
     use crate::parse::Span;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn section_valid() {
@@ -222,7 +223,7 @@ mod tests {
             ),
             Span::new(0, 36),
         );
-        parse_span_assert_eq!(buffer, section, "".as_bytes());
+        parse_assert_eq!(Section, buffer, section);
 
         // Synthetic test
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
@@ -238,18 +239,14 @@ mod tests {
             ),
             Span::new(0, 49),
         );
-        parse_span_assert_eq!(buffer, section, "".as_bytes());
+        parse_assert_eq!(Section, buffer, section);
 
         // PDF produced by pdfunite from PDFs produced by Microsoft Word
         let buffer: &[Byte] =
             include_bytes!("../../../../tests/data/F3D45259CBB36D09F04BF0D65BAAD3ED_section.bin");
         let section: Section =
             include!("../../../../tests/code/F3D45259CBB36D09F04BF0D65BAAD3ED_section.rs");
-        parse_span_assert_eq!(
-            buffer,
-            section,
-            "\r\nstartxref\r\n38912\r\n%%EOF\r\n".as_bytes()
-        );
+        parse_assert_eq!(Section, buffer, section);
 
         // TODO Add tests, especially with multiple subsections
     }
@@ -260,7 +257,7 @@ mod tests {
 
         // Incmplte cross-reference section
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n";
-        let parse_result = Section::parse_object(buffer, 0);
+        let parse_result = Section::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Section),
@@ -270,7 +267,7 @@ mod tests {
 
         // Missing cross-reference section
         let buffer = b"trailer<</Size 1>>";
-        let parse_result = Section::parse_object(buffer, 0);
+        let parse_result = Section::parse(buffer, 0);
         let expected_error = ParseRecoverable::new(
             b"trailer<</Size 1>>",
             stringify!(Section),
@@ -281,7 +278,7 @@ mod tests {
         // Missing trailer
         // TOOD Refactor error messages to avoid the repetition below
         let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\n<</Size 1>>";
-        let parse_result = Section::parse_object(buffer, 0);
+        let parse_result = Section::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"<</Size 1>>",
             stringify!(Section),

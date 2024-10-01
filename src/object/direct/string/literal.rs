@@ -58,16 +58,18 @@ impl PartialEq for Literal<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
-        let (buffer, value) = preceded(
+        let (remains, value) = preceded(
             char('('),
             recognize(pair(
                 parse::not_parentheses,
                 many0(pair(parse::inner_parentheses, parse::not_parentheses)),
             )),
-        )(buffer)
+        )(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(
@@ -78,7 +80,7 @@ impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
         ))?;
         // Here, we know that the buffer starts with a literal string, and
         // the following errors should be propagated as LiteralFailure
-        let (buffer, _) = char::<_, NomError<_>>(')')(buffer).map_err(parse_failure!(
+        char::<_, NomError<_>>(')')(remains).map_err(parse_failure!(
             e,
             ParseFailure::new(
                 e.input,
@@ -89,7 +91,7 @@ impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
 
         let len = value.len() + 2;
         let span = Span::new(offset, len);
-        Ok((buffer, Self { value, span }))
+        Ok(Self { value, span })
     }
 
     fn span(&self) -> Span {
@@ -339,34 +341,34 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn string_literal_valid() {
         // Synthetic tests
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Literal,
             b"(A literal string)",
             Literal::from(("A literal string", Span::new(0, 18))),
-            "".as_bytes(),
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Literal,
             b"(A literal
 string)",
             Literal::from((r"A literal\nstring", Span::new(0, 18))),
-            "".as_bytes(),
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Literal,
             br"({A \(literal string!()} with unbalanced escaped parentheses)",
             Literal::from((
                 r"{A \(literal string!()} with unbalanced escaped parentheses",
                 Span::new(0, 61)
             )),
-            "".as_bytes(),
         );
-        parse_span_assert_eq!(
+        parse_assert_eq!(
+            Literal,
             b"(((A))literal(string)(()))",
             Literal::from(("((A))literal(string)(())", Span::new(0, 26))),
-            "".as_bytes()
         );
     }
 
@@ -374,7 +376,7 @@ string)",
     fn string_literal_invalid() {
         // Synthetic tests
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse_object(b"(Unbalanced parentheses", 0);
+        let parse_result = Literal::parse(b"(Unbalanced parentheses", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -383,7 +385,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Missing end parenthesis
-        let parse_result = Literal::parse_object(br"(Escaped parentheses\)", 0);
+        let parse_result = Literal::parse(br"(Escaped parentheses\)", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Literal),
@@ -392,7 +394,7 @@ string)",
         assert_err_eq!(parse_result, expected_error);
 
         // Literal: Not found at the start of the buffer
-        let parse_result = Literal::parse_object(b"Unbalanced parentheses)", 0);
+        let parse_result = Literal::parse(b"Unbalanced parentheses)", 0);
         let expected_error = ParseRecoverable::new(
             b"Unbalanced parentheses)",
             stringify!(Literal),

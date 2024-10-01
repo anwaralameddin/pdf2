@@ -33,11 +33,13 @@ impl Display for Boolean {
 }
 
 impl ObjectParser<'_> for Boolean {
-    fn parse_object(buffer: &[Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, (value, len)) = alt((
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
+        let (_, (value, len)) = alt((
             map(tag::<_, _, NomError<_>>(KW_TRUE), |_true| (true, 4)),
             map(tag(KW_FALSE), |_false| (false, 5)),
-        ))(buffer)
+        ))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(
@@ -48,7 +50,7 @@ impl ObjectParser<'_> for Boolean {
         ))?;
 
         let span = Span::new(offset, len);
-        Ok((buffer, Self { value, span }))
+        Ok(Self { value, span })
     }
 
     fn span(&self) -> Span {
@@ -82,59 +84,27 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
-    use crate::parse_span_assert_eq;
+    use crate::parse_assert_eq;
 
     #[test]
     fn boolean_valid() {
-        parse_span_assert_eq!(b"true", Boolean::new(true, Span::new(0, 4)), "".as_bytes());
-        parse_span_assert_eq!(
-            b"true<",
-            Boolean::new(true, Span::new(0, 4)),
-            "<".as_bytes()
-        );
-        parse_span_assert_eq!(
-            b"true    <<",
-            Boolean::new(true, Span::new(0, 4)),
-            "    <<".as_bytes()
-        );
+        parse_assert_eq!(Boolean, b"true", Boolean::new(true, Span::new(0, 4)));
+        parse_assert_eq!(Boolean, b"true<", Boolean::new(true, Span::new(0, 4)),);
+        parse_assert_eq!(Boolean, b"true    <<", Boolean::new(true, Span::new(0, 4)),);
 
-        parse_span_assert_eq!(
-            b"false<",
-            Boolean::new(false, Span::new(0, 5)),
-            "<".as_bytes()
-        );
-        parse_span_assert_eq!(
-            b"false .",
-            Boolean::new(false, Span::new(0, 5)),
-            " .".as_bytes()
-        );
+        parse_assert_eq!(Boolean, b"false<", Boolean::new(false, Span::new(0, 5)),);
+        parse_assert_eq!(Boolean, b"false .", Boolean::new(false, Span::new(0, 5)),);
 
-        parse_span_assert_eq!(
-            b"true false",
-            Boolean::new(true, Span::new(0, 4)),
-            " false".as_bytes()
-        );
-        parse_span_assert_eq!(
-            b"false true",
-            Boolean::new(false, Span::new(0, 5)),
-            " true".as_bytes()
-        );
-        parse_span_assert_eq!(
-            b"truefalse",
-            Boolean::new(true, Span::new(0, 4)),
-            "false".as_bytes()
-        );
-        parse_span_assert_eq!(
-            b"falsetrue",
-            Boolean::new(false, Span::new(0, 5)),
-            "true".as_bytes()
-        );
+        parse_assert_eq!(Boolean, b"true false", Boolean::new(true, Span::new(0, 4)),);
+        parse_assert_eq!(Boolean, b"false true", Boolean::new(false, Span::new(0, 5)),);
+        parse_assert_eq!(Boolean, b"truefalse", Boolean::new(true, Span::new(0, 4)),);
+        parse_assert_eq!(Boolean, b"falsetrue", Boolean::new(false, Span::new(0, 5)),);
     }
 
     #[test]
     fn boolean_invalid() {
         // Boolean: Not found
-        let parse_result = Boolean::parse_object(b"tr", 0);
+        let parse_result = Boolean::parse(b"tr", 0);
         let expected_error = ParseRecoverable::new(
             b"tr",
             stringify!(Boolean),

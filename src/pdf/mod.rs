@@ -99,21 +99,30 @@ mod build {
         ) -> PdfResult<ObjectsInUse> {
             // At this point, we should not immediately fail. Instead, we
             // collect all errors and report them at the end.
+            // let buffer_len = self.buffer.len();
             let mut objects = HashMap::default();
             for (offset, (object_number, generation_number)) in table.in_use.iter() {
-                let (_, object) =
-                    match IndirectObject::parse_object(&self.buffer[*offset..], *offset) {
-                        Ok((remains, object)) => (remains, object),
-                        Err(err) => {
-                            errors.push(ObjectRecoverable::Parse(
-                                *object_number,
-                                *generation_number,
-                                *offset,
-                                err,
-                            ));
-                            continue;
-                        }
-                    };
+                // if *offset >= buffer_len {
+                //     errors.push(ObjectRecoverable::OutOfBounds(
+                //         *object_number,
+                //         *generation_number,
+                //         *offset,
+                //         buffer_len,
+                //     ));
+                //     continue;
+                // }
+                let object = match IndirectObject::parse(&self.buffer, *offset) {
+                    Ok(object) => object,
+                    Err(err) => {
+                        errors.push(ObjectRecoverable::Parse(
+                            *object_number,
+                            *generation_number,
+                            *offset,
+                            err,
+                        ));
+                        continue;
+                    }
+                };
                 // At this point, we have a valid indirect object, and there is
                 // no need to skip the object on errors
                 let IndirectObject {

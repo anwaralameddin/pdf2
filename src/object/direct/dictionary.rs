@@ -1,5 +1,6 @@
 use ::nom::bytes::complete::tag;
 use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
@@ -7,7 +8,6 @@ use ::std::collections::HashMap;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
-use nom::combinator::recognize;
 
 use super::name::Name;
 use super::DirectValue;
@@ -53,15 +53,16 @@ impl PartialEq for Dictionary<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
-    fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
-        let size = buffer.len();
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
         let start = offset;
 
         let mut map = HashMap::default();
         let mut key: Name;
         let mut value: DirectValue;
-        let (mut buffer, recognised) =
-            recognize(terminated(tag(b"<<"), opt(white_space_or_comment)))(buffer).map_err(
+        let (mut remains, recognised) =
+            recognize(terminated(tag(b"<<"), opt(white_space_or_comment)))(remains).map_err(
                 parse_recoverable!(
                     e,
                     ParseRecoverable::new(
@@ -76,12 +77,12 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
         // following errors should be propagated as DictionaryFailure
         loop {
             // Check for the end of the dictionary (closing angle brackets)
-            if let Ok((remains, _)) = tag::<_, _, NomError<_>>(b">>")(buffer) {
-                buffer = remains;
+            if let Ok((buf, _)) = tag::<_, _, NomError<_>>(b">>")(remains) {
+                remains = buf;
                 break;
             }
             // Parse the key
-            (buffer, key) = Name::parse_object(buffer, offset).map_err(|err| {
+            key = Name::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Dictionary),
@@ -89,14 +90,14 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
                 )
             })?;
             offset = key.span().end();
+            remains = &buffer[offset..];
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remains, recognised)) = recognize(opt(white_space_or_comment))(buffer) {
-                buffer = remains;
+            if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
                 offset += recognised.len();
             }
             // Parse the value
-            (buffer, value) = DirectValue::parse_object(buffer, offset).map_err(|err| {
+            value = DirectValue::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
                     err.buffer(),
                     stringify!(Dictionary),
@@ -104,10 +105,11 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
                 )
             })?;
             offset = value.span().end();
+            remains = &buffer[offset..];
             // opt does not return an error, so there is no need for specific
             // error handling
-            if let Ok((remains, recognised)) = recognize(opt(white_space_or_comment))(buffer) {
-                buffer = remains;
+            if let Ok((buf, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+                remains = buf;
                 offset += recognised.len();
             }
             // Record the key-value pair
@@ -135,8 +137,8 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
             };
         }
 
-        let span = Span::new(start, size - buffer.len());
-        Ok((buffer, Self { map, span }))
+        let span = Span::new(start, remains_len - remains.len());
+        Ok(Self { map, span })
     }
 
     fn span(&self) -> Span {
@@ -359,7 +361,7 @@ mod tests {
         // Synthetic tests
 
         // Dictionary: Not found
-        let parsed_result = Dictionary::parse_object(b"/Type /Type1", 0);
+        let parsed_result = Dictionary::parse(b"/Type /Type1", 0);
         let expected_error = ParseRecoverable::new(
             b"/Type /Type1",
             stringify!(Dictionary),
@@ -368,7 +370,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Single quotes
-        let parsed_result = Dictionary::parse_object(b"<< /Type /Type1", 0);
+        let parsed_result = Dictionary::parse(b"<< /Type /Type1", 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Dictionary),
@@ -377,8 +379,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Spaced quotes
-        let parsed_result =
-            Dictionary::parse_object(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>", 0);
+        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype << /Type /Type2> > >>", 0);
         let expected_error = ParseFailure::new(
             b"> > >>",
             stringify!(Dictionary),
@@ -392,7 +393,7 @@ mod tests {
         assert_err_eq!(parsed_result, expected_error);
 
         // Dictionary: Missing value
-        let parsed_result = Dictionary::parse_object(b"<< /Type /Type1 /Subtype >>", 0);
+        let parsed_result = Dictionary::parse(b"<< /Type /Type1 /Subtype >>", 0);
         let expected_error = ParseFailure::new(
             b">>",
             stringify!(Dictionary),
