@@ -30,8 +30,8 @@ pub struct Span {
     start: usize,
     end: usize,
 }
-pub(crate) trait PdfParser<'buffer> {
-    fn parse(_: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
+pub(crate) trait Parser<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<'buffer, Self>
     where
         Self: Sized;
 
@@ -39,7 +39,10 @@ pub(crate) trait PdfParser<'buffer> {
 }
 
 pub(crate) trait ObjectParser<'buffer> {
-    fn parse_object(_: &'buffer [Byte], _: Offset) -> ParseResult<'buffer, (&[Byte], Self)>
+    fn parse_object(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+    ) -> ParseResult<'buffer, (&[Byte], Self)>
     where
         Self: Sized;
 
@@ -84,23 +87,6 @@ mod convert {
 }
 
 mod tests {
-    #[macro_export]
-    macro_rules! parse_assert_eq {
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
-            assert_eq!(
-                PdfParser::parse($buffer).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
-        };
-        // The two patterns differ only in the trailing comma
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
-            assert_eq!(
-                PdfParser::parse($buffer).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
-        };
-    }
-
     #[macro_export]
     macro_rules! parse_span_assert_eq {
         ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {

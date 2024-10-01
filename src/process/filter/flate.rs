@@ -22,7 +22,7 @@ impl<'buffer> Filter<'buffer> for Fl {
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
     ) -> FilterResult<'buffer, Vec<Byte>> {
         let bytes = self.predictor.filter(bytes)?;
-        let mut filtered = vec![];
+        let mut filtered = Vec::default();
 
         let mut filter: ZlibEncoder<&[Byte]> =
             ZlibEncoder::new(bytes.as_ref(), Compression::default());
@@ -38,7 +38,7 @@ impl<'buffer> Filter<'buffer> for Fl {
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
     ) -> FilterResult<'buffer, Vec<Byte>> {
-        let mut defiltered = vec![];
+        let mut defiltered = Vec::default();
 
         let mut defilter = ZlibDecoder::new(bytes.as_ref());
         defilter

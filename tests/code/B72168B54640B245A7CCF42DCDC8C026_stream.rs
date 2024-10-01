@@ -4,7 +4,7 @@ Stream::new(
         ("Size".into(), Integer::new(60, Span::new(18, 2)).into()),
         (
             "W".into(),
-            Array::new(vec![
+            Array::new([
                 Integer::new(1, Span::new(24, 1)).into(),
                 Integer::new(4, Span::new(26, 1)).into(),
                 Integer::new(2, Span::new(28, 1)).into(),
@@ -18,7 +18,7 @@ Stream::new(
         }),
         (
             "ID".into(),
-            Array::new(vec![
+            Array::new([
                 Hexadecimal::from(("B72168B54640B245A7CCF42DCDC8C026", Span::new(58 , 34))).into(),
                 Hexadecimal::from(("B72168B54640B245A7CCF42DCDC8C026", Span::new(92 , 34))).into(),
             ], Span::new(57, 70)).into(),

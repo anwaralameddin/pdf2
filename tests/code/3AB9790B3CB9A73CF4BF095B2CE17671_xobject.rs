@@ -10,7 +10,7 @@ Stream::new(
         ),
         (
             "BBox".into(),
-            Array::new(vec![
+            Array::new([
                 Integer::new(0, Span::new(40, 1)).into(),
                 Integer::new(0, Span::new(42, 1)).into(),
                 Integer::new(100, Span::new(44, 3)).into(),
@@ -23,7 +23,7 @@ Stream::new(
         ),
         (
             "Matrix".into(),
-            Array::new(vec![
+            Array::new([
                 Integer::new(1, Span::new(74, 1)).into(),
                 Integer::new(0, Span::new(76, 1)).into(),
                 Integer::new(0, Span::new(78, 1)).into(),

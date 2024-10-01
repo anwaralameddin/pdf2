@@ -7,6 +7,8 @@ use ::thiserror::Error;
 use super::*;
 use crate::object::indirect::id::Id;
 use crate::parse::error::ParseErr;
+use crate::GenerationNumber;
+use crate::ObjectNumber;
 use crate::Offset;
 
 pub(crate) type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
@@ -62,10 +64,10 @@ impl Display for PdfRecoverable<'_> {
 // there is no need to include the path here.
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ObjectRecoverable<'path> {
-    #[error("Parse. Id: {0}. Offset {1}. Error: {2}")]
-    Parse(Id, Offset, ParseErr<'path>),
-    #[error("Mismatched id: {0} != {1}")]
-    MismatchedId(Id, Id),
+    #[error("Parse. Id: {0} {1}. Offset {2}. Error: {3}")]
+    Parse(ObjectNumber, GenerationNumber, Offset, ParseErr<'path>),
+    #[error("Mismatched id: {0} {1} != {2}")]
+    MismatchedId(ObjectNumber, GenerationNumber, Id),
 }
 
 mod convert {

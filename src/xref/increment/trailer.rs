@@ -366,8 +366,11 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_index(mut self, index: Vec<(ObjectNumberOrZero, IndexNumber)>) -> Self {
-            self.index = index;
+        pub(crate) fn set_index(
+            mut self,
+            index: impl IntoIterator<Item = (ObjectNumberOrZero, IndexNumber)>,
+        ) -> Self {
+            self.index = index.into_iter().collect();
             self
         }
 
@@ -492,7 +495,7 @@ mod tests {
             let trailer = Trailer::new(750, Span::new(10, 197), &dictionary)
                 .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 7) })
                 .set_w([1, 3, 1])
-                .set_index(vec![(0, 750)])
+                .set_index([(0, 750)])
                 .set_info(unsafe { Reference::new_unchecked(748, 0, 81, 7) })
                 .set_id([
                     Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 34)))

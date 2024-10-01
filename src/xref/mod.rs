@@ -7,7 +7,6 @@ use ::std::collections::BTreeSet;
 use ::std::collections::HashMap;
 
 use self::error::XRefErr;
-use crate::object::indirect::id::Id;
 use crate::xref::error::XRefResult;
 use crate::GenerationNumber;
 use crate::IndexNumber;
@@ -23,14 +22,14 @@ pub(crate) trait ToTable {
 pub(crate) struct Table {
     // TODO(QUESTION) Can the same object number and generation number be used
     // more than once? If so, add the section number to avoid collisions
-    pub(crate) in_use: BTreeSet<(Offset, Id)>,
+    pub(crate) in_use: BTreeSet<(Offset, (ObjectNumber, GenerationNumber))>,
     // TODO
     // - Any need to subtarct one from the generation number to get the actual
     // freed object?
     // - (QUESTION) Can an object be free if it was never used?
     // - Validate that they partially form a linked list
-    pub(crate) free: HashMap<Id, ObjectNumberOrZero>,
-    pub(crate) compressed: HashMap<Id, (Id, IndexNumber)>,
+    pub(crate) free: HashMap<(ObjectNumber, GenerationNumber), ObjectNumberOrZero>,
+    pub(crate) compressed: HashMap<ObjectNumber, (ObjectNumber, IndexNumber)>,
     // TODO Add trailer here rather than in the Pdf struct
 }
 
@@ -43,8 +42,8 @@ impl Table {
     ) -> Option<ObjectNumberOrZero> {
         // Ignore the object number 0
         let object_number = ObjectNumber::new(object_number)?;
-        let id = Id::new(object_number, generation_number);
-        self.free.insert(id, next_free)
+        self.free
+            .insert((object_number, generation_number), next_free)
     }
 
     pub(super) fn insert_in_use(
@@ -58,26 +57,27 @@ impl Table {
             generation_number,
             offset,
         })?;
-        let id = Id::new(object_number, generation_number);
         // TODO Check if the offset or id is already in use
-        self.in_use.insert((offset, id));
+        self.in_use
+            .insert((offset, (object_number, generation_number)));
         Ok(())
     }
 
     pub(super) fn insert_compressed(
         &mut self,
         object_number: ObjectNumberOrZero,
-        stream_id: Id,
+        stream_object_number: ObjectNumber,
         index: IndexNumber,
-    ) -> XRefResult<'static, Option<(Id, IndexNumber)>> {
+    ) -> XRefResult<'static, Option<(ObjectNumber, IndexNumber)>> {
         let object_number =
             ObjectNumber::new(object_number).ok_or(XRefErr::CompressedObjectNumber {
                 object_number,
-                stream_id,
+                stream_object_number,
                 index,
             })?;
-        let id = Id::new(object_number, GenerationNumber::default());
-        Ok(self.compressed.insert(id, (stream_id, index)))
+        Ok(self
+            .compressed
+            .insert(object_number, (stream_object_number, index)))
     }
 
     pub(super) fn extend(&mut self, other: Table) {
@@ -100,14 +100,14 @@ mod tests {
     use ::std::path::PathBuf;
 
     use super::pretable::PreTable;
-    use crate::parse::PdfParser;
+    use crate::parse::Parser;
     use crate::xref::ToTable;
 
     #[test]
     fn xref_valid() {
         // TODO Ensure that the directory is not empty for
         let dir = PathBuf::from("tests/data/parse/xref/valid");
-        let mut err_msgs = vec![];
+        let mut err_msgs = Vec::default();
         let mut dirs = VecDeque::from([dir]);
         while let Some(dir) = dirs.pop_back() {
             let entries = if let Ok(entries) = read_dir(&dir) {
@@ -129,11 +129,11 @@ mod tests {
                         eprintln!("Path: {}", path.display());
                         let file = File::open(&path).unwrap();
                         let mut reader = BufReader::new(file);
-                        let mut buffer = vec![];
+                        let mut buffer = Vec::default();
                         reader.read_to_end(&mut buffer).unwrap();
                         let pretable = PreTable::parse(&buffer);
                         match pretable {
-                            Ok((_, pretable)) => {
+                            Ok(pretable) => {
                                 let pretable_len = pretable.len();
                                 pretable.to_table().unwrap();
                                 println!("{}: # Increments {:?}", path.display(), pretable_len);
@@ -160,7 +160,7 @@ mod tests {
     fn xref_invalid() {
         // TODO Ensure that the directory is not empty for
         let dir = PathBuf::from("tests/data/parse/xref/invalid");
-        let mut err_msgs = vec![];
+        let mut err_msgs = Vec::default();
         let mut dirs = VecDeque::from([dir]);
         while let Some(dir) = dirs.pop_back() {
             let entries = if let Ok(entries) = read_dir(&dir) {
@@ -182,15 +182,15 @@ mod tests {
                         println!("Path: {}", path.display());
                         let file = File::open(&path).unwrap();
                         let mut reader = BufReader::new(file);
-                        let mut buffer = vec![];
+                        let mut buffer = Vec::default();
                         reader.read_to_end(&mut buffer).unwrap();
                         let pretable = PreTable::parse(&buffer);
                         let pretable_len = pretable
                             .as_ref()
-                            .map(|pretable| pretable.1.len())
+                            .map(|pretable| pretable.len())
                             .unwrap_or_default();
                         match pretable {
-                            Ok((_, pretable)) => {
+                            Ok(pretable) => {
                                 if pretable.to_table().is_ok() {
                                     eprintln!(
                                         "{}: # Increments {:?}",

@@ -150,10 +150,10 @@ mod table {
                             Entry::InUse(offset, generation_number) => {
                                 table.insert_in_use(object_number, *generation_number, *offset)?;
                             }
-                            Entry::Compressed(stream_id, index_number) => {
+                            Entry::Compressed(stream_object_number, index_number) => {
                                 table.insert_compressed(
                                     object_number,
-                                    *stream_id,
+                                    *stream_object_number,
                                     *index_number,
                                 )?;
                             }
@@ -265,7 +265,7 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
         let xref_stream = XRefStream {
-            id: unsafe { Id::new_unchecked(749, 0) },
+            id: unsafe { Id::new_unchecked(749, 0, 0, 6) },
             stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
             span: Span::new(0, 1993),
         };
@@ -278,7 +278,7 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
-            unsafe { Id::new_unchecked(439, 0) },
+            unsafe { Id::new_unchecked(439, 0, 0, 6) },
             Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
             Span::new(0, 1322),
         );
@@ -291,7 +291,7 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
-            unsafe { Id::new_unchecked(190, 0) },
+            unsafe { Id::new_unchecked(190, 0, 0, 6) },
             Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
             Span::new(0, 735),
         );

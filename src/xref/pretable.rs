@@ -4,7 +4,7 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
-use crate::parse::PdfParser;
+use crate::parse::Parser;
 use crate::parse::Span;
 use crate::Byte;
 
@@ -12,10 +12,10 @@ use crate::Byte;
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
-impl<'buffer> PdfParser<'buffer> for PreTable<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<Self> {
         // TODO Indicate the offset will be ignored
-        let (_, startxref) = StartXRef::parse(buffer)?;
+        let startxref = StartXRef::parse(buffer)?;
 
         let mut increments = Vec::default();
 
@@ -45,7 +45,7 @@ impl<'buffer> PdfParser<'buffer> for PreTable<'buffer> {
             increments.push(increment);
         }
 
-        Ok((buffer, Self(increments)))
+        Ok(Self(increments))
     }
 
     fn spans(&self) -> Vec<Span> {

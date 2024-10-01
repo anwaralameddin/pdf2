@@ -11,7 +11,6 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
-use crate::parse::PdfParser;
 use crate::parse::Span;
 use crate::parse::KW_R;
 use crate::parse_recoverable;
@@ -36,7 +35,7 @@ impl ObjectParser<'_> for Reference {
         let size = buffer.len();
         let start = offset;
 
-        let (buffer, id) = Id::parse(buffer).map_err(|err| {
+        let (buffer, id) = Id::parse_object(buffer, offset).map_err(|err| {
             ParseRecoverable::new(
                 err.buffer(),
                 stringify!(Reference),
@@ -104,7 +103,7 @@ mod tests {
             len: usize,
         ) -> Self {
             Self {
-                id: Id::new_unchecked(object_number, generation_number),
+                id: Id::new_unchecked(object_number, generation_number, start, len - 1),
                 span: Span::new(start, len),
             }
         }

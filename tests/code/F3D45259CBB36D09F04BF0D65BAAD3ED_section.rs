@@ -134,7 +134,7 @@ Dictionary::new([
     ),
     (
         "ID".into(),
-        Array::new(vec![
+        Array::new([
             Literal::new(b"\xF3\xD4\x52\x59\xCB\xB3\x6D\x09\xF0\x4B\xF0\xD6\x5B\xAA\xD3\xED", Span::new(2438, 18)).into(),
             Literal::new(b"\xF3\xD4\x52\x59\xCB\xB3\x6D\x09\xF0\x4B\xF0\xD6\x5B\xAA\xD3\xED", Span::new(2457, 18)).into(),
         ], Span::new(2437, 40)).into(),

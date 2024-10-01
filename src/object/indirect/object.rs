@@ -16,7 +16,6 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
-use crate::parse::PdfParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
@@ -45,7 +44,7 @@ impl<'buffer> ObjectParser<'buffer> for IndirectObject<'buffer> {
         let start = offset;
 
         // REFERENCE: [7.3.10 Indirect objects, p33]
-        let (buffer, id) = Id::parse(buffer).map_err(|err| {
+        let (buffer, id) = Id::parse_object(buffer, offset).map_err(|err| {
             ParseRecoverable::new(
                 err.buffer(),
                 stringify!(Id),
@@ -141,7 +140,7 @@ mod tests {
         parse_span_assert_eq!(
             buffer,
             IndirectObject {
-                id: unsafe { Id::new_unchecked(1, 0) },
+                id: unsafe { Id::new_unchecked(1, 0, 0, 4) },
                 value: Name::from(("Name", Span::new(8, 5))).into(),
                 span: Span::new(0, buffer.len())
             },
@@ -151,7 +150,7 @@ mod tests {
         let buffer = b"1 0 obj 2 0 R endobj";
         let value = unsafe { Reference::new_unchecked(2, 0, 8, 5) }.into();
         let object = IndirectObject {
-            id: unsafe { Id::new_unchecked(1, 0) },
+            id: unsafe { Id::new_unchecked(1, 0, 0, 4) },
             value,
             span: Span::new(0, buffer.len()),
         };
@@ -171,7 +170,7 @@ mod tests {
             Span::new(8, 62),
         );
         let object = IndirectObject {
-            id: unsafe { Id::new_unchecked(1, 0) },
+            id: unsafe { Id::new_unchecked(1, 0, 0, 4) },
             value: value.into(),
             span: Span::new(0, buffer.len()),
         };

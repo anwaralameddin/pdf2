@@ -6,7 +6,7 @@ Dictionary::new([
     }),
     (
         "W".into(),
-        Array::new(vec![
+        Array::new([
             Integer::new(1, Span::new(54, 1)).into(),
             Integer::new(3, Span::new(56, 1)).into(),
             Integer::new(1, Span::new(58, 1)).into(),
@@ -14,7 +14,7 @@ Dictionary::new([
     ),
     (
         "Index".into(),
-        Array::new(vec![
+        Array::new([
             Integer::new(0, Span::new(33, 1)).into(),
             Integer::new(750, Span::new(35, 3)).into(),
         ], Span::new(32, 7)).into()
@@ -24,7 +24,7 @@ Dictionary::new([
     }),
     (
         "ID".into(),
-        Array::new(vec![
+        Array::new([
             Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 34))).into(),
             Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(129, 34))).into(),
         ], Span::new(93, 71)).into(),

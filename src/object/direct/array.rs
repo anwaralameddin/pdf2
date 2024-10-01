@@ -53,7 +53,7 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
         let size = buffer.len();
         let start = offset;
 
-        let mut values = vec![];
+        let mut values = Vec::default();
         let mut value: DirectValue;
         let (mut buffer, recognised) = recognize(terminated(
             char('['),
@@ -108,9 +108,9 @@ mod convert {
     use super::*;
 
     impl<'buffer> Array<'buffer> {
-        pub fn new(values: Vec<DirectValue<'buffer>>, span: Span) -> Self {
+        pub fn new(values: impl IntoIterator<Item = DirectValue<'buffer>>, span: Span) -> Self {
             Self {
-                array: values,
+                array: values.into_iter().collect(),
                 span,
             }
         }
@@ -155,7 +155,7 @@ mod tests {
         // A synthetic test
         let buffer = b"[1 1.0 true null(A literal string)/Name]";
         let expected_parsed = Array::new(
-            vec![
+            [
                 Integer::new(1, Span::new(1, 1)).into(),
                 Real::new(1.0, Span::new(3, 3)).into(),
                 Boolean::new(true, Span::new(7, 4)).into(),
@@ -170,16 +170,16 @@ mod tests {
         // A synthetic test
         // Array: Empty
         let buffer = b"[]";
-        let expected_parsed = Array::new(vec![], Span::new(0, 2));
+        let expected_parsed = Array::new([], Span::new(0, 2));
         parse_span_assert_eq!(buffer, expected_parsed, "".as_bytes());
 
         // A synthetic test
         // Array: 2D matrix
         let buffer = b"[[1 2 3][4 5 6][7 8 9]]";
         let expected_parsed = Array::new(
-            vec![
+            [
                 Array::new(
-                    vec![
+                    [
                         Integer::new(1, Span::new(2, 1)).into(),
                         Integer::new(2, Span::new(4, 1)).into(),
                         Integer::new(3, Span::new(6, 1)).into(),
@@ -188,7 +188,7 @@ mod tests {
                 )
                 .into(),
                 Array::new(
-                    vec![
+                    [
                         Integer::new(4, Span::new(9, 1)).into(),
                         Integer::new(5, Span::new(11, 1)).into(),
                         Integer::new(6, Span::new(13, 1)).into(),
@@ -197,7 +197,7 @@ mod tests {
                 )
                 .into(),
                 Array::new(
-                    vec![
+                    [
                         Integer::new(7, Span::new(16, 1)).into(),
                         Integer::new(8, Span::new(18, 1)).into(),
                         Integer::new(9, Span::new(20, 1)).into(),
@@ -214,7 +214,7 @@ mod tests {
         // Array: No space between elements
         let buffer = b"[<CD74097EBFE5D8A25FE8A229299730FA><CD74097EBFE5D8A25FE8A229299730FA>]";
         let expected_parsed = Array::new(
-            vec![
+            [
                 Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(1, 34))).into(),
                 Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(35, 34))).into(),
             ],

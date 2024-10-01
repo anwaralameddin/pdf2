@@ -4,10 +4,10 @@ use ::thiserror::Error;
 use super::increment::stream::error::XRefStreamErrorCode;
 use crate::fmt::debug_bytes;
 use crate::object::error::ObjectErr;
-use crate::object::indirect::id::Id;
 use crate::Byte;
 use crate::GenerationNumber;
 use crate::IndexNumber;
+use crate::ObjectNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
@@ -29,14 +29,14 @@ pub enum XRefErr<'buffer> {
         offset: Offset,
     },
     #[error(
-        "Compressed Object. Number: {}. Stream: {}. Index: {}",
+        "Compressed Object. Number: {} 0. Stream: {} 0. Index: {}",
         object_number,
-        stream_id,
+        stream_object_number,
         index
     )]
     CompressedObjectNumber {
         object_number: ObjectNumberOrZero,
-        stream_id: Id,
+        stream_object_number: ObjectNumber,
         index: IndexNumber,
     },
     // TODO (TEMP) Replace Vec<Byte> below with Span
