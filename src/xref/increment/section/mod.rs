@@ -36,6 +36,7 @@ use crate::Offset;
 pub(crate) struct Section<'buffer> {
     pub(crate) subsections: VecDeque<Subsection>,
     pub(crate) trailer: Dictionary<'buffer>,
+    pub(crate) span: Span,
 }
 
 impl Display for Section<'_> {
@@ -51,6 +52,9 @@ impl Display for Section<'_> {
 impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
     fn parse_object(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<(&[Byte], Self)> {
+        let size = buffer.len();
+        let start = offset;
+
         let (mut buffer, recognised) =
             recognize(terminated(tag(KW_XREF), eol))(buffer).map_err(parse_recoverable!(
                 e,
@@ -102,23 +106,17 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
             )
         })?;
 
+        let span = Span::new(start, size - buffer.len());
         let section = Section {
             subsections,
             trailer,
+            span,
         };
-
         Ok((buffer, section))
     }
 
     fn span(&self) -> Span {
-        // FIXME
-        let trailer_span = self.trailer.span();
-        let start = self
-            .subsections
-            .front()
-            .map_or(trailer_span.start(), |subsection| subsection.span().start());
-        let end = trailer_span.end();
-        Span::new(start, end)
+        self.span
     }
 }
 
@@ -180,10 +178,12 @@ mod convert {
         pub(crate) fn new(
             subsections: impl Into<VecDeque<Subsection>>,
             trailer: Dictionary<'buffer>,
+            span: Span,
         ) -> Self {
             Self {
                 subsections: subsections.into(),
                 trailer,
+                span,
             }
         }
     }
@@ -220,6 +220,7 @@ mod tests {
                 ],
                 Span::new(13, 23),
             ),
+            Span::new(0, 36),
         );
         parse_span_assert_eq!(buffer, section, "".as_bytes());
 
@@ -235,6 +236,7 @@ mod tests {
                 [(b"Size".to_vec(), Integer::new(1, Span::new(46, 1)).into())],
                 Span::new(38, 11),
             ),
+            Span::new(0, 49),
         );
         parse_span_assert_eq!(buffer, section, "".as_bytes());
 
