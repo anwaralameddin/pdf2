@@ -7,8 +7,7 @@ use ::std::path::Path;
 
 use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
-use crate::object::indirect::IndirectValue;
-use crate::parse::Span;
+use crate::object::indirect::object::IndirectObject;
 use crate::xref::Table;
 use crate::Byte;
 use crate::GenerationNumber;
@@ -16,7 +15,7 @@ use crate::ObjectNumber;
 
 // TODO Add support for spans within object streams
 // FIXME Use object.span instead
-type ObjectsInUse<'path> = HashMap<(ObjectNumber, GenerationNumber), (IndirectValue<'path>, Span)>;
+type ObjectsInUse<'path> = HashMap<(ObjectNumber, GenerationNumber), IndirectObject<'path>>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
@@ -125,11 +124,7 @@ mod build {
                 };
                 // At this point, we have a valid indirect object, and there is
                 // no need to skip the object on errors
-                let IndirectObject {
-                    id: parsed_id,
-                    value,
-                    span,
-                } = object;
+                let parsed_id = object.id;
                 if parsed_id.object_number != *object_number
                     || parsed_id.generation_number != *generation_number
                 {
@@ -141,7 +136,7 @@ mod build {
                     // continue;
                 }
 
-                objects.insert((*object_number, *generation_number), (value, span));
+                objects.insert((*object_number, *generation_number), object);
             }
 
             Ok(objects)

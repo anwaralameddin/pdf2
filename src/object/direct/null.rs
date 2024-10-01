@@ -37,7 +37,7 @@ impl ObjectParser<'_> for Null {
             ParseRecoverable::new(e.input, stringify!(Null), ParseErrorCode::NotFound(e.code))
         ))?;
 
-        let span = Span::new(offset, KW_NULL.len());
+        let span = Span::new(offset, 4);
 
         Ok(Self { span })
     }

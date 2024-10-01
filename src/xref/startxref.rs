@@ -14,13 +14,16 @@ use crate::parse::character_set::eol;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_usize;
+use crate::parse::ObjectParser;
 use crate::parse::Parser;
 use crate::parse::Span;
 use crate::parse::EOF;
 use crate::parse::KW_STARTXREF;
 use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::Byte;
 use crate::Offset;
 
@@ -115,6 +118,45 @@ impl Parser<'_> for StartXRef {
     }
 }
 
+impl ObjectParser<'_> for StartXRef {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
+
+        let (remains, start_xref_offset) = delimited(
+            terminated(tag(KW_STARTXREF), eol),
+            digit1,
+            delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
+        )(remains)
+        .map_err(parse_recoverable!(
+            e,
+            ParseRecoverable::new(
+                e.input,
+                stringify!(StartXRef),
+                ParseErrorCode::NotFound(e.code)
+            )
+        ))?;
+
+        let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| {
+            ParseFailure::new(
+                start_xref_offset,
+                stringify!(StartXRef),
+                ParseErrorCode::Offset,
+            )
+        })?;
+
+        let span = Span::new(offset, remains_len - remains.len());
+        Ok(Self {
+            offset: start_xref_offset,
+            span,
+        })
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 mod convert {
     use ::std::ops::Deref;
 
@@ -147,7 +189,12 @@ mod tests {
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/CD74097EBFE5D8A25FE8A229299730FA_xref_stream.bin");
-        let start_xref_offset = StartXRef::parse(buffer).unwrap();
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(238838, Span::new(735, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 735).unwrap();
         assert_eq!(
             start_xref_offset,
             StartXRef::new(238838, Span::new(735, 23))
@@ -156,7 +203,12 @@ mod tests {
         // PDF produced by MikTeX pdfTeX-1.40.11
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/907C09F6EB56BEAF5235FAC6F37F5B84_trailer.bin");
-        let start_xref_offset = StartXRef::parse(buffer).unwrap();
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(265666, Span::new(128, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 128).unwrap();
         assert_eq!(
             start_xref_offset,
             StartXRef::new(265666, Span::new(128, 23))
@@ -165,7 +217,12 @@ mod tests {
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xref_stream.bin");
-        let start_xref_offset = StartXRef::parse(buffer).unwrap();
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(309373, Span::new(1322, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1322).unwrap();
         assert_eq!(
             start_xref_offset,
             StartXRef::new(309373, Span::new(1322, 23))
@@ -174,7 +231,12 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let start_xref_offset = StartXRef::parse(buffer).unwrap();
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(365385, Span::new(1993, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1993).unwrap();
         assert_eq!(
             start_xref_offset,
             StartXRef::new(365385, Span::new(1993, 23))
@@ -186,7 +248,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_byte_offset.bin");
-        let parse_result = StartXRef::parse(buffer);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"%%EOF\r\n",
             stringify!(StartXRef),
@@ -197,7 +259,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eof.bin");
-        let parse_result = StartXRef::parse(buffer);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"%%PDF-1.4\r\n",
             stringify!(StartXRef),
@@ -208,7 +270,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eol.bin");
-        let parse_result = StartXRef::parse(buffer);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"dobj\r\nstartxre\r\nf999999%%EOF\r\n",
             stringify!(StartXRef),
@@ -219,7 +281,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_startxref.bin");
-        let parse_result = StartXRef::parse(buffer);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"tream\r\nendobj\r\n999999\r\n%%EOF\r\n",
             stringify!(StartXRef),

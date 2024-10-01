@@ -15,7 +15,7 @@ pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<Self> {
         // TODO Indicate the offset will be ignored
-        let startxref = StartXRef::parse(buffer)?;
+        let startxref = <StartXRef as Parser>::parse(buffer)?;
 
         let mut increments = Vec::default();
 

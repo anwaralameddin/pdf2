@@ -28,6 +28,7 @@ use crate::parse::KW_TRAILER;
 use crate::parse::KW_XREF;
 use crate::parse_failure;
 use crate::parse_recoverable;
+use crate::xref::startxref::StartXRef;
 use crate::Byte;
 use crate::Offset;
 
@@ -36,6 +37,11 @@ use crate::Offset;
 pub(crate) struct Section<'buffer> {
     pub(crate) subsections: VecDeque<Subsection>,
     pub(crate) trailer: Dictionary<'buffer>,
+    // [F.3.4 First-page cross-reference table and trailer (Part 3), p885]
+    // For linearised PDF files, the dummy cross-reference table offset is
+    // optional
+    // TODO Validate the value of startxref
+    pub(crate) startxref: Option<StartXRef>,
     pub(crate) span: Span,
 }
 
@@ -106,11 +112,38 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
                 ParseErrorCode::RecMissingSubobject(stringify!(Trailer), Box::new(err.code())),
             )
         })?;
+        offset = trailer.span().end();
 
-        let span = Span::new(start, trailer.span().end() - start);
+        let remains = &buffer[offset..];
+        // Skip white space and comments
+        // TODO Double check if comments are allowed here
+        if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+            offset += recognised.len();
+        }
+
+        let startxref: Option<StartXRef> = StartXRef::parse_suppress_recoverable(buffer, offset)
+            .transpose()
+            .map_err(|err| {
+                ParseFailure::new(
+                    err.buffer(),
+                    stringify!(Section),
+                    ParseErrorCode::RecMissingSubobject(
+                        stringify!(StartXRef),
+                        Box::new(err.code()),
+                    ),
+                )
+            })?;
+
+        let end = startxref
+            .as_ref()
+            .map(|value| value.span().end())
+            .unwrap_or(offset);
+        let span = Span::new(start, end - start);
+
         let section = Section {
             subsections,
             trailer,
+            startxref,
             span,
         };
         Ok(section)
@@ -179,11 +212,13 @@ mod convert {
         pub(crate) fn new(
             subsections: impl Into<VecDeque<Subsection>>,
             trailer: Dictionary<'buffer>,
+            startxref: Option<StartXRef>,
             span: Span,
         ) -> Self {
             Self {
                 subsections: subsections.into(),
                 trailer,
+                startxref,
                 span,
             }
         }
@@ -208,7 +243,7 @@ mod tests {
     #[test]
     fn section_valid() {
         // Synthetic test
-        let buffer = b"xref\r\ntrailer<</Size 1 /Root 1 0 R>>";
+        let buffer = b"xref\r\ntrailer<</Size 1 /Root 1 0 R>>\nstartxref\n0\n%%EOF";
         let section = Section::new(
             VecDeque::default(),
             Dictionary::new(
@@ -221,12 +256,14 @@ mod tests {
                 ],
                 Span::new(13, 23),
             ),
-            Span::new(0, 36),
+            Some(StartXRef::new(0, Span::new(37, 17))),
+            Span::new(0, 54),
         );
         parse_assert_eq!(Section, buffer, section);
 
         // Synthetic test
-        let buffer = b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>";
+        let buffer =
+            b"xref\r\n0 1\r\n0000000000 65535 f\r\ntrailer<</Size 1>>\nstartxref\n0\n%%EOF";
         let section = Section::new(
             [Subsection::new(
                 0,
@@ -237,7 +274,8 @@ mod tests {
                 [(b"Size".to_vec(), Integer::new(1, Span::new(46, 1)).into())],
                 Span::new(38, 11),
             ),
-            Span::new(0, 49),
+            Some(StartXRef::new(0, Span::new(50, 17))),
+            Span::new(0, 67),
         );
         parse_assert_eq!(Section, buffer, section);
 

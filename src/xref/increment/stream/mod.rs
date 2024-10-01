@@ -1,5 +1,7 @@
 pub(crate) mod entry;
 
+use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
@@ -9,12 +11,16 @@ use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
+use crate::parse::character_set::white_space_or_comment;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
 use crate::process::filter::FilteringChain;
+use crate::xref::startxref::StartXRef;
 use crate::Byte;
 use crate::Offset;
 
@@ -23,6 +29,11 @@ use crate::Offset;
 pub(crate) struct XRefStream<'buffer> {
     pub(crate) id: Id,
     pub(crate) stream: Stream<'buffer>,
+    // [F.3.4 First-page cross-reference table and trailer (Part 3), p885]
+    // For linearised PDF files, the dummy cross-reference table offset is
+    // optional
+    // TODO Validate the value of startxref
+    pub(crate) startxref: Option<StartXRef>,
     pub(crate) span: Span,
 }
 
@@ -38,10 +49,43 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
         let IndirectObject { id, value, span } = ObjectParser::parse(buffer, offset)?;
+        let stream = Stream::try_from(value).map_err(|err| {
+            ParseFailure::new(
+                err.buffer,
+                stringify!(XRefStream),
+                ParseErrorCode::RecMissingSubobject(stringify!(Stream), Box::new(err.code)),
+            )
+        })?;
+        let start = span.start();
+        let mut offset = span.end();
 
-        let stream = Stream::try_from(value)?;
+        let remains = &buffer[offset..];
+        // Skip white space and comments
+        // TODO Double check if comments are allowed here
+        if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+            offset += recognised.len();
+        }
 
-        let xref_stream = XRefStream::new(id, stream, span);
+        let startxref: Option<StartXRef> = StartXRef::parse_suppress_recoverable(buffer, offset)
+            .transpose()
+            .map_err(|err| {
+                ParseFailure::new(
+                    err.buffer(),
+                    stringify!(XRefStream),
+                    ParseErrorCode::RecMissingSubobject(
+                        stringify!(StartXRef),
+                        Box::new(err.code()),
+                    ),
+                )
+            })?;
+
+        let end = startxref
+            .as_ref()
+            .map(|value| value.span().end())
+            .unwrap_or(offset);
+        let span = Span::new(start, end - start);
+
+        let xref_stream = XRefStream::new(id, stream, startxref, span);
 
         Ok(xref_stream)
     }
@@ -204,8 +248,18 @@ mod convert {
     use super::*;
 
     impl<'buffer> XRefStream<'buffer> {
-        pub(crate) fn new(id: Id, stream: Stream<'buffer>, span: Span) -> Self {
-            Self { id, stream, span }
+        pub(crate) fn new(
+            id: Id,
+            stream: Stream<'buffer>,
+            startxref: Option<StartXRef>,
+            span: Span,
+        ) -> Self {
+            Self {
+                id,
+                stream,
+                startxref,
+                span,
+            }
         }
     }
 }
@@ -263,7 +317,8 @@ mod tests {
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0, 0, 6) },
             stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
-            span: Span::new(0, 1993),
+            startxref: Some(StartXRef::new(365385, Span::new(1993, 23))),
+            span: Span::new(0, 2016),
         };
         parse_assert_eq!(XRefStream, buffer, xref_stream);
 
@@ -276,7 +331,8 @@ mod tests {
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0, 0, 6) },
             Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
-            Span::new(0, 1322),
+            Some(StartXRef::new(309373, Span::new(1322, 23))),
+            Span::new(0, 1345),
         );
         parse_assert_eq!(XRefStream, buffer, xref_stream);
 
@@ -289,7 +345,8 @@ mod tests {
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0, 0, 6) },
             Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
-            Span::new(0, 735),
+            Some(StartXRef::new(238838, Span::new(735, 23))),
+            Span::new(0, 758),
         );
         parse_assert_eq!(XRefStream, buffer, xref_stream);
     }

@@ -26,9 +26,9 @@ pub enum ParseErr<'buffer> {
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("{object}. Error: {code}. Buffer: {}", debug_bytes(.buffer))]
 pub struct ParseError<'buffer, const RECOVERABLE: bool> {
-    buffer: &'buffer [Byte],
-    object: &'static str,
-    code: ParseErrorCode,
+    pub(crate) buffer: &'buffer [Byte],
+    pub(crate) object: &'static str,
+    pub(crate) code: ParseErrorCode,
 }
 
 // Box<_>, DictionaryErr and String do not implement Copy
