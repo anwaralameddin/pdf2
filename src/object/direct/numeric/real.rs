@@ -18,32 +18,39 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_f64;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::parse_recoverable;
 use crate::Byte;
+use crate::Offset;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Real(f64);
+pub struct Real {
+    value: f64,
+    span: Span,
+}
 
 impl Display for Real {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.value)
     }
 }
 
-impl Parser<'_> for Real {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
+impl ObjectParser<'_> for Real {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
         // REFERENCE: [7.3.3 Numeric objects, p24]
         // A real number is represented in its decimal form and does not permit
         // exponential notation.
         // An integer can be used in place of a real number.
-        let (buffer, value) = recognize::<_, _, NomError<_>, _>(pair(
+        let (_, value) = recognize::<_, _, NomError<_>, _>(pair(
             opt(alt((char('-'), (char('+'))))),
             alt((
                 recognize(pair(digit1, opt(preceded(char('.'), digit0)))),
                 recognize(pair(digit0, preceded(char('.'), digit1))),
             )),
-        ))(buffer)
+        ))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Real), ParseErrorCode::NotFound(e.code))
@@ -51,14 +58,19 @@ impl Parser<'_> for Real {
         // Here, we know that the buffer starts with a real number, and the
         // following errors should be propagated as RealFailure
 
+        let len = value.len();
         // It is not guaranteed that the string of digits and '.' is a valid
         // f64, e.g.  the value could overflow
         let value = ascii_to_f64(value).ok_or_else(|| {
             ParseFailure::new(value, stringify!(Real), ParseErrorCode::ParseFloatError)
         })?;
 
-        let value = Self(value);
-        Ok((buffer, value))
+        let span = Span::new(offset, len);
+        Ok(Self { value, span })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -67,9 +79,9 @@ mod convert {
 
     use super::*;
 
-    impl From<f64> for Real {
-        fn from(value: f64) -> Self {
-            Self(value)
+    impl Real {
+        pub fn new(value: f64, span: Span) -> Self {
+            Self { value, span }
         }
     }
 
@@ -77,7 +89,7 @@ mod convert {
         type Target = f64;
 
         fn deref(&self) -> &Self::Target {
-            &self.0
+            &self.value
         }
     }
 }
@@ -92,30 +104,36 @@ mod tests {
 
     #[test]
     fn numeric_real_valid() {
-        parse_assert_eq!(b"-0", Real(0.0), "".as_bytes());
-        parse_assert_eq!(b"-0", Real(0.0), "".as_bytes());
-        parse_assert_eq!(b"0.0", Real(0.0), "".as_bytes());
-        parse_assert_eq!(b"-.0001", Real(-0.0001), "".as_bytes());
-        parse_assert_eq!(b"1. 2", Real(1.0), " 2".as_bytes());
-        parse_assert_eq!(b"+1 .0 2.0", Real(1.0), " .0 2.0".as_bytes());
+        parse_assert_eq!(Real, b"-0", Real::new(0.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"-0", Real::new(0.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"0.0", Real::new(0.0, Span::new(0, 3)));
+        parse_assert_eq!(Real, b"-.0001", Real::new(-0.0001, Span::new(0, 6)),);
+        parse_assert_eq!(Real, b"1. 2", Real::new(1.0, Span::new(0, 2)));
+        parse_assert_eq!(Real, b"+1 .0 2.0", Real::new(1.0, Span::new(0, 2)),);
         // f64::MIN = -1.7976931348623157E+308f64 but i64::MIN = -9223372036854775808
         parse_assert_eq!(
-            b"-9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999", Real(
-                -9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
-            ), "".as_bytes()
+            Real,
+            b"-9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            Real::new(
+                -9223372036854775808.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999,
+                Span::new(0, 313)
+            ),
         );
         // f64::MAX = 1.7976931348623157E+308f64 but i64::MAX = 9223372036854775807
         parse_assert_eq!(
-            b"9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999", Real(
-                9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
-            ), "".as_bytes()
+            Real,
+            b"9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            Real::new(
+                9223372036854775807.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999,
+                Span::new(0, 312)
+            ),
         );
     }
 
     #[test]
     fn numeric_real_invalid() {
         // Real number: Missing digits
-        let real_incomplete = Real::parse(b"+.");
+        let real_incomplete = Real::parse(b"+.", 0);
         let expected_error = ParseRecoverable::new(
             b"",
             stringify!(Real),
@@ -124,7 +142,7 @@ mod tests {
         assert_err_eq!(real_incomplete, expected_error);
 
         // Real number: Missing digits
-        let parse_result = Real::parse(b" <");
+        let parse_result = Real::parse(b" <", 0);
         let expected_error = ParseRecoverable::new(
             b" <",
             stringify!(Real),
@@ -133,7 +151,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Real number: Missing digits
-        let parse_result = Real::parse(b"+.<");
+        let parse_result = Real::parse(b"+.<", 0);
         let expected_error = ParseRecoverable::new(
             b"<",
             stringify!(Real),
@@ -144,26 +162,26 @@ mod tests {
         // TODO(QUESTION) Is there a need to allow such large numbers?
         // f64::MIN = -1.7976931348623157E+308f64
         let buffer = b"-179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        let parse_result = Real::parse(buffer);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::MAX = 1.7976931348623157E+308f64
         let buffer = b"179769313486231580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        let parse_result = Real::parse(buffer);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::NEG_INFINITY
         let buffer = b"-179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
-        let parse_result = Real::parse(buffer);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);
         // f64::INFINITY
         let buffer =
             b"179769313486231589999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
-        let parse_result = Real::parse(buffer);
+        let parse_result = Real::parse(buffer, 0);
         let expected_error =
             ParseFailure::new(buffer, stringify!(Real), ParseErrorCode::ParseFloatError);
         assert_err_eq!(parse_result, expected_error);

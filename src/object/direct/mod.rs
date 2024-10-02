@@ -21,8 +21,10 @@ use crate::object::indirect::reference::Reference;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE:
 /// - [7.3 Objects, p24]
@@ -58,24 +60,37 @@ impl Display for DirectValue<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for DirectValue<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        Reference::parse_suppress_recoverable(buffer)
-            .or_else(|| Null::parse_suppress_recoverable(buffer))
-            .or_else(|| Boolean::parse_suppress_recoverable(buffer))
-            .or_else(|| Numeric::parse_suppress_recoverable(buffer))
-            .or_else(|| Name::parse_suppress_recoverable(buffer))
-            .or_else(|| String_::parse_suppress_recoverable(buffer))
-            .or_else(|| Array::parse_suppress_recoverable(buffer))
-            .or_else(|| Dictionary::parse_suppress_recoverable(buffer))
+impl<'buffer> ObjectParser<'buffer> for DirectValue<'buffer> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        Name::parse_suppress_recoverable(buffer, offset)
+            .or_else(|| Array::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Dictionary::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| String_::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Boolean::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Null::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Reference::parse_suppress_recoverable(buffer, offset))
+            .or_else(|| Numeric::parse_suppress_recoverable(buffer, offset))
             .unwrap_or_else(|| {
                 Err(ParseRecoverable::new(
-                    buffer,
+                    &buffer[offset..],
                     stringify!(DirectValue),
                     ParseErrorCode::NotFoundUnion,
                 )
                 .into())
             })
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Reference(reference) => reference.span(),
+            Self::Array(array) => array.span(),
+            Self::Boolean(boolean) => boolean.span(),
+            Self::Dictionary(dictionary) => dictionary.span(),
+            Self::Name(name) => name.span(),
+            Self::Null(null) => null.span(),
+            Self::Numeric(numeric) => numeric.span(),
+            Self::String(string) => string.span(),
+        }
     }
 }
 
@@ -111,14 +126,14 @@ mod convert {
     impl_from_ref!('buffer, Reference, Reference, DirectValue<'buffer>);
     impl_from_ref!('buffer, Array<'buffer>, Array, DirectValue<'buffer>);
     impl_from_ref!('buffer, Boolean, Boolean, DirectValue<'buffer>);
-    impl_from_ref!('buffer, bool, Boolean, DirectValue<'buffer>);
+    // impl_from_ref!('buffer, bool, Boolean, DirectValue<'buffer>);
     impl_from_ref!('buffer, Dictionary<'buffer>, Dictionary, DirectValue<'buffer>);
     impl_from_ref!('buffer, Name<'buffer>, Name, DirectValue<'buffer>);
     impl_from_ref!('buffer, Null, Null, DirectValue<'buffer>);
     impl_from_ref!('buffer, Integer, Numeric, DirectValue<'buffer>);
-    impl_from_ref!('buffer, u64, Numeric, DirectValue<'buffer>);
+    // impl_from_ref!('buffer, u64, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, Real, Numeric, DirectValue<'buffer>);
-    impl_from_ref!('buffer, f64, Numeric, DirectValue<'buffer>);
+    // impl_from_ref!('buffer, f64, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, Numeric, Numeric, DirectValue<'buffer>);
     impl_from_ref!('buffer, Hexadecimal<'buffer>, String, DirectValue<'buffer>);
     impl_from_ref!('buffer, Literal<'buffer>, String, DirectValue<'buffer>);

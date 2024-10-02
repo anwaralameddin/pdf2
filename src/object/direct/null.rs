@@ -9,14 +9,18 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::parse::KW_NULL;
 use crate::parse_recoverable;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.3.9 Null object, p33]
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Null;
+pub struct Null {
+    span: Span,
+}
 
 impl Display for Null {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -24,14 +28,32 @@ impl Display for Null {
     }
 }
 
-impl Parser<'_> for Null {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (buffer, _) = tag::<_, _, NomError<_>>(KW_NULL)(buffer).map_err(parse_recoverable!(
+impl ObjectParser<'_> for Null {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+
+        let (..) = tag::<_, _, NomError<_>>(KW_NULL)(remains).map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Null), ParseErrorCode::NotFound(e.code))
         ))?;
 
-        Ok((buffer, Self))
+        let span = Span::new(offset, 4);
+
+        Ok(Self { span })
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+mod convert {
+    use super::*;
+
+    impl Null {
+        pub fn new(span: Span) -> Self {
+            Self { span }
+        }
     }
 }
 
@@ -45,17 +67,17 @@ mod tests {
 
     #[test]
     fn null_valid() {
-        parse_assert_eq!(b"null", Null, "".as_bytes());
-        parse_assert_eq!(b"null ", Null, " ".as_bytes());
-        parse_assert_eq!(b"null    r", Null, "    r".as_bytes());
+        parse_assert_eq!(Null, b"null", Null::new(Span::new(0, 4)));
+        parse_assert_eq!(Null, b"null ", Null::new(Span::new(0, 4)));
+        parse_assert_eq!(Null, b"null    r", Null::new(Span::new(0, 4)));
         // TODO(QUESTION): Should this be valid?
-        parse_assert_eq!(b"nulltrue", Null, "true".as_bytes());
+        parse_assert_eq!(Null, b"nulltrue", Null::new(Span::new(0, 4)));
     }
 
     #[test]
     fn null_invalid() {
         // Null: Not found
-        let parse_result = Null::parse(b"nul");
+        let parse_result = Null::parse(b"nul", 0);
         let expected_error = ParseRecoverable::new(
             b"nul",
             stringify!(Null),

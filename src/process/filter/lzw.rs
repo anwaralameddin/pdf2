@@ -7,7 +7,7 @@ use crate::process::filter::error::FilterResult;
 use crate::Byte;
 use crate::DECODED_LIMIT;
 
-const KEY_EARLY_CHANGE: &str = "EarlyChange";
+const KEY_EARLY_CHANGE: &[Byte] = b"EarlyChange";
 const MIN_CODE_SIZE: usize = 9;
 const MAX_CODE_SIZE: usize = 12;
 const CLEAR_CODE: u16 = 256;
@@ -28,7 +28,7 @@ impl<'buffer> Filter<'buffer> for Lzw {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = self.predictor.filter(bytes)?;
 
         let mut filter = LzwFilter::default();
@@ -78,7 +78,7 @@ impl<'buffer> Filter<'buffer> for Lzw {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let mut defilter = LzwDefilter::default();
@@ -320,14 +320,15 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::parse::ObjectParser;
     use crate::process::filter::error::FilterErr;
     use crate::process::filter::error::FilterErrorCode;
     use crate::process::filter::error::FilterResult;
 
     impl Lzw {
-        pub(in crate::process::filter) fn new<'buffer>(
-            decode_parms: Option<&'buffer Dictionary>,
-        ) -> FilterResult<'buffer, Self> {
+        pub(in crate::process::filter) fn new(
+            decode_parms: Option<&Dictionary>,
+        ) -> FilterResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
                 let early_change = decode_parms
@@ -352,7 +353,7 @@ mod convert {
     }
 
     impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for EarlyChange {
-        type Error = FilterErr<'buffer>;
+        type Error = FilterErr;
 
         fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
@@ -361,13 +362,13 @@ mod convert {
                     1 => Ok(Self(true)),
                     _ => Err(FilterErr::new(
                         stringify!(EarlyChange),
-                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                        FilterErrorCode::UnsupportedParameter(*value.deref()),
                     )),
                 }
             } else {
                 Err(FilterErr::new(
                     stringify!(EarlyChange),
-                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                    FilterErrorCode::ValueType(stringify!(Integer), value.span()),
                 ))
             }
         }
@@ -426,7 +427,7 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
     // use crate::lax_stream_defilter_filter;
     use crate::strict_stream_defilter_filter;
 

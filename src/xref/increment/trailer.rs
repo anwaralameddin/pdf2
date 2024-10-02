@@ -3,30 +3,32 @@ use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
-use crate::object::direct::dictionary::Dictionary;
+use crate::fmt::debug_bytes;
 use crate::object::direct::name::Name;
 use crate::object::direct::string::String_;
 use crate::object::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
+use crate::parse::Span;
+use crate::Byte;
 use crate::IndexNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
 // Common dictionary keys
-const KEY_SIZE: &str = "Size";
-pub(crate) const KEY_PREV: &str = "Prev";
+const KEY_SIZE: &[Byte] = b"Size";
+pub(crate) const KEY_PREV: &[Byte] = b"Prev";
 // Section dictionary keys
-const KEY_ENCRYPT: &str = "Encrypt";
-const KEY_ID: &str = "ID";
-const KEY_INFO: &str = "Info";
-const KEY_ROOT: &str = "Root";
-// Stream dictionary keys
-const KEY_INDEX: &str = "Index";
-pub(super) const KEY_TYPE: &str = "Type";
-pub(super) const KEY_W: &str = "W";
-pub(super) const VAL_XREF: &str = "XRef";
+const KEY_ENCRYPT: &[Byte] = b"Encrypt";
+const KEY_ID: &[Byte] = b"ID";
+const KEY_INFO: &[Byte] = b"Info";
+const KEY_ROOT: &[Byte] = b"Root";
+// [Byte]eam dictionary keys
+const KEY_INDEX: &[Byte] = b"Index";
+pub(super) const KEY_TYPE: &[Byte] = b"Type";
+pub(super) const KEY_W: &[Byte] = b"W";
+pub(super) const VAL_XREF: &[Byte] = b"XRef";
 // Hybrid-reference file trailer dictionary keys
-const KEY_XREF_STM: &str = "XRefStm";
+const KEY_XREF_STM: &[Byte] = b"XRefStm";
 // + Other stream dictionary keys
 
 /// REFERENCE:
@@ -53,51 +55,51 @@ pub(crate) struct Trailer<'buffer> {
     pub(crate) r#type: Option<&'buffer Name<'buffer>>,
     pub(crate) index: Vec<(ObjectNumberOrZero, IndexNumber)>,
     pub(crate) w: Option<[usize; 3]>,
-    pub(crate) others: HashMap<&'buffer Name<'buffer>, &'buffer DirectValue<'buffer>>,
-    pub(crate) dictionary: &'buffer Dictionary<'buffer>,
+    pub(crate) others: HashMap<&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>>,
+    pub(crate) span: Span,
 }
 
 impl Display for Trailer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         writeln!(f, "<<")?;
-        writeln!(f, "{} {}", Name::from(KEY_SIZE), self.size)?;
+        writeln!(f, "/Size {}", self.size)?;
         if let Some(prev) = self.prev {
-            writeln!(f, "{} {}", Name::from(KEY_PREV), prev)?;
+            writeln!(f, "/Prev {}", prev)?;
         }
         if let Some(root) = self.root {
-            writeln!(f, "{} {}", Name::from(KEY_ROOT), root)?;
+            writeln!(f, "/Root {}", root)?;
         }
         if let Some(encrypt) = self.encrypt.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_ENCRYPT), encrypt)?;
+            writeln!(f, "/Encrypt {}", encrypt)?;
         }
         if let Some(info) = self.info {
-            writeln!(f, "{} {}", Name::from(KEY_INFO), info)?;
+            writeln!(f, "/Info {}", info)?;
         }
         if let Some([id1, id2]) = self.id.as_ref() {
-            writeln!(f, "{} [{}{}]", Name::from(KEY_ID), id1, id2)?;
+            writeln!(f, "/ID [{}{}]", id1, id2)?;
         }
         if let Some(xref_stm) = self.xref_stm {
-            writeln!(f, "{} {}", Name::from(KEY_XREF_STM), xref_stm)?;
+            writeln!(f, "/XRefStm {}", xref_stm)?;
         }
         if let Some(r#type) = self.r#type.as_ref() {
-            writeln!(f, "{} {}", Name::from(KEY_TYPE), r#type)?;
+            writeln!(f, "/Type {}", r#type)?;
         }
         if !self.index.is_empty() {
-            write!(f, "{} [ ", Name::from(KEY_INDEX))?;
+            write!(f, "/Index [ ")?;
             for (first_object_number, entry_count) in self.index.iter() {
                 write!(f, "{} {} ", first_object_number, entry_count)?;
             }
             writeln!(f, "]")?;
         }
         if let Some(w) = self.w {
-            write!(f, "{} [ ", Name::from(KEY_W))?;
+            write!(f, "/w [ ")?;
             for value in w.iter() {
                 write!(f, "{} ", value)?;
             }
             writeln!(f, "]")?;
         }
         for (key, value) in self.others.iter() {
-            writeln!(f, "{} {}", key, value)?;
+            writeln!(f, "{} {}", debug_bytes(key), value)?;
         }
         writeln!(f, ">>")
     }
@@ -120,12 +122,13 @@ mod convert {
     use crate::object::indirect::stream::KEY_FFILTER;
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
+    use crate::parse::ObjectParser;
     use crate::xref::error::XRefErr;
     use crate::ObjectNumberOrZero;
     use crate::Offset;
 
     impl<'buffer> TryFrom<&'buffer Dictionary<'buffer>> for Trailer<'buffer> {
-        type Error = XRefErr<'buffer>;
+        type Error = XRefErr;
 
         fn try_from(dictionary: &'buffer Dictionary<'buffer>) -> Result<Self, Self::Error> {
             let size = dictionary.required_u64(KEY_SIZE)?;
@@ -148,10 +151,10 @@ mod convert {
                         }
                         _ => Err(ObjectErr::new(
                             KEY_ID,
-                            dictionary,
-                            ObjectErrorCode::Array {
-                                value: array,
-                                expected: stringify!([String_; 2]),
+                            dictionary.span(),
+                            ObjectErrorCode::Type {
+                                value_span: array.span(),
+                                expected_type: stringify!([String_; 2]),
                             },
                         )),
                     }
@@ -170,9 +173,9 @@ mod convert {
                             field.as_usize().ok_or_else(|| {
                                 ObjectErr::new(
                                     KEY_W,
-                                    dictionary,
+                                    dictionary.span(),
                                     ObjectErrorCode::Type {
-                                        value: field,
+                                        value_span: field.span(),
                                         expected_type: stringify!(usize),
                                     },
                                 )
@@ -182,10 +185,10 @@ mod convert {
                     }
                     _ => Err(ObjectErr::new(
                         KEY_W,
-                        dictionary,
-                        ObjectErrorCode::Array {
-                            value: array,
-                            expected: stringify!(an array of three integers),
+                        dictionary.span(),
+                        ObjectErrorCode::Type {
+                            value_span: array.span(),
+                            expected_type: stringify!(an array of three integers),
                         },
                     )),
                 })
@@ -198,10 +201,10 @@ mod convert {
                     if !chunks.remainder().is_empty() {
                         return Err(ObjectErr::new(
                             KEY_INDEX,
-                            dictionary,
-                            ObjectErrorCode::Array {
-                                value: array,
-                                expected: stringify!(an array of pairs of integers),
+                            dictionary.span(),
+                            ObjectErrorCode::Type {
+                                value_span: array.span(),
+                                expected_type: stringify!(an array of pairs of integers),
                             },
                         ));
                     }
@@ -212,9 +215,9 @@ mod convert {
                                 first_object_number.as_u64().ok_or_else(|| {
                                     ObjectErr::new(
                                         KEY_INDEX,
-                                        dictionary,
+                                        dictionary.span(),
                                         ObjectErrorCode::Type {
-                                            value: first_object_number,
+                                            value_span: first_object_number.span(),
                                             expected_type: stringify!(ObjectNumberOrZero),
                                         },
                                     )
@@ -222,9 +225,9 @@ mod convert {
                             let entry_count = entry_count.as_u64().ok_or_else(|| {
                                 ObjectErr::new(
                                     KEY_INDEX,
-                                    dictionary,
+                                    dictionary.span(),
                                     ObjectErrorCode::Type {
-                                        value: entry_count,
+                                        value_span: entry_count.span(),
                                         expected_type: stringify!(IndexNumber),
                                     },
                                 )
@@ -272,7 +275,11 @@ mod convert {
                     && key.ne(&&KEY_FDECODEPARMS)
                     && key.ne(&&KEY_DL)
                 {
-                    eprintln!("Trailer contains additional entry: {} {}", key, value);
+                    eprintln!(
+                        "Trailer contains additional entry: {} {}",
+                        debug_bytes(key),
+                        value
+                    );
                 }
             }
 
@@ -288,13 +295,13 @@ mod convert {
                 index,
                 w,
                 others,
-                dictionary,
+                span: dictionary.span(),
             })
         }
     }
 
     impl<'buffer> Trailer<'buffer> {
-        pub(crate) fn new(size: IndexNumber, dictionary: &'buffer Dictionary<'buffer>) -> Self {
+        pub(crate) fn new(size: IndexNumber, span: Span) -> Self {
             Self {
                 size,
                 prev: Default::default(),
@@ -307,7 +314,7 @@ mod convert {
                 index: Default::default(),
                 w: Default::default(),
                 others: Default::default(),
-                dictionary,
+                span,
             }
         }
 
@@ -351,8 +358,11 @@ mod convert {
             self
         }
 
-        pub(crate) fn set_index(mut self, index: Vec<(ObjectNumberOrZero, IndexNumber)>) -> Self {
-            self.index = index;
+        pub(crate) fn set_index(
+            mut self,
+            index: impl IntoIterator<Item = (ObjectNumberOrZero, IndexNumber)>,
+        ) -> Self {
+            self.index = index.into_iter().collect();
             self
         }
 
@@ -363,30 +373,26 @@ mod convert {
 
         pub(crate) fn set_others(
             mut self,
-            others: HashMap<&'buffer Name<'buffer>, &'buffer DirectValue<'buffer>>,
+            others: impl IntoIterator<Item = (&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>)>,
         ) -> Self {
-            self.others = others;
+            self.others = others.into_iter().collect();
             self
         }
 
         pub(crate) fn required_type(&self) -> ObjectResult<&Name> {
             self.r#type.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_TYPE,
-                    self.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_TYPE, self.span, ObjectErrorCode::MissingRequiredEntry)
             })
         }
 
         pub(crate) fn required_w(&self) -> ObjectResult<[usize; 3]> {
             self.w.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_W,
-                    self.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_W, self.span, ObjectErrorCode::MissingRequiredEntry)
             })
+        }
+
+        pub(crate) fn span(&self) -> Span {
+            self.span
         }
     }
 }
@@ -398,7 +404,7 @@ mod tests {
     use crate::assert_err_eq;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
-    use crate::object::direct::numeric::Real;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::object::error::ObjectErr;
@@ -407,46 +413,49 @@ mod tests {
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
-    use crate::parse::Parser;
+    use crate::parse::ObjectParser;
 
     #[test]
     fn section_trailer_valid() {
         // Synthetic test
         let buffer = include_bytes!("../../../tests/data/SYNTHETIC_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/SYNTHETIC_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/483F2EC937A8888A3F98DD1FF73B1F6B_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfTeX-1.40.16
         let buffer =
             include_bytes!("../../../tests/data/8401FBC530C8AE9B8EC1425170A70921_trailer.bin");
-        let key_rigid: Name = "rgid".into();
-        let vale_rigid: DirectValue =
-            Literal::from("PB:318039020_AS:510882528206848@1498815294792").into();
-        let key_habibi: Name = "habibi-version".into();
-        let val_habibi: DirectValue = Literal::from("8.12.0".as_bytes()).into();
-        let key_comunity: Name = "comunity-version".into();
-        let val_comunity: DirectValue = Literal::from("v189.11.0".as_bytes()).into();
-        let key_worker: Name = "worker-version".into();
-        let val_worker: DirectValue = Literal::from("8.12.0".as_bytes()).into();
-        let key_dd: Name = "dd".into();
-        let val_dd: DirectValue = Literal::from("1498815349362".as_bytes()).into();
+        let key_rigid = b"rgid".to_vec();
+        let vale_rigid: DirectValue = Literal::from((
+            "PB:318039020_AS:510882528206848@1498815294792",
+            Span::new(120, 47),
+        ))
+        .into();
+        let key_habibi = b"habibi-version".to_vec();
+        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(184, 8))).into();
+        let key_comunity = b"comunity-version".to_vec();
+        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(211, 11))).into();
+        let key_worker = b"worker-version".to_vec();
+        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(239, 8))).into();
+        let key_dd = b"dd".to_vec();
+        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(252, 15))).into();
 
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
 
         // PDF produced by pdfunite from PDFs produced by LaTeX
         let buffer =
             include_bytes!("../../../tests/data/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.bin");
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8E3F7CBC1ADD2112724D45EBD1E2B0C6_trailer.rs");
         assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
     }
@@ -456,29 +465,29 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let (_, object) = IndirectObject::parse(buffer).unwrap();
-        let val_ref: Name = VAL_XREF.into();
-        let key_length: Name = KEY_LENGTH.into();
-        let val_length: DirectValue = 1760.into();
-        let key_filter: Name = KEY_FILTER.into();
-        let val_filter: DirectValue = Name::from("FlateDecode").into();
+        let object = IndirectObject::parse(buffer, 0).unwrap();
+        let val_ref = Name::new(VAL_XREF, Span::new(19, 5));
+        let key_length = KEY_LENGTH.to_vec();
+
+        let val_length: DirectValue = Integer::new(1760, Span::new(173, 4)).into();
+        let key_filter = KEY_FILTER.to_vec();
+        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(192, 12))).into();
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
-            let trailer = Trailer::new(750, &dictionary)
-                .set_root(unsafe { Reference::new_unchecked(747, 0) })
+            let trailer = Trailer::new(750, Span::new(10, 197))
+                .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 7) })
                 .set_w([1, 3, 1])
-                .set_index(vec![(0, 750)])
-                .set_info(unsafe { Reference::new_unchecked(748, 0) })
+                .set_index([(0, 750)])
+                .set_info(unsafe { Reference::new_unchecked(748, 0, 81, 7) })
                 .set_id([
-                    Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
-                    Hexadecimal::from("1F0F80D27D156F7EF35B1DF40B1BD3E8").into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 34)))
+                        .into(),
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(129, 34)))
+                        .into(),
                 ])
                 .set_type(&val_ref)
-                .set_others(HashMap::from_iter([
-                    (&key_length, &val_length),
-                    (&key_filter, &val_filter),
-                ]));
+                .set_others([(&key_length, &val_length), (&key_filter, &val_filter)]);
             assert_eq!(trailer, Trailer::try_from(&dictionary).unwrap());
         } else {
             panic!("Expected an indirect object with a stream value");
@@ -496,22 +505,24 @@ mod tests {
 
         // Missing required key Size
         let buffer = b"<</Root 2 0 R /Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
 
-        let expected_error =
-            ObjectErr::new(KEY_SIZE, &dictionary, ObjectErrorCode::MissingRequiredEntry);
+        let expected_error = ObjectErr::new(
+            KEY_SIZE,
+            dictionary.span(),
+            ObjectErrorCode::MissingRequiredEntry,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         let buffer = b"<</Size 1.1/Root 2 0 R/Info 1 0 R>>\nstartxref\n99999\n%%EOF";
-        let (_, dictionary) = Dictionary::parse(buffer).unwrap();
+        let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
-        let value = Real::from(1.1).into();
         let expected_error = ObjectErr::new(
             KEY_SIZE,
-            &dictionary,
+            dictionary.span(),
             ObjectErrorCode::Type {
-                value: &value,
+                value_span: Span::new(8, 3),
                 expected_type: stringify!(u64),
             },
         );

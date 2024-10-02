@@ -15,7 +15,7 @@ impl<'buffer> Filter<'buffer> for Tiff {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         // TODO This predictor can be implemented in place without the additional buffer
@@ -53,7 +53,7 @@ impl<'buffer> Filter<'buffer> for Tiff {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let mut defiltered = Vec::with_capacity(bytes.len());
@@ -96,7 +96,8 @@ struct BitsReader<'buffer> {
 }
 
 impl BitsReader<'_> {
-    fn next_bits(&mut self) -> FilterResult<'static, Option<Byte>> {
+    fn next_bits(&mut self) -> FilterResult<Option<Byte>> {
+        // 'static
         let byte_location = self.location / 8;
         let bit_location = self.location % 8;
 
@@ -127,7 +128,8 @@ impl BitsReader<'_> {
         Ok(Some(bits))
     }
 
-    fn next_colors(&mut self) -> FilterResult<'static, Option<Vec<Byte>>> {
+    fn next_colors(&mut self) -> FilterResult<Option<Vec<Byte>>> {
+        // 'static
         if self.location == self.bytes.len() * 8 {
             return Ok(None);
         }
@@ -144,7 +146,8 @@ impl BitsReader<'_> {
         Ok(Some(colors))
     }
 
-    fn next_row(&mut self) -> FilterResult<'static, Option<Vec<Vec<Byte>>>> {
+    fn next_row(&mut self) -> FilterResult<Option<Vec<Vec<Byte>>>> {
+        // 'static,
         if self.location == self.bytes.len() * 8 {
             return Ok(None);
         }
@@ -184,7 +187,8 @@ struct BitsWriter<'buffer> {
 }
 
 impl BitsWriter<'_> {
-    fn write_component(&mut self, component: Byte) -> FilterResult<'static, ()> {
+    fn write_component(&mut self, component: Byte) -> FilterResult<()> {
+        // 'static,
         if self.bit_location + *self.parms.bits_per_component > 8 {
             return Err(TiffErrorCode::BitsOutOfBound(
                 *self.parms.bits_per_component,
@@ -216,7 +220,8 @@ impl BitsWriter<'_> {
         Ok(())
     }
 
-    fn flush_row(&mut self) -> FilterResult<'static, ()> {
+    fn flush_row(&mut self) -> FilterResult<()> {
+        // 'static,
         if self.bit_location == 0 {
             return Ok(());
         }

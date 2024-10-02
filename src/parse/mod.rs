@@ -2,9 +2,16 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
+use std::ops::Index;
+
+use ::std::fmt::Display;
+use ::std::fmt::Formatter;
+use ::std::fmt::Result as FmtResult;
+
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
+use crate::Offset;
 
 pub(crate) const EOF: &str = "%%EOF";
 pub(crate) const KW_ENDOBJ: &str = "endobj";
@@ -24,27 +31,79 @@ pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
+pub struct Span {
+    start: usize,
+    end: usize,
+}
 pub(crate) trait Parser<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<'buffer, (&[Byte], Self)>
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<'buffer, Self>
     where
         Self: Sized;
 
-    /// Try to parse the buffer and return an option:
-    /// - Some(Ok(_)): if the buffer was parsed successfully
-    /// - Some(Err(ParseErr::Failure(_))): if the parser failed with no possible
-    /// recovery
-    /// - None: if the parser returned another error, which could be recovered
-    /// by another parser
-    fn parse_suppress_recoverable<O>(buffer: &'buffer [Byte]) -> Option<ParseResult<(&[Byte], O)>>
+    fn spans(&self) -> Vec<Span>;
+}
+
+pub(crate) trait ObjectParser<'buffer> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<'buffer, Self>
+    where
+        Self: Sized;
+
+    fn span(&self) -> Span;
+
+    fn parse_suppress_recoverable<O>(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+    ) -> Option<ParseResult<O>>
     where
         Self: Sized,
         O: From<Self>,
     {
-        let result = Self::parse(buffer);
+        let result = Self::parse(buffer, offset);
         match result {
-            Ok((buffer, object)) => Some(Ok((buffer, object.into()))),
+            Ok(object) => Some(Ok(object.into())),
             Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
             _ => None,
+        }
+    }
+}
+
+impl Display for Span {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "Span({}..{})", self.start, self.end)
+    }
+}
+
+impl<T> Index<Span> for [T] {
+    type Output = [T];
+
+    fn index(&self, index: Span) -> &Self::Output {
+        &self[index.start..index.end]
+    }
+}
+
+mod convert {
+    use super::*;
+
+    impl Span {
+        pub fn new(start: usize, len: usize) -> Self {
+            // TODO: Require that start <= end
+            Self {
+                start,
+                end: start + len,
+            }
+        }
+
+        pub fn start(&self) -> usize {
+            self.start
+        }
+
+        pub fn end(&self) -> usize {
+            self.end
+        }
+
+        pub fn len(&self) -> usize {
+            self.end - self.start
         }
     }
 }
@@ -52,18 +111,12 @@ pub(crate) trait Parser<'buffer> {
 mod tests {
     #[macro_export]
     macro_rules! parse_assert_eq {
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr) => {
-            assert_eq!(
-                Parser::parse($buffer).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
+        ($type:ident, $buffer:expr, $expected_parsed:expr) => {
+            assert_eq!($type::parse($buffer, 0).unwrap(), $expected_parsed);
         };
         // The two patterns differ only in the trailing comma
-        ($buffer:expr, $expected_parsed:expr, $expected_remains:expr,) => {
-            assert_eq!(
-                Parser::parse($buffer).unwrap(),
-                ($expected_remains, $expected_parsed)
-            );
+        ($type:ident, $buffer:expr, $expected_parsed:expr,) => {
+            assert_eq!($type::parse($buffer, 0).unwrap(), $expected_parsed);
         };
     }
 }

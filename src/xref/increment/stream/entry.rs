@@ -1,4 +1,3 @@
-use crate::object::indirect::id::Id;
 use crate::GenerationNumber;
 use crate::IndexNumber;
 use crate::ObjectNumber;
@@ -12,7 +11,7 @@ use crate::Offset;
 pub(crate) enum Entry {
     Free(ObjectNumberOrZero, GenerationNumber),
     InUse(Offset, GenerationNumber),
-    Compressed(Id, IndexNumber),
+    Compressed(ObjectNumber, IndexNumber),
     NullReference(u64, u64, u64),
 }
 
@@ -25,7 +24,7 @@ mod convert {
     use crate::Byte;
 
     impl TryFrom<(&[Byte], &[Byte], &[Byte])> for Entry {
-        type Error = XRefErr<'static>;
+        type Error = XRefErr;
         /// REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
         fn try_from(value: (&[Byte], &[Byte], &[Byte])) -> Result<Self, Self::Error> {
             let (field1, field2, field3) = value;
@@ -62,10 +61,9 @@ mod convert {
                         .map_err(|err| XRefErr::StreamObjectNumber(field2.to_vec(), err))?;
 
                     // REFERENCE: [7.5.8.3 Cross-reference stream data, p68]
-                    let id = Id::new(object_number, GenerationNumber::default());
                     let index = bytes_to_u64(field3)
                         .ok_or_else(|| XRefErr::StreamGenerationNumber(field3.to_vec()))?;
-                    Ok(Self::Compressed(id, index))
+                    Ok(Self::Compressed(object_number, index))
                 }
                 _ => {
                     let value2 = bytes_to_u64(field2)

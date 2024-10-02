@@ -1,7 +1,10 @@
 use ::nom::error::ErrorKind;
 use ::thiserror::Error;
 
+use crate::error::DisplayUsingBuffer;
 use crate::fmt::debug_bytes;
+use crate::object::direct::dictionary::Dictionary;
+use crate::object::error::ObjectErr;
 use crate::Byte;
 use crate::ObjectNumberOrZero;
 
@@ -23,17 +26,41 @@ pub enum ParseErr<'buffer> {
     Failure(ParseFailure<'buffer>),
 }
 
+impl DisplayUsingBuffer for ParseErr<'_> {
+    fn display_using_buffer(&self, buffer: &[Byte]) -> String {
+        match self {
+            Self::Recoverable(err) => {
+                format!("Parse Recoverable: {}", err.display_using_buffer(buffer))
+            }
+            Self::Failure(err) => format!("Parse Failure: {}", err.display_using_buffer(buffer)),
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("{object}. Error: {code}. Buffer: {}", debug_bytes(.buffer))]
 pub struct ParseError<'buffer, const RECOVERABLE: bool> {
-    buffer: &'buffer [Byte],
-    object: &'static str,
-    code: ParseErrorCode,
+    pub(crate) buffer: &'buffer [Byte],
+    pub(crate) object: &'static str,
+    pub(crate) code: ParseErrorCode<'buffer>,
+}
+
+impl<const RECOVERABLE: bool> DisplayUsingBuffer for ParseError<'_, RECOVERABLE> {
+    fn display_using_buffer(&self, buffer: &[Byte]) -> String {
+        format!(
+            "{}. Error: {}. Buffer: {}",
+            self.object,
+            self.code.display_using_buffer(buffer),
+            debug_bytes(self.buffer)
+        )
+    }
 }
 
 // Box<_>, DictionaryErr and String do not implement Copy
 #[derive(Debug, Error, PartialEq, Clone)]
-pub enum ParseErrorCode {
+pub enum ParseErrorCode<'buffer> {
+    #[error("Found Dictionary: {0}")]
+    FoundDictionary(Dictionary<'buffer>),
     // Whole buffer errors
     #[error("Buffer is too small")]
     TooSmallBuffer,
@@ -51,14 +78,14 @@ pub enum ParseErrorCode {
     NotFoundUnion,
     // Collection Errors
     #[error("Not found. Parse: {0}")]
-    RecNotFound(Box<ParseErrorCode>),
+    RecNotFound(Box<ParseErrorCode<'buffer>>),
     #[error("Missing subobject: {0}. Parse: {1}")]
-    RecMissingSubobject(&'static str, Box<ParseErrorCode>),
+    RecMissingSubobject(&'static str, Box<ParseErrorCode<'buffer>>),
     // TODO Replace Vec<Byte> with the object's span
     #[error("Missing value. Key: {}. Parse: {1}", debug_bytes(.0))]
-    RecMissingValue(Vec<Byte>, Box<ParseErrorCode>),
+    RecMissingValue(Vec<Byte>, Box<ParseErrorCode<'buffer>>),
     #[error("Missing closing. Parse: {0}")]
-    RecMissingClosing(Box<ParseErrorCode>),
+    RecMissingClosing(Box<ParseErrorCode<'buffer>>),
     #[error(
         "Entry number {} in subsection {} {}. Parse: {}",
         index,
@@ -66,11 +93,11 @@ pub enum ParseErrorCode {
         entry_count,
         code
     )]
-    SubsectionEntry {
+    RecSubsectionEntry {
         index: usize,
         first_object_number: ObjectNumberOrZero,
         entry_count: usize,
-        code: Box<ParseErrorCode>,
+        code: Box<ParseErrorCode<'buffer>>,
     },
     // TODO Move to NumErrorCode
     #[error("Object number")]
@@ -80,7 +107,7 @@ pub enum ParseErrorCode {
     #[error("First object number")]
     FirstObjectNumber, // ascii_to_u64
     #[error("Offset")]
-    OffSet, // ascii_to_usize
+    Offset, // ascii_to_usize
     #[error("Next free object number")]
     NextFree, // ascii_to_u64
     #[error("Entry type")]
@@ -93,8 +120,50 @@ pub enum ParseErrorCode {
     ParseFloatError, // ascii_to_f64
     //
     #[error("Object: {0}")]
-    // TODO (TEMP) Replace with ObjectErr when objects are replaced with Span
-    Object(String),
+    Object(#[from] ObjectErr),
+}
+
+impl DisplayUsingBuffer for ParseErrorCode<'_> {
+    fn display_using_buffer(&self, buffer: &[Byte]) -> String {
+        match self {
+            Self::RecNotFound(code) => {
+                format!("Not found. Parse: {}", code.display_using_buffer(buffer))
+            }
+            Self::RecMissingSubobject(key, code) => {
+                format!(
+                    "Missing subobject: {}. Parse: {}",
+                    key,
+                    code.display_using_buffer(buffer)
+                )
+            }
+            Self::RecMissingValue(key, code) => {
+                format!(
+                    "Missing value. Key: {}. Parse: {}",
+                    debug_bytes(key),
+                    code.display_using_buffer(buffer)
+                )
+            }
+            Self::RecMissingClosing(code) => format!(
+                "Missing closing. Parse: {}",
+                code.display_using_buffer(buffer)
+            ),
+            Self::RecSubsectionEntry {
+                index,
+                first_object_number,
+                entry_count,
+                code,
+            } => format!(
+                "Entry number {} in subsection {} {}. Parse: {}",
+                index,
+                first_object_number,
+                entry_count,
+                code.display_using_buffer(buffer)
+            ),
+
+            Self::Object(err) => err.display_using_buffer(buffer),
+            _ => self.to_string(),
+        }
+    }
 }
 
 #[macro_export]
@@ -131,7 +200,11 @@ mod convert {
     // impl_from_ref!('buffer, ObjectErr<'buffer>, Object, ParseErrorCode<'buffer>);
 
     impl<'buffer, const RECOVERABLE: bool> ParseError<'buffer, RECOVERABLE> {
-        pub fn new(buffer: &'buffer [Byte], object: &'static str, code: ParseErrorCode) -> Self {
+        pub fn new(
+            buffer: &'buffer [Byte],
+            object: &'static str,
+            code: ParseErrorCode<'buffer>,
+        ) -> Self {
             Self {
                 buffer,
                 object,
@@ -147,10 +220,8 @@ mod convert {
                 Self::Failure(err) => err.buffer,
             }
         }
-    }
 
-    impl ParseErr<'_> {
-        pub fn code(self) -> ParseErrorCode {
+        pub fn code(self) -> ParseErrorCode<'buffer> {
             match self {
                 Self::Recoverable(err) => err.code,
                 Self::Failure(err) => err.code,

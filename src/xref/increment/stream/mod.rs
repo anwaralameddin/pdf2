@@ -1,5 +1,7 @@
 pub(crate) mod entry;
 
+use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
@@ -9,18 +11,31 @@ use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
+use crate::object::indirect::IndirectValue;
+use crate::parse::character_set::white_space_or_comment;
+use crate::parse::error::ParseErrorCode;
+use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
 use crate::process::filter::FilteringChain;
+use crate::xref::startxref::StartXRef;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.5.8 Cross-reference streams, p65-66]
 #[derive(Debug, PartialEq)]
 pub(crate) struct XRefStream<'buffer> {
     pub(crate) id: Id,
     pub(crate) stream: Stream<'buffer>,
+    // [F.3.4 First-page cross-reference table and trailer (Part 3), p885]
+    // For linearised PDF files, the dummy cross-reference table offset is
+    // optional
+    // TODO Validate the value of startxref
+    pub(crate) startxref: Option<StartXRef>,
+    pub(crate) span: Span,
 }
 
 impl Display for XRefStream<'_> {
@@ -29,20 +44,63 @@ impl Display for XRefStream<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for XRefStream<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
+impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let (remains, IndirectObject { id, value }) = Parser::parse(buffer)?;
+        let IndirectObject { id, value, span } = ObjectParser::parse(buffer, offset)?;
 
-        let stream = Stream::try_from(value)?;
+        let stream = if let IndirectValue::Stream(stream) = value {
+            stream
+        } else {
+            return Err(ParseFailure::new(
+                &buffer[value.span()],
+                stringify!(XRefStream),
+                ParseErrorCode::RecMissingSubobject(
+                    stringify!(Stream),
+                    Box::new(ParseErrorCode::WrongObjectType),
+                ),
+            )
+            .into());
+        };
 
-        let xref_stream = XRefStream::new(id, stream);
+        let start = span.start();
+        let mut offset = span.end();
 
-        let buffer = remains;
+        let remains = &buffer[offset..];
+        // Skip white space and comments
+        // TODO Double check if comments are allowed here
+        if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+            offset += recognised.len();
+        }
 
-        Ok((buffer, xref_stream))
+        let startxref: Option<StartXRef> = StartXRef::parse_suppress_recoverable(buffer, offset)
+            .transpose()
+            .map_err(|err| {
+                ParseFailure::new(
+                    err.buffer(),
+                    stringify!(XRefStream),
+                    ParseErrorCode::RecMissingSubobject(
+                        stringify!(StartXRef),
+                        Box::new(err.code()),
+                    ),
+                )
+            })?;
+
+        let end = startxref
+            .as_ref()
+            .map(|value| value.span().end())
+            .unwrap_or(offset);
+        let span = Span::new(start, end - start);
+
+        let xref_stream = XRefStream::new(id, stream, startxref, span);
+
+        Ok(xref_stream)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -52,9 +110,9 @@ mod table {
     use ::nom::sequence::tuple;
     use ::nom::Err as NomErr;
     use ::std::collections::HashSet;
+    use ::std::ops::Deref;
 
     use super::entry::Entry;
-    use super::error::XRefStreamErrorCode;
     use super::*;
     use crate::object::error::ObjectErr;
     use crate::object::error::ObjectErrorCode;
@@ -78,13 +136,13 @@ mod table {
                 .dictionary
                 .required_name(KEY_TYPE)
                 .and_then(|r#type| {
-                    if r#type.ne(&VAL_XREF) {
+                    if r#type.deref() != &VAL_XREF {
                         Err(ObjectErr::new(
                             KEY_TYPE,
-                            &self.stream.dictionary,
-                            ObjectErrorCode::Name {
+                            self.stream.dictionary.span(),
+                            ObjectErrorCode::Value {
                                 expected: VAL_XREF,
-                                value: r#type,
+                                value_span: r#type.span(),
                             },
                         ))
                     } else {
@@ -94,11 +152,7 @@ mod table {
             let trailer = Trailer::try_from(&self.stream.dictionary)?;
             // W
             let w = trailer.w.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_W,
-                    trailer.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_W, trailer.span(), ObjectErrorCode::MissingRequiredEntry)
             })?;
             // Size
             let size = trailer.size;
@@ -119,14 +173,11 @@ mod table {
                 |mut table, (first_object_number, count)| {
                     for entry_index in 0..*count {
                         // TODO We probably need a different warning when [0, size] is used
-                        let entry =
-                            entries_iter
-                                .next()
-                                .ok_or(XRefStreamErrorCode::EntriesTooShort {
-                                    first_object_number: *first_object_number,
-                                    count: *count,
-                                    index: entry_index,
-                                })?;
+                        let entry = entries_iter.next().ok_or(XRefErr::EntriesTooShort {
+                            first_object_number: *first_object_number,
+                            count: *count,
+                            index: entry_index,
+                        })?;
                         let object_number = first_object_number + entry_index;
 
                         if !object_numbers.insert(object_number) {
@@ -140,10 +191,10 @@ mod table {
                             Entry::InUse(offset, generation_number) => {
                                 table.insert_in_use(object_number, *generation_number, *offset)?;
                             }
-                            Entry::Compressed(stream_id, index_number) => {
+                            Entry::Compressed(stream_object_number, index_number) => {
                                 table.insert_compressed(
                                     object_number,
-                                    *stream_id,
+                                    *stream_object_number,
                                     *index_number,
                                 )?;
                             }
@@ -159,11 +210,7 @@ mod table {
     }
 
     impl XRefStream<'_> {
-        // TODO (TEMP)
-        fn get_entries<'buffer>(
-            stream: &'buffer Stream<'buffer>,
-            w: [usize; 3],
-        ) -> XRefResult<'buffer, Vec<Entry>> {
+        fn get_entries(stream: &Stream, w: [usize; 3]) -> XRefResult<Vec<Entry>> {
             let [count1, count2, count3] = w;
 
             let decoded_data = FilteringChain::new(&stream.dictionary)?.defilter(stream.data)?;
@@ -174,16 +221,19 @@ mod table {
                 take(count2),
                 take(count3),
             )));
-
-            let (buffer, entries) = parser(buffer).map_err(xref_err!(e, {
-                XRefStreamErrorCode::ParseDecoded(e.input.to_vec(), e.code)
-            }))?;
+            // - The only error that can be returned by `take` is `Err::Error`
+            // - `tuple` only propagates the error from its inner parsers and
+            // does not generate errors of its own
+            // - Except for infinite loop check, `many0` consumes its inner
+            // parser `Err::Error` and only propagates other error types
+            // Therefore, `parser` above should not error out
+            let (buffer, entries) =
+                parser(buffer).map_err(xref_err!(e, { XRefErr::EntriesDecodedParse(e.code) }))?;
             if !buffer.is_empty() {
-                return Err(XRefStreamErrorCode::DecodedLength(
+                return Err(XRefErr::EntriesDecodedLength(
                     [count1, count2, count3],
                     decoded_data.len(),
-                )
-                .into());
+                ));
             }
             let entries = entries
                 .into_iter()
@@ -198,39 +248,19 @@ mod convert {
     use super::*;
 
     impl<'buffer> XRefStream<'buffer> {
-        pub(crate) fn new(id: Id, stream: Stream<'buffer>) -> Self {
-            Self { id, stream }
+        pub(crate) fn new(
+            id: Id,
+            stream: Stream<'buffer>,
+            startxref: Option<StartXRef>,
+            span: Span,
+        ) -> Self {
+            Self {
+                id,
+                stream,
+                startxref,
+                span,
+            }
         }
-    }
-}
-
-pub(in crate::xref) mod error {
-
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    use crate::fmt::debug_bytes;
-    use crate::Byte;
-    use crate::IndexNumber;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum XRefStreamErrorCode {
-        // TODO (TEMP) Replace Vec<Byte> below with Span
-        #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
-        ParseDecoded(Vec<Byte>, ErrorKind),
-        #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
-        DecodedLength([usize; 3], usize),
-        #[error(
-            "Entries too short. First object number: {}. Entry count: {}. Missing the {}th entry",
-            first_object_number,
-            count,
-            index
-        )]
-        EntriesTooShort {
-            first_object_number: u64,
-            count: IndexNumber,
-            index: IndexNumber,
-        },
     }
 }
 
@@ -241,6 +271,7 @@ mod tests {
     use crate::object::direct::array::Array;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
+    use crate::object::direct::numeric::Integer;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::indirect::reference::Reference;
     use crate::parse_assert_eq;
@@ -254,10 +285,12 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
         let xref_stream = XRefStream {
-            id: unsafe { Id::new_unchecked(749, 0) },
-            stream: Stream::new(dictionary, &buffer[215..1975]),
+            id: unsafe { Id::new_unchecked(749, 0, 0, 6) },
+            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
+            startxref: Some(StartXRef::new(365385, Span::new(1993, 23))),
+            span: Span::new(0, 2016),
         };
-        parse_assert_eq!(buffer, xref_stream, &buffer[1993..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -266,10 +299,12 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
-            unsafe { Id::new_unchecked(439, 0) },
-            Stream::new(dictionary, &buffer[215..1304]),
+            unsafe { Id::new_unchecked(439, 0, 0, 6) },
+            Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
+            Some(StartXRef::new(309373, Span::new(1322, 23))),
+            Span::new(0, 1345),
         );
-        parse_assert_eq!(buffer, xref_stream, &buffer[1322..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer = include_bytes!(
@@ -278,10 +313,12 @@ mod tests {
         let dictionary =
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
-            unsafe { Id::new_unchecked(190, 0) },
-            Stream::new(dictionary, &buffer[215..717]),
+            unsafe { Id::new_unchecked(190, 0, 0, 6) },
+            Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
+            Some(StartXRef::new(238838, Span::new(735, 23))),
+            Span::new(0, 758),
         );
-        parse_assert_eq!(buffer, xref_stream, &buffer[735..]);
+        parse_assert_eq!(XRefStream, buffer, xref_stream);
     }
 
     // TODO Add tests

@@ -3,7 +3,9 @@ use super::startxref::StartXRef;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
+use crate::parse::ObjectParser;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
@@ -11,27 +13,25 @@ use crate::Byte;
 pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
 impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (_, startxref) = StartXRef::parse(buffer)?;
+    fn parse(buffer: &'buffer [Byte]) -> ParseResult<Self> {
+        let startxref = <StartXRef as Parser>::parse(buffer)?;
 
         let mut increments = Vec::default();
 
         let mut prev = Some(*startxref);
 
         while let Some(offset) = prev {
-            let remains = &buffer[offset..];
-            let (_, increment) = Increment::parse(remains)?;
+            let increment = Increment::parse(buffer, offset)?;
 
             // FIXME This does not take intoaccount the notes on
             // hybrid-reference file’s trailer dictionary in
             // REFERENCE: [7.5.8.4 Compatibility with applications that do not
             // support compressed reference streams, p68]
             prev = increment.prev().map_err(|err| {
-                // FIXME (TEMP) `remains` should be repalced by increment.dictionary.span()
                 ParseFailure::new(
-                    remains,
+                    &buffer[err.dictionary_span],
                     stringify!(PreTable),
-                    ParseErrorCode::Object(err.to_string()),
+                    ParseErrorCode::Object(err),
                 )
             })?;
 
@@ -42,7 +42,11 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
             increments.push(increment);
         }
 
-        Ok((buffer, Self(increments)))
+        Ok(Self(increments))
+    }
+
+    fn spans(&self) -> Vec<Span> {
+        self.iter().map(Increment::span).collect()
     }
 }
 

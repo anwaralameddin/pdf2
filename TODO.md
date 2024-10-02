@@ -2,8 +2,6 @@
 
 ## Performance
 
-- The recent change from <code>ReaderParser</code> to <code>Parser</code> seems to have slowed the parsing. Investigate and fix.
-- Reconsider the order of calls in <code>parse_semi_quiet</code> so that simple types are tried first.
 - Cache created filters.
 
 ## Fixes
@@ -14,7 +12,6 @@
 
 ## Features
 
-- Introduce a <code>Span</code> type to represent a range of bytes an object occupies in the PDF file. Use this span to report <code>String</code> in errors. In particular, <code>PdfError</code> should have access to the <code>buffer</code> and display the slice of bytes corresponding to the errorous span.
 - Recursively look up indirect reference values.
 - Read stream length from an indirect reference.
 - Parse free and compressed objects.

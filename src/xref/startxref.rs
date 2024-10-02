@@ -14,12 +14,16 @@ use crate::parse::character_set::eol;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
+use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_usize;
+use crate::parse::ObjectParser;
 use crate::parse::Parser;
+use crate::parse::Span;
 use crate::parse::EOF;
 use crate::parse::KW_STARTXREF;
 use crate::parse_failure;
+use crate::parse_recoverable;
 use crate::Byte;
 use crate::Offset;
 
@@ -42,18 +46,21 @@ const STARTXREF_MIN_SIZE: usize = 17;
 
 /// REFERENCE: [7.5.5 File trailer, p58]
 #[derive(Debug, PartialEq)]
-pub(crate) struct StartXRef(Offset);
+pub(crate) struct StartXRef {
+    offset: Offset,
+    span: Span,
+}
 
 impl Display for StartXRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\n{}\n{}", KW_STARTXREF, self.0, EOF)
+        write!(f, "{}\n{}\n{}", KW_STARTXREF, self.offset, EOF)
     }
 }
 
 impl Parser<'_> for StartXRef {
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let offset = if let Some(offset) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
-            offset
+    fn parse(buffer: &[Byte]) -> ParseResult<Self> {
+        let mut start = if let Some(start) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
+            start
         } else {
             return Err(ParseFailure::new(
                 buffer,
@@ -67,13 +74,16 @@ impl Parser<'_> for StartXRef {
         // ´complete` rather than `streaming` variants of `tag` and `char` are
         // used to ensure that the parser does return an Incomplete error when
         // the file ends with the EOF marker without trailing EOL characters.
-        let (buffer, _) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[offset..])
-            .unwrap_or((&buffer[offset..], &[]));
-        let (_, start_xref_offset) = delimited(
+        let (remains, recognised) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[start..])
+            .unwrap_or((&buffer[start..], &[]));
+
+        let remains_len = remains.len();
+        start += recognised.len();
+        let (remains, start_xref_offset) = delimited(
             terminated(tag(KW_STARTXREF), eol),
             digit1,
             delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
-        )(buffer)
+        )(remains)
         .map_err(parse_failure!(
             e,
             // Except for Subsection, Section and XRefStream, NotFound errors
@@ -89,11 +99,58 @@ impl Parser<'_> for StartXRef {
             ParseFailure::new(
                 start_xref_offset,
                 stringify!(StartXRef),
-                ParseErrorCode::OffSet,
+                ParseErrorCode::Offset,
             )
         })?;
 
-        Ok((&[], Self(start_xref_offset)))
+        let span = Span::new(start, remains_len - remains.len());
+        Ok(Self {
+            offset: start_xref_offset,
+            span,
+        })
+    }
+
+    fn spans(&self) -> Vec<Span> {
+        vec![self.span]
+    }
+}
+
+impl ObjectParser<'_> for StartXRef {
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
+
+        let (remains, start_xref_offset) = delimited(
+            terminated(tag(KW_STARTXREF), eol),
+            digit1,
+            delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
+        )(remains)
+        .map_err(parse_recoverable!(
+            e,
+            ParseRecoverable::new(
+                e.input,
+                stringify!(StartXRef),
+                ParseErrorCode::NotFound(e.code)
+            )
+        ))?;
+
+        let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| {
+            ParseFailure::new(
+                start_xref_offset,
+                stringify!(StartXRef),
+                ParseErrorCode::Offset,
+            )
+        })?;
+
+        let span = Span::new(offset, remains_len - remains.len());
+        Ok(Self {
+            offset: start_xref_offset,
+            span,
+        })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -102,9 +159,9 @@ mod convert {
 
     use super::*;
 
-    impl From<Offset> for StartXRef {
-        fn from(value: Offset) -> Self {
-            Self(value)
+    impl StartXRef {
+        pub(crate) fn new(offset: Offset, span: Span) -> Self {
+            Self { offset, span }
         }
     }
 
@@ -112,7 +169,7 @@ mod convert {
         type Target = Offset;
 
         fn deref(&self) -> &Self::Target {
-            &self.0
+            &self.offset
         }
     }
 }
@@ -129,39 +186,66 @@ mod tests {
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/CD74097EBFE5D8A25FE8A229299730FA_xref_stream.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let (_, start_xref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(start_xref_offset, StartXRef(238838));
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(238838, Span::new(735, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 735).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(238838, Span::new(735, 23))
+        );
 
         // PDF produced by MikTeX pdfTeX-1.40.11
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/907C09F6EB56BEAF5235FAC6F37F5B84_trailer.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let (_, startxref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(startxref_offset, StartXRef(265666));
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(265666, Span::new(128, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 128).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(265666, Span::new(128, 23))
+        );
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xref_stream.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let (_, startxref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(startxref_offset, StartXRef(309373));
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(309373, Span::new(1322, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1322).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(309373, Span::new(1322, 23))
+        );
 
         // PDF produced by pdfTeX-1.40.22
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let (_, startxref_offset) = StartXRef::parse(&buffer[offset..]).unwrap();
-        assert_eq!(startxref_offset, StartXRef(365385));
+        let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(365385, Span::new(1993, 23))
+        );
+        let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1993).unwrap();
+        assert_eq!(
+            start_xref_offset,
+            StartXRef::new(365385, Span::new(1993, 23))
+        );
     }
 
     #[test]
-    fn startxref_invalid() {
+    fn start_xref_invalid() {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_byte_offset.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let parse_result = StartXRef::parse(&buffer[offset..]);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"%%EOF\r\n",
             stringify!(StartXRef),
@@ -172,8 +256,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eof.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let parse_result = StartXRef::parse(&buffer[offset..]);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"%%PDF-1.4\r\n",
             stringify!(StartXRef),
@@ -184,8 +267,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_eol.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let parse_result = StartXRef::parse(&buffer[offset..]);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"dobj\r\nstartxre\r\nf999999%%EOF\r\n",
             stringify!(StartXRef),
@@ -196,8 +278,7 @@ mod tests {
         // Synthetic test
         let buffer: &[Byte] =
             include_bytes!("../../tests/data/SYNTHETIC_startxref_invalid_missing_startxref.bin");
-        let offset = buffer.len() - STARTXREF_MAX_SIZE;
-        let parse_result = StartXRef::parse(&buffer[offset..]);
+        let parse_result = <StartXRef as Parser>::parse(buffer);
         let expected_error = ParseFailure::new(
             b"tream\r\nendobj\r\n999999\r\n%%EOF\r\n",
             stringify!(StartXRef),

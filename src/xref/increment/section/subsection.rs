@@ -16,15 +16,18 @@ use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::num::ascii_to_u64;
 use crate::parse::num::ascii_to_usize;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::parse_recoverable;
 use crate::Byte;
 use crate::ObjectNumberOrZero;
+use crate::Offset;
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Subsection {
     pub(crate) first_object_number: ObjectNumberOrZero,
     pub(crate) entries: Vec<Entry>,
+    pub(crate) span: Span,
 }
 
 impl Display for Subsection {
@@ -37,11 +40,15 @@ impl Display for Subsection {
     }
 }
 
-impl Parser<'_> for Subsection {
+impl ObjectParser<'_> for Subsection {
     // REFERENCE: [7.5.4 Cross-reference table, p56-57]
-    fn parse(buffer: &[Byte]) -> ParseResult<(&[Byte], Self)> {
-        let (mut buffer, (first_object_number, entry_count)) =
-            terminated(separated_pair(digit1, char(' '), digit1), eol)(buffer).map_err(
+    fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
+        let start = offset;
+
+        let (remains, (first_object_number, entry_count)) =
+            terminated(separated_pair(digit1, char(' '), digit1), eol)(remains).map_err(
                 parse_recoverable!(
                     e,
                     ParseRecoverable::new(
@@ -54,24 +61,30 @@ impl Parser<'_> for Subsection {
         // Here, we know that the buffer starts with a cross-reference subsection, and
         // the following errors should be propagated as SubsectionFail
 
-        let first_object_number = ascii_to_u64(first_object_number).ok_or_else(||ParseFailure::new(
-            first_object_number,
-            stringify!(Subsection),
-            ParseErrorCode::FirstObjectNumber,
-        ))?;
-        let entry_count = ascii_to_usize(entry_count).ok_or_else(||ParseFailure::new(
-            entry_count,
-            stringify!(Subsection),
-            ParseErrorCode::EntryCount,
-        ))?;
+        let first_object_number = ascii_to_u64(first_object_number).ok_or_else(|| {
+            ParseFailure::new(
+                first_object_number,
+                stringify!(Subsection),
+                ParseErrorCode::FirstObjectNumber,
+            )
+        })?;
+        let entry_count = ascii_to_usize(entry_count).ok_or_else(|| {
+            ParseFailure::new(
+                entry_count,
+                stringify!(Subsection),
+                ParseErrorCode::EntryCount,
+            )
+        })?;
 
-        (0..entry_count)
-            .try_fold(Vec::with_capacity(entry_count), |mut entries, index| {
-                let (remains, entry) = Entry::parse(buffer).map_err(|err| {
+        let mut offset = offset + (remains_len - remains.len());
+        let entries = (0..entry_count).try_fold(
+            Vec::with_capacity(entry_count),
+            |mut entries, index| -> ParseResult<Vec<Entry>> {
+                let entry = Entry::parse(buffer, offset).map_err(|err| {
                     ParseFailure::new(
                         err.buffer(),
                         stringify!(Subsection),
-                        ParseErrorCode::SubsectionEntry {
+                        ParseErrorCode::RecSubsectionEntry {
                             index,
                             first_object_number,
                             entry_count,
@@ -79,19 +92,21 @@ impl Parser<'_> for Subsection {
                         },
                     )
                 })?;
-                buffer = remains;
+                offset = entry.span().end();
                 entries.push(entry);
                 Ok(entries)
-            })
-            .map(|entries| {
-                (
-                    buffer,
-                    Self {
-                        first_object_number,
-                        entries,
-                    },
-                )
-            })
+            },
+        )?;
+        let span = Span::new(start, offset - start);
+        Ok(Self {
+            first_object_number,
+            entries,
+            span,
+        })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -102,10 +117,12 @@ mod convert {
         pub(crate) fn new(
             first_object_number: ObjectNumberOrZero,
             entries: impl Into<Vec<Entry>>,
+            span: Span,
         ) -> Self {
             Self {
                 first_object_number,
                 entries: entries.into(),
+                span,
             }
         }
     }
@@ -117,14 +134,17 @@ mod tests {
 
     use super::*;
     use crate::assert_err_eq;
+    use crate::parse::Span;
     use crate::parse_assert_eq;
+    use crate::xref::increment::section::entry::Entry;
+    use crate::xref::increment::section::entry::EntryData;
 
     #[test]
     fn subsection_valid() {
         // Synthetic test
         let buffer: &[Byte] = include_bytes!("../../../../tests/data/SYNTHETIC_subsection.bin");
         let subsection: Subsection = include!("../../../../tests/code/SYNTHETIC_subsection.rs");
-        parse_assert_eq!(buffer, subsection, "trailer\r\n".as_bytes());
+        parse_assert_eq!(Subsection, buffer, subsection);
 
         // PDF produced by Microsoft Word for Office 365
         let buffer: &[Byte] = include_bytes!(
@@ -132,7 +152,7 @@ mod tests {
         );
         let subsection: Subsection =
             include!("../../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_subsection.rs");
-        parse_assert_eq!(buffer, subsection, "trailer\r\n".as_bytes());
+        parse_assert_eq!(Subsection, buffer, subsection);
     }
 
     #[test]
@@ -141,7 +161,7 @@ mod tests {
 
         // Subsection: Not found
         let buffer = b"0 1 R\r\n";
-        let parse_result = Subsection::parse(buffer);
+        let parse_result = Subsection::parse(buffer, 0);
         let expected_error = ParseRecoverable::new(
             b"R\r\n",
             stringify!(Subsection),
@@ -156,11 +176,11 @@ mod tests {
         0000000200 00000 n\r\n\
         0000000300 00001 f\r\n\
         0000000400 00000 n\r\n";
-        let parse_result = Subsection::parse(buffer);
+        let parse_result = Subsection::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 5,
                 first_object_number: 0,
                 entry_count: 6,
@@ -176,7 +196,7 @@ mod tests {
         0000000300 00001 f\r\n\
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
-        let parse_result = Subsection::parse(buffer);
+        let parse_result = Subsection::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"0000000100 00000 n\r\n\
                 0000000200 00000 n\r\n\
@@ -184,7 +204,7 @@ mod tests {
                 0000000400 00000 n\r\n\
                 0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,
@@ -201,7 +221,7 @@ mod tests {
         0000000300 00001 f\r\n\
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
-        let parse_result = Subsection::parse(buffer);
+        let parse_result = Subsection::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"n\r\n\
             0000000200 00000 n\r\n\
@@ -209,7 +229,7 @@ mod tests {
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 1,
                 first_object_number: 0,
                 entry_count: 6,
@@ -226,7 +246,7 @@ mod tests {
         0000000300 00001 f\r\n\
         0000000400 00000 n\r\n\
         0000000500 00000 n\r\n";
-        let parse_result = Subsection::parse(buffer);
+        let parse_result = Subsection::parse(buffer, 0);
         let expected_error = ParseFailure::new(
             b"r\r\n\
             0000000100 00000 n\r\n\
@@ -235,7 +255,7 @@ mod tests {
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,

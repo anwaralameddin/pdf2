@@ -10,11 +10,14 @@ use ::std::fmt::Result as FmtResult;
 use self::stream::Stream;
 use super::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
+use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
-use crate::parse::Parser;
+use crate::parse::ObjectParser;
+use crate::parse::Span;
 use crate::Byte;
+use crate::Offset;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum IndirectValue<'buffer> {
@@ -31,18 +34,34 @@ impl Display for IndirectValue<'_> {
     }
 }
 
-impl<'buffer> Parser<'buffer> for IndirectValue<'buffer> {
-    fn parse(buffer: &'buffer [Byte]) -> ParseResult<(&[Byte], Self)> {
-        Stream::parse_suppress_recoverable(buffer)
-            .or_else(|| DirectValue::parse_suppress_recoverable(buffer))
-            .unwrap_or_else(|| {
-                Err(ParseRecoverable::new(
-                    buffer,
-                    stringify!(IndirectValue),
-                    ParseErrorCode::NotFoundUnion,
-                )
-                .into())
-            })
+impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        match Stream::parse(buffer, offset) {
+            Ok(stream) => Ok(IndirectValue::Stream(stream)),
+            Err(ParseErr::Recoverable(ParseRecoverable { code, .. })) => {
+                if let ParseErrorCode::FoundDictionary(dictionary) = code {
+                    Ok(IndirectValue::Direct(DirectValue::Dictionary(dictionary)))
+                } else {
+                    DirectValue::parse_suppress_recoverable(buffer, offset).unwrap_or_else(|| {
+                        Err(ParseRecoverable::new(
+                            &buffer[offset..],
+                            stringify!(IndirectValue),
+                            ParseErrorCode::NotFoundUnion,
+                        )
+                        .into())
+                    })
+                }
+            }
+
+            Err(err) => Err(err),
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Stream(stream) => stream.span(),
+            Self::Direct(direct) => direct.span(),
+        }
     }
 }
 
@@ -84,14 +103,14 @@ mod convert {
     impl_from_ref!('buffer, Reference, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Array<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Boolean, Direct, IndirectValue<'buffer>);
-    impl_from_ref!('buffer, bool, Direct, IndirectValue<'buffer>);
+    // impl_from_ref!('buffer, bool, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Dictionary<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Name<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Null, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Integer, Direct, IndirectValue<'buffer>);
-    impl_from_ref!('buffer, u64, Direct, IndirectValue<'buffer>);
+    // impl_from_ref!('buffer, u64, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Real, Direct, IndirectValue<'buffer>);
-    impl_from_ref!('buffer, f64, Direct, IndirectValue<'buffer>);
+    // impl_from_ref!('buffer, f64, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Numeric, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Hexadecimal<'buffer>, Direct, IndirectValue<'buffer>);
     impl_from_ref!('buffer, Literal<'buffer>, Direct, IndirectValue<'buffer>);

@@ -7,24 +7,20 @@ use ::std::path::Path;
 
 use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
-use crate::object::indirect::id::Id;
-use crate::object::indirect::IndirectValue;
+use crate::object::indirect::object::IndirectObject;
 use crate::xref::Table;
 use crate::Byte;
-
-type ObjectsInUse<'path> = HashMap<Id, (IndirectValue<'path>, Span)>;
+use crate::GenerationNumber;
+use crate::ObjectNumber;
 
 // TODO Add support for spans within object streams
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Span {
-    start: usize,
-    len: usize,
-}
+type ObjectsInUse<'path> = HashMap<(ObjectNumber, GenerationNumber), IndirectObject<'path>>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
     path: &'path Path,
     buffer: Vec<Byte>,
+    buffer_len: usize,
 }
 
 /// REFERENCE: [7.5.1 General, p53]
@@ -79,6 +75,7 @@ mod build {
     use super::error::PdfResult;
     use super::*;
     use crate::object::indirect::object::IndirectObject;
+    use crate::parse::ObjectParser;
     use crate::parse::Parser;
     use crate::xref::pretable::PreTable;
     use crate::xref::ToTable;
@@ -102,30 +99,44 @@ mod build {
             // At this point, we should not immediately fail. Instead, we
             // collect all errors and report them at the end.
             let mut objects = HashMap::default();
-            for (offset, id) in table.in_use.iter() {
-                let (remains, object) = match IndirectObject::parse(&self.buffer[*offset..]) {
-                    Ok((remains, object)) => (remains, object),
+            for (offset, (object_number, generation_number)) in table.in_use.iter() {
+                if *offset >= self.buffer_len {
+                    errors.push(ObjectRecoverable::OutOfBounds(
+                        *object_number,
+                        *generation_number,
+                        *offset,
+                        self.buffer_len,
+                    ));
+                    continue;
+                }
+                let object = match IndirectObject::parse(&self.buffer, *offset) {
+                    Ok(object) => object,
                     Err(err) => {
-                        errors.push(ObjectRecoverable::Parse(*id, *offset, err));
+                        errors.push(ObjectRecoverable::Parse(
+                            *object_number,
+                            *generation_number,
+                            *offset,
+                            &self.buffer,
+                            err,
+                        ));
                         continue;
                     }
                 };
                 // At this point, we have a valid indirect object, and there is
                 // no need to skip the object on errors
-                let IndirectObject {
-                    id: parsed_id,
-                    value,
-                } = object;
-                if parsed_id != *id {
-                    errors.push(ObjectRecoverable::MismatchedId(*id, parsed_id));
+                let parsed_id = object.id;
+                if parsed_id.object_number != *object_number
+                    || parsed_id.generation_number != *generation_number
+                {
+                    errors.push(ObjectRecoverable::MismatchedId(
+                        *object_number,
+                        *generation_number,
+                        parsed_id,
+                    ));
                     // continue;
                 }
-                let span = Span {
-                    start: *offset,
-                    len: self.buffer[*offset..].len() - remains.len(),
-                };
 
-                objects.insert(*id, (value, span));
+                objects.insert((*object_number, *generation_number), object);
             }
 
             Ok(objects)
@@ -135,11 +146,11 @@ mod build {
             // REFERENCE: [7.5.1 General, p54]
             // Apart from linearised PDFs, files should be read from the end
             // using the trailer and cross-reference table.
-            let (_, pretable) = PreTable::parse(&self.buffer)
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(err)))?;
+            let pretable = PreTable::parse(&self.buffer)
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(&self.buffer, err)))?;
             let table = pretable
                 .to_table()
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err.to_string())))?;
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(&self.buffer, err)))?;
             // let trailer = self.get_trailer(pretable)?;
             let mut errors = Vec::default();
             let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
@@ -179,7 +190,12 @@ mod convert {
             reader
                 .read_to_end(&mut buffer)
                 .map_err(|err| PdfErr::new(path, PdfErrorCode::ReadFile(err.kind())))?;
-            Ok(Self { path, buffer })
+            let buffer_len = buffer.len();
+            Ok(Self {
+                path,
+                buffer,
+                buffer_len,
+            })
         }
     }
 }
@@ -197,7 +213,7 @@ mod tests {
     fn file_valid() {
         // TODO Ensure that the directory is not empty
         let dir = PathBuf::from("tests/data/parse/file/valid");
-        let mut err_msgs = vec![];
+        let mut err_msgs = Vec::default();
         let mut dirs = VecDeque::from([dir]);
         while let Some(dir) = dirs.pop_back() {
             let entries = if let Ok(entries) = read_dir(&dir) {

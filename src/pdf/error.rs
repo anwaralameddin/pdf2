@@ -5,14 +5,18 @@ use ::std::io::ErrorKind;
 use ::thiserror::Error;
 
 use super::*;
+use crate::error::DisplayUsingBuffer;
 use crate::object::indirect::id::Id;
 use crate::parse::error::ParseErr;
+use crate::xref::error::XRefErr;
+use crate::GenerationNumber;
+use crate::ObjectNumber;
 use crate::Offset;
 
 pub(crate) type PdfResult<'path, T> = Result<T, PdfErr<'path>>;
 
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("PDF Failure. Error: {code}. File: {path}")]
+#[error("PDF. Error: {code}. File: {path}")]
 pub struct PdfErr<'path> {
     pub(crate) path: &'path Path,
     pub(crate) code: PdfErrorCode<'path>,
@@ -20,11 +24,10 @@ pub struct PdfErr<'path> {
 
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum PdfErrorCode<'path> {
-    #[error("Parse. Error: {0}")]
-    Parse(ParseErr<'path>),
-    #[error("XRef. Error: {0}")]
-    XRef(String),
-    // XRef(XRefErr),
+    #[error("Parse. Error: {}", .1.display_using_buffer(.0))]
+    Parse(&'path [Byte], ParseErr<'path>),
+    #[error("XRef. Error: {}", .1.display_using_buffer(.0))]
+    XRef(&'path [Byte], XRefErr),
     #[error("Empty cross-reference table")]
     EmptyPreTable,
     // ::std::io::Error as IoError; does not implement PartialEq or Clone,
@@ -62,10 +65,18 @@ impl Display for PdfRecoverable<'_> {
 // there is no need to include the path here.
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ObjectRecoverable<'path> {
-    #[error("Parse. Id: {0}. Offset {1}. Error: {2}")]
-    Parse(Id, Offset, ParseErr<'path>),
-    #[error("Mismatched id: {0} != {1}")]
-    MismatchedId(Id, Id),
+    #[error("Parse. Id: {0} {1}. Offset {2}. Error: {}", .4.display_using_buffer(.3))]
+    Parse(
+        ObjectNumber,
+        GenerationNumber,
+        Offset,
+        &'path [Byte],
+        ParseErr<'path>,
+    ),
+    #[error("Mismatched id: {0} {1} != {2}")]
+    MismatchedId(ObjectNumber, GenerationNumber, Id),
+    #[error("Object out of bounds. Id: {0} {1}. Offset: {2}. Buffer length: {3}")]
+    OutOfBounds(ObjectNumber, GenerationNumber, Offset, usize),
 }
 
 mod convert {
