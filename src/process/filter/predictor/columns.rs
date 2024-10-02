@@ -15,6 +15,7 @@ mod convert {
     use super::Columns;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::parse::ObjectParser;
     use crate::process::filter::error::FilterErr;
     use crate::process::filter::error::FilterErrorCode;
 
@@ -25,7 +26,7 @@ mod convert {
     }
 
     impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for Columns {
-        type Error = FilterErr<'buffer>;
+        type Error = FilterErr;
 
         fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             // TODO Replace with `as_usize`
@@ -33,14 +34,14 @@ mod convert {
                 let value = usize::try_from(*value.deref()).map_err(|_| {
                     FilterErr::new(
                         stringify!(Columns),
-                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                        FilterErrorCode::UnsupportedParameter(*value.deref()),
                     )
                 })?;
                 Ok(Self(value))
             } else {
                 Err(FilterErr::new(
                     stringify!(Columns),
-                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                    FilterErrorCode::ValueType(stringify!(Integer), value.span()),
                 ))
             }
         }

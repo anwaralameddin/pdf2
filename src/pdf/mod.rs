@@ -14,13 +14,13 @@ use crate::GenerationNumber;
 use crate::ObjectNumber;
 
 // TODO Add support for spans within object streams
-// FIXME Use object.span instead
 type ObjectsInUse<'path> = HashMap<(ObjectNumber, GenerationNumber), IndirectObject<'path>>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
     path: &'path Path,
     buffer: Vec<Byte>,
+    buffer_len: usize,
 }
 
 /// REFERENCE: [7.5.1 General, p53]
@@ -98,18 +98,17 @@ mod build {
         ) -> PdfResult<ObjectsInUse> {
             // At this point, we should not immediately fail. Instead, we
             // collect all errors and report them at the end.
-            // let buffer_len = self.buffer.len();
             let mut objects = HashMap::default();
             for (offset, (object_number, generation_number)) in table.in_use.iter() {
-                // if *offset >= buffer_len {
-                //     errors.push(ObjectRecoverable::OutOfBounds(
-                //         *object_number,
-                //         *generation_number,
-                //         *offset,
-                //         buffer_len,
-                //     ));
-                //     continue;
-                // }
+                if *offset >= self.buffer_len {
+                    errors.push(ObjectRecoverable::OutOfBounds(
+                        *object_number,
+                        *generation_number,
+                        *offset,
+                        self.buffer_len,
+                    ));
+                    continue;
+                }
                 let object = match IndirectObject::parse(&self.buffer, *offset) {
                     Ok(object) => object,
                     Err(err) => {
@@ -117,6 +116,7 @@ mod build {
                             *object_number,
                             *generation_number,
                             *offset,
+                            &self.buffer,
                             err,
                         ));
                         continue;
@@ -147,10 +147,10 @@ mod build {
             // Apart from linearised PDFs, files should be read from the end
             // using the trailer and cross-reference table.
             let pretable = PreTable::parse(&self.buffer)
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(err)))?;
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(&self.buffer, err)))?;
             let table = pretable
                 .to_table()
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err.to_string())))?;
+                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(&self.buffer, err)))?;
             // let trailer = self.get_trailer(pretable)?;
             let mut errors = Vec::default();
             let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
@@ -190,7 +190,12 @@ mod convert {
             reader
                 .read_to_end(&mut buffer)
                 .map_err(|err| PdfErr::new(path, PdfErrorCode::ReadFile(err.kind())))?;
-            Ok(Self { path, buffer })
+            let buffer_len = buffer.len();
+            Ok(Self {
+                path,
+                buffer,
+                buffer_len,
+            })
         }
     }
 }

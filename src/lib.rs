@@ -41,6 +41,19 @@ type IndexNumber = u64;
 /// REFERENCE: [4.7 byte, p7]
 type Byte = u8;
 
+mod error {
+    use ::std::fmt::Display;
+
+    use crate::Byte;
+
+    pub(crate) trait DisplayUsingBuffer
+    where
+        Self: Display,
+    {
+        fn display_using_buffer(&self, buffer: &[Byte]) -> String;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[macro_export]

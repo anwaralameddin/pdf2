@@ -16,7 +16,7 @@ impl<'buffer> Filter<'buffer> for A85 {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult< Vec<Byte>> {
         let bytes = bytes.as_ref();
         let mut encoded = Vec::with_capacity(bytes.len() * 5 / 4 + 1);
         let mut prev = Bytes::<4>::default();
@@ -50,7 +50,7 @@ impl<'buffer> Filter<'buffer> for A85 {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult< Vec<Byte>> {
         let bytes = bytes.as_ref();
         let mut defiltered = Vec::with_capacity(bytes.len() * 4 / 5 + 1);
         let mut prev = Bytes::<5>::default();

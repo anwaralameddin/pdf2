@@ -4,7 +4,6 @@ use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
 
 use crate::fmt::debug_bytes;
-use crate::object::direct::dictionary::Dictionary;
 use crate::object::direct::name::Name;
 use crate::object::direct::string::String_;
 use crate::object::direct::DirectValue;
@@ -58,7 +57,6 @@ pub(crate) struct Trailer<'buffer> {
     pub(crate) w: Option<[usize; 3]>,
     pub(crate) others: HashMap<&'buffer Vec<Byte>, &'buffer DirectValue<'buffer>>,
     pub(crate) span: Span,
-    pub(crate) dictionary: &'buffer Dictionary<'buffer>, // TODO (TEMP)
 }
 
 impl Display for Trailer<'_> {
@@ -130,7 +128,7 @@ mod convert {
     use crate::Offset;
 
     impl<'buffer> TryFrom<&'buffer Dictionary<'buffer>> for Trailer<'buffer> {
-        type Error = XRefErr<'buffer>;
+        type Error = XRefErr;
 
         fn try_from(dictionary: &'buffer Dictionary<'buffer>) -> Result<Self, Self::Error> {
             let size = dictionary.required_u64(KEY_SIZE)?;
@@ -153,10 +151,10 @@ mod convert {
                         }
                         _ => Err(ObjectErr::new(
                             KEY_ID,
-                            dictionary,
-                            ObjectErrorCode::Array {
-                                value: array,
-                                expected: stringify!([String_; 2]),
+                            dictionary.span(),
+                            ObjectErrorCode::Type {
+                                value_span: array.span(),
+                                expected_type: stringify!([String_; 2]),
                             },
                         )),
                     }
@@ -175,9 +173,9 @@ mod convert {
                             field.as_usize().ok_or_else(|| {
                                 ObjectErr::new(
                                     KEY_W,
-                                    dictionary,
+                                    dictionary.span(),
                                     ObjectErrorCode::Type {
-                                        value: field,
+                                        value_span: field.span(),
                                         expected_type: stringify!(usize),
                                     },
                                 )
@@ -187,10 +185,10 @@ mod convert {
                     }
                     _ => Err(ObjectErr::new(
                         KEY_W,
-                        dictionary,
-                        ObjectErrorCode::Array {
-                            value: array,
-                            expected: stringify!(an array of three integers),
+                        dictionary.span(),
+                        ObjectErrorCode::Type {
+                            value_span: array.span(),
+                            expected_type: stringify!(an array of three integers),
                         },
                     )),
                 })
@@ -203,10 +201,10 @@ mod convert {
                     if !chunks.remainder().is_empty() {
                         return Err(ObjectErr::new(
                             KEY_INDEX,
-                            dictionary,
-                            ObjectErrorCode::Array {
-                                value: array,
-                                expected: stringify!(an array of pairs of integers),
+                            dictionary.span(),
+                            ObjectErrorCode::Type {
+                                value_span: array.span(),
+                                expected_type: stringify!(an array of pairs of integers),
                             },
                         ));
                     }
@@ -217,9 +215,9 @@ mod convert {
                                 first_object_number.as_u64().ok_or_else(|| {
                                     ObjectErr::new(
                                         KEY_INDEX,
-                                        dictionary,
+                                        dictionary.span(),
                                         ObjectErrorCode::Type {
-                                            value: first_object_number,
+                                            value_span: first_object_number.span(),
                                             expected_type: stringify!(ObjectNumberOrZero),
                                         },
                                     )
@@ -227,9 +225,9 @@ mod convert {
                             let entry_count = entry_count.as_u64().ok_or_else(|| {
                                 ObjectErr::new(
                                     KEY_INDEX,
-                                    dictionary,
+                                    dictionary.span(),
                                     ObjectErrorCode::Type {
-                                        value: entry_count,
+                                        value_span: entry_count.span(),
                                         expected_type: stringify!(IndexNumber),
                                     },
                                 )
@@ -298,17 +296,12 @@ mod convert {
                 w,
                 others,
                 span: dictionary.span(),
-                dictionary,
             })
         }
     }
 
     impl<'buffer> Trailer<'buffer> {
-        pub(crate) fn new(
-            size: IndexNumber,
-            span: Span,
-            dictionary: &'buffer Dictionary<'buffer>,
-        ) -> Self {
+        pub(crate) fn new(size: IndexNumber, span: Span) -> Self {
             Self {
                 size,
                 prev: Default::default(),
@@ -322,7 +315,6 @@ mod convert {
                 w: Default::default(),
                 others: Default::default(),
                 span,
-                dictionary,
             }
         }
 
@@ -389,21 +381,13 @@ mod convert {
 
         pub(crate) fn required_type(&self) -> ObjectResult<&Name> {
             self.r#type.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_TYPE,
-                    self.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_TYPE, self.span, ObjectErrorCode::MissingRequiredEntry)
             })
         }
 
         pub(crate) fn required_w(&self) -> ObjectResult<[usize; 3]> {
             self.w.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_W,
-                    self.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_W, self.span, ObjectErrorCode::MissingRequiredEntry)
             })
         }
 
@@ -421,7 +405,6 @@ mod tests {
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::name::Name;
     use crate::object::direct::numeric::Integer;
-    use crate::object::direct::numeric::Real;
     use crate::object::direct::string::Hexadecimal;
     use crate::object::direct::string::Literal;
     use crate::object::error::ObjectErr;
@@ -492,7 +475,7 @@ mod tests {
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
-            let trailer = Trailer::new(750, Span::new(10, 197), &dictionary)
+            let trailer = Trailer::new(750, Span::new(10, 197))
                 .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 7) })
                 .set_w([1, 3, 1])
                 .set_index([(0, 750)])
@@ -525,19 +508,21 @@ mod tests {
         let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
 
-        let expected_error =
-            ObjectErr::new(KEY_SIZE, &dictionary, ObjectErrorCode::MissingRequiredEntry);
+        let expected_error = ObjectErr::new(
+            KEY_SIZE,
+            dictionary.span(),
+            ObjectErrorCode::MissingRequiredEntry,
+        );
         assert_err_eq!(parse_result, expected_error);
 
         let buffer = b"<</Size 1.1/Root 2 0 R/Info 1 0 R>>\nstartxref\n99999\n%%EOF";
         let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let parse_result = Trailer::try_from(&dictionary);
-        let value: DirectValue = Real::new(1.1, Span::new(8, 3)).into();
         let expected_error = ObjectErr::new(
             KEY_SIZE,
-            &dictionary,
+            dictionary.span(),
             ObjectErrorCode::Type {
-                value: &value,
+                value_span: Span::new(8, 3),
                 expected_type: stringify!(u64),
             },
         );

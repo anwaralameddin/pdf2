@@ -33,18 +33,19 @@ use crate::object::indirect::stream::KEY_F;
 use crate::object::indirect::stream::KEY_FDECODEPARMS;
 use crate::object::indirect::stream::KEY_FFILTER;
 use crate::object::indirect::stream::KEY_FILTER;
+use crate::parse::ObjectParser;
 use crate::Byte;
 
 pub(crate) trait Filter<'buffer> {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>>;
+    ) -> FilterResult<Vec<Byte>>;
 
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>>;
+    ) -> FilterResult<Vec<Byte>>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -54,7 +55,7 @@ impl<'buffer> Filter<'buffer> for FilteringChain {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         // The filters in the stream dictionary are in the order they need to
         // be applied to defilter the data. Filter the data by applying the
         // filters in the reverse order.
@@ -74,7 +75,7 @@ impl<'buffer> Filter<'buffer> for FilteringChain {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         // Multiple filters can be provided in the Filter array in the order
         // they need to be applied to defilter the encoded data.
 
@@ -120,7 +121,7 @@ impl Filtering {
     pub(super) fn new<'buffer>(
         name: &'buffer Name,
         decode_parms: Option<&'buffer Dictionary>,
-    ) -> FilterResult<'buffer, Self> {
+    ) -> FilterResult<Self> {
         // REFERENCE: [Table 92 — Additional abbreviations in an inline image
         // object, p269]
         match *name.deref() {
@@ -136,7 +137,7 @@ impl Filtering {
             b"Crypt" => Ok(Self::Crypt(Crypt::new(decode_parms)?)),
             _ => Err(FilterErr::new(
                 stringify!(Filtering),
-                FilterErrorCode::Unsupported(name),
+                FilterErrorCode::Unsupported(name.span()),
             )),
         }
     }
@@ -146,7 +147,7 @@ impl<'buffer> Filter<'buffer> for Filtering {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::AHx(filtering) => filtering.filter(bytes),
@@ -165,7 +166,7 @@ impl<'buffer> Filter<'buffer> for Filtering {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::AHx(filtering) => filtering.defilter(bytes),
@@ -187,10 +188,11 @@ mod convert {
     use super::*;
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::DirectValue;
+    use crate::parse::ObjectParser;
 
     impl FilteringChain {
         /// REFERENCE: [7.3.8.2 Stream extent, p31-33]
-        pub(crate) fn new<'buffer>(dictionary: &'buffer Dictionary) -> FilterResult<'buffer, Self> {
+        pub(crate) fn new(dictionary: &Dictionary) -> FilterResult<Self> {
             // TODO Move this to a separate function that `parses` the stream
             // dictionary according to a specific schema.
             let filtering = if dictionary.opt_get(KEY_F).is_some() {
@@ -234,11 +236,14 @@ mod convert {
                             }
                             (DirectValue::Name(_), _) => Err(FilterErr::new(
                                 stringify!(FilteringChain),
-                                FilterErrorCode::ValueType(stringify!(Dictionary), decode_pars),
+                                FilterErrorCode::ValueType(
+                                    stringify!(Dictionary),
+                                    decode_pars.span(),
+                                ),
                             )),
                             _ => Err(FilterErr::new(
                                 stringify!(FilteringChain),
-                                FilterErrorCode::ValueType(stringify!(Name), filtering),
+                                FilterErrorCode::ValueType(stringify!(Name), filtering.span()),
                             )),
                         })
                         .collect::<FilterResult<_>>()?
@@ -251,7 +256,7 @@ mod convert {
                         } else {
                             Err(FilterErr::new(
                                 stringify!(FilteringChain),
-                                FilterErrorCode::ValueType(stringify!(Name), filtering),
+                                FilterErrorCode::ValueType(stringify!(Name), filtering.span()),
                             ))
                         }
                     })
@@ -262,7 +267,7 @@ mod convert {
                 (Some(filtering), _) => {
                     return Err(FilterErr::new(
                         stringify!(FilteringChain),
-                        FilterErrorCode::ValueType(stringify!(Name | Array), filtering),
+                        FilterErrorCode::ValueType(stringify!(Name | Array), filtering.span()),
                     ));
                 }
             };

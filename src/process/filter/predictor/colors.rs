@@ -15,11 +15,12 @@ mod convert {
     use super::Colors;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::parse::ObjectParser;
     use crate::process::filter::error::FilterErr;
     use crate::process::filter::error::FilterErrorCode;
 
     impl<'buffer> TryFrom<&'buffer DirectValue<'buffer>> for Colors {
-        type Error = FilterErr<'buffer>;
+        type Error = FilterErr;
 
         fn try_from(value: &'buffer DirectValue<'buffer>) -> Result<Self, Self::Error> {
             if let DirectValue::Numeric(Numeric::Integer(value)) = value {
@@ -30,13 +31,13 @@ mod convert {
                     4 => Ok(Self::Four),
                     _ => Err(FilterErr::new(
                         stringify!(Colors),
-                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                        FilterErrorCode::UnsupportedParameter(*value.deref()),
                     )),
                 }
             } else {
                 Err(FilterErr::new(
                     stringify!(Colors),
-                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                    FilterErrorCode::ValueType(stringify!(Integer), value.span()),
                 ))
             }
         }

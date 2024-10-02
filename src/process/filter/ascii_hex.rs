@@ -13,7 +13,7 @@ impl<'buffer> Filter<'buffer> for AHx {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult< Vec<Byte>> {
         let encoded = bytes
             .as_ref()
             .iter()
@@ -41,7 +41,7 @@ impl<'buffer> Filter<'buffer> for AHx {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult< Vec<Byte>> {
         let bytes = bytes.as_ref();
         let mut defiltered = Vec::with_capacity(bytes.len() / 2 + 1);
         let mut eod = false;

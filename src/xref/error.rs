@@ -1,9 +1,11 @@
+use ::nom::error::ErrorKind;
 use ::std::num::TryFromIntError;
 use ::thiserror::Error;
 
-use super::increment::stream::error::XRefStreamErrorCode;
+use crate::error::DisplayUsingBuffer;
 use crate::fmt::debug_bytes;
 use crate::object::error::ObjectErr;
+use crate::process::filter::error::FilterErr;
 use crate::Byte;
 use crate::GenerationNumber;
 use crate::IndexNumber;
@@ -11,10 +13,10 @@ use crate::ObjectNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
-pub(crate) type XRefResult<'buffer, T> = Result<T, XRefErr<'buffer>>;
+pub(crate) type XRefResult<T> = Result<T, XRefErr>;
 
 #[derive(Debug, Error, PartialEq, Clone)]
-pub enum XRefErr<'buffer> {
+pub enum XRefErr {
     #[error("Duplicate object number: {0}")]
     DuplicateObjectNumber(u64),
     #[error(
@@ -39,30 +41,56 @@ pub enum XRefErr<'buffer> {
         stream_object_number: ObjectNumber,
         index: IndexNumber,
     },
-    // TODO (TEMP) Replace Vec<Byte> below with Span
-    #[error("Object number. Error {1}. Input{}", debug_bytes(.0))]
+    #[error("Object number. Value: {}. Error {1}", debug_bytes(.0))]
     StreamObjectNumber(Vec<Byte>, TryFromIntError),
-    #[error("Generation number. Error: {1}. Input: {0}")]
+    #[error("Generation number. Value: {0}. Error: {1}")]
     GenerationNumber(u64, TryFromIntError),
-    #[error("Generation number. Input{}", debug_bytes(.0))]
+    #[error("Generation number. Value: {}", debug_bytes(.0))]
     StreamGenerationNumber(Vec<Byte>),
-    #[error("Field overflow. Input: {}", debug_bytes(.0))]
+    #[error("Field overflow. Value: {}", debug_bytes(.0))]
     StreamFieldOverflow(Vec<Byte>),
-    #[error("Offset. Input: {}", debug_bytes(.0))]
+    #[error("Offset. Value: {}", debug_bytes(.0))]
     StreamOffSet(Vec<Byte>),
-    #[error("Next free object. Input: {}", debug_bytes(.0))]
+    #[error("Next free object. Value: {}", debug_bytes(.0))]
     StreamNextFree(Vec<Byte>),
-    #[error("Index number. Input{}", debug_bytes(.0))]
+    #[error("Index number. Value: {}", debug_bytes(.0))]
     SteamIndexNumber(Vec<Byte>),
+    // This error variant should not be returned as `parser` in
+    // `XRefStream::get_entries` should not error out
+    #[error("Parsing Decoded data. Error kind: {}", .0.description())]
+    EntriesDecodedParse(ErrorKind),
+    #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
+    EntriesDecodedLength([usize; 3], usize),
+    #[error(
+        "Entries too short. First object number: {}. Entry count: {}. Missing the {}th entry",
+        first_object_number,
+        count,
+        index
+    )]
+    EntriesTooShort {
+        first_object_number: u64,
+        count: IndexNumber,
+        index: IndexNumber,
+    },
     //
-    #[error("XRefStream: {0}")]
-    XRefStream(#[from] XRefStreamErrorCode),
-    // TODO (TEMP) Replace String with FilterErrorCode when Span is implemented
     #[error("Filter: {0}")]
-    Filter(String),
-    //
+    Filter(#[from] FilterErr),
     #[error("Object: {0}")]
-    Object(ObjectErr<'buffer>),
+    Object(#[from] ObjectErr),
+}
+
+impl DisplayUsingBuffer for XRefErr {
+    fn display_using_buffer(&self, buffer: &[Byte]) -> String {
+        match self {
+            XRefErr::Filter(filter_err) => {
+                format!("Filter. Error: {}", filter_err.display_using_buffer(buffer))
+            }
+            XRefErr::Object(object_err) => {
+                format!("Object. Error: {}", object_err.display_using_buffer(buffer))
+            }
+            _ => self.to_string(),
+        }
+    }
 }
 
 #[macro_export]
@@ -75,19 +103,4 @@ macro_rules! xref_err {
             NomErr::Error($e) | NomErr::Failure($e) => $error,
         }
     };
-}
-
-mod convert {
-    use super::*;
-    use crate::impl_from_ref;
-    use crate::process::filter::error::FilterErr;
-
-    // TODO (TEMP) Replace with references
-    impl From<FilterErr<'_>> for XRefErr<'_> {
-        fn from(value: FilterErr) -> Self {
-            XRefErr::Filter(value.to_string())
-        }
-    }
-
-    impl_from_ref!('buffer, ObjectErr<'buffer>, Object, XRefErr<'buffer>);
 }

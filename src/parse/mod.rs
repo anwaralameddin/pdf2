@@ -2,6 +2,12 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
+use std::ops::Index;
+
+use ::std::fmt::Display;
+use ::std::fmt::Formatter;
+use ::std::fmt::Result as FmtResult;
+
 use self::error::ParseErr;
 use self::error::ParseResult;
 use crate::Byte;
@@ -59,6 +65,20 @@ pub(crate) trait ObjectParser<'buffer> {
             Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
             _ => None,
         }
+    }
+}
+
+impl Display for Span {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "Span({}..{})", self.start, self.end)
+    }
+}
+
+impl<T> Index<Span> for [T] {
+    type Output = [T];
+
+    fn index(&self, index: Span) -> &Self::Output {
+        &self[index.start..index.end]
     }
 }
 

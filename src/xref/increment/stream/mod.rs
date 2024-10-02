@@ -11,6 +11,7 @@ use super::trailer::Trailer;
 use crate::object::indirect::id::Id;
 use crate::object::indirect::object::IndirectObject;
 use crate::object::indirect::stream::Stream;
+use crate::object::indirect::IndirectValue;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -49,13 +50,21 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
         let IndirectObject { id, value, span } = ObjectParser::parse(buffer, offset)?;
-        let stream = Stream::try_from(value).map_err(|err| {
-            ParseFailure::new(
-                err.buffer,
+
+        let stream = if let IndirectValue::Stream(stream) = value {
+            stream
+        } else {
+            return Err(ParseFailure::new(
+                &buffer[value.span()],
                 stringify!(XRefStream),
-                ParseErrorCode::RecMissingSubobject(stringify!(Stream), Box::new(err.code)),
+                ParseErrorCode::RecMissingSubobject(
+                    stringify!(Stream),
+                    Box::new(ParseErrorCode::WrongObjectType),
+                ),
             )
-        })?;
+            .into());
+        };
+
         let start = span.start();
         let mut offset = span.end();
 
@@ -104,7 +113,6 @@ mod table {
     use ::std::ops::Deref;
 
     use super::entry::Entry;
-    use super::error::XRefStreamErrorCode;
     use super::*;
     use crate::object::error::ObjectErr;
     use crate::object::error::ObjectErrorCode;
@@ -131,10 +139,10 @@ mod table {
                     if r#type.deref() != &VAL_XREF {
                         Err(ObjectErr::new(
                             KEY_TYPE,
-                            &self.stream.dictionary,
-                            ObjectErrorCode::Name {
+                            self.stream.dictionary.span(),
+                            ObjectErrorCode::Value {
                                 expected: VAL_XREF,
-                                value: r#type,
+                                value_span: r#type.span(),
                             },
                         ))
                     } else {
@@ -144,11 +152,7 @@ mod table {
             let trailer = Trailer::try_from(&self.stream.dictionary)?;
             // W
             let w = trailer.w.ok_or_else(|| {
-                ObjectErr::new(
-                    KEY_W,
-                    trailer.dictionary,
-                    ObjectErrorCode::MissingRequiredEntry,
-                )
+                ObjectErr::new(KEY_W, trailer.span(), ObjectErrorCode::MissingRequiredEntry)
             })?;
             // Size
             let size = trailer.size;
@@ -169,14 +173,11 @@ mod table {
                 |mut table, (first_object_number, count)| {
                     for entry_index in 0..*count {
                         // TODO We probably need a different warning when [0, size] is used
-                        let entry =
-                            entries_iter
-                                .next()
-                                .ok_or(XRefStreamErrorCode::EntriesTooShort {
-                                    first_object_number: *first_object_number,
-                                    count: *count,
-                                    index: entry_index,
-                                })?;
+                        let entry = entries_iter.next().ok_or(XRefErr::EntriesTooShort {
+                            first_object_number: *first_object_number,
+                            count: *count,
+                            index: entry_index,
+                        })?;
                         let object_number = first_object_number + entry_index;
 
                         if !object_numbers.insert(object_number) {
@@ -209,11 +210,7 @@ mod table {
     }
 
     impl XRefStream<'_> {
-        // TODO (TEMP)
-        fn get_entries<'buffer>(
-            stream: &'buffer Stream<'buffer>,
-            w: [usize; 3],
-        ) -> XRefResult<'buffer, Vec<Entry>> {
+        fn get_entries(stream: &Stream, w: [usize; 3]) -> XRefResult<Vec<Entry>> {
             let [count1, count2, count3] = w;
 
             let decoded_data = FilteringChain::new(&stream.dictionary)?.defilter(stream.data)?;
@@ -224,16 +221,19 @@ mod table {
                 take(count2),
                 take(count3),
             )));
-
-            let (buffer, entries) = parser(buffer).map_err(xref_err!(e, {
-                XRefStreamErrorCode::ParseDecoded(e.input.to_vec(), e.code)
-            }))?;
+            // - The only error that can be returned by `take` is `Err::Error`
+            // - `tuple` only propagates the error from its inner parsers and
+            // does not generate errors of its own
+            // - Except for infinite loop check, `many0` consumes its inner
+            // parser `Err::Error` and only propagates other error types
+            // Therefore, `parser` above should not error out
+            let (buffer, entries) =
+                parser(buffer).map_err(xref_err!(e, { XRefErr::EntriesDecodedParse(e.code) }))?;
             if !buffer.is_empty() {
-                return Err(XRefStreamErrorCode::DecodedLength(
+                return Err(XRefErr::EntriesDecodedLength(
                     [count1, count2, count3],
                     decoded_data.len(),
-                )
-                .into());
+                ));
             }
             let entries = entries
                 .into_iter()
@@ -261,36 +261,6 @@ mod convert {
                 span,
             }
         }
-    }
-}
-
-pub(in crate::xref) mod error {
-
-    use ::nom::error::ErrorKind;
-    use ::thiserror::Error;
-
-    use crate::fmt::debug_bytes;
-    use crate::Byte;
-    use crate::IndexNumber;
-
-    #[derive(Debug, Error, PartialEq, Clone)]
-    pub enum XRefStreamErrorCode {
-        // TODO (TEMP) Replace Vec<Byte> below with Span
-        #[error("Parsing Decoded data. Error kind: {}. Buffer: {}", .1.description(), debug_bytes(.0))]
-        ParseDecoded(Vec<Byte>, ErrorKind),
-        #[error("Decoded data length {1}: Not a multiple of the sum of W values: {0:?}")]
-        DecodedLength([usize; 3], usize),
-        #[error(
-            "Entries too short. First object number: {}. Entry count: {}. Missing the {}th entry",
-            first_object_number,
-            count,
-            index
-        )]
-        EntriesTooShort {
-            first_object_number: u64,
-            count: IndexNumber,
-            index: IndexNumber,
-        },
     }
 }
 

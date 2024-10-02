@@ -9,14 +9,14 @@ impl<'buffer> Filter<'buffer> for RL {
     fn filter(
         &self,
         _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         todo!("Implement RL::filter")
     }
 
     fn defilter(
         &self,
         _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         todo!("Implement RL::defilter")
     }
 }

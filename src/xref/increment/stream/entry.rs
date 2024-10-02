@@ -24,7 +24,7 @@ mod convert {
     use crate::Byte;
 
     impl TryFrom<(&[Byte], &[Byte], &[Byte])> for Entry {
-        type Error = XRefErr<'static>;
+        type Error = XRefErr;
         /// REFERENCE: [7.5.8.3 Cross-reference stream data, p67]
         fn try_from(value: (&[Byte], &[Byte], &[Byte])) -> Result<Self, Self::Error> {
             let (field1, field2, field3) = value;

@@ -14,7 +14,6 @@ pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
 
 impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<Self> {
-        // TODO Indicate the offset will be ignored
         let startxref = <StartXRef as Parser>::parse(buffer)?;
 
         let mut increments = Vec::default();
@@ -29,11 +28,10 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
             // REFERENCE: [7.5.8.4 Compatibility with applications that do not
             // support compressed reference streams, p68]
             prev = increment.prev().map_err(|err| {
-                // FIXME (TEMP) `remains` should be repalced by increment.dictionary.span()
                 ParseFailure::new(
-                    &buffer[offset..],
+                    &buffer[err.dictionary_span],
                     stringify!(PreTable),
-                    ParseErrorCode::Object(err.to_string()),
+                    ParseErrorCode::Object(err),
                 )
             })?;
 

@@ -49,13 +49,14 @@ impl ObjectParser<'_> for Integer {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
+        let len = value.len();
 
         // REFERENCE: [7.3.3 Numeric objects, p 24]
         // Real numbers cannot be used where integers are expected. Hence, the
         // next character should not be '.'
         if char::<_, NomError<_>>('.')(remains).is_ok() {
             return Err(ParseRecoverable::new(
-                &buffer[offset..],
+                &buffer[offset..offset + len + 1],
                 stringify!(Integer),
                 ParseErrorCode::WrongObjectType,
             )
@@ -64,7 +65,6 @@ impl ObjectParser<'_> for Integer {
         // Here, we know that the buffer starts with an integer, and the
         // following errors should be propagated as IntegerFailure
 
-        let len = value.len();
         // It is not guaranteed that the string of digits is a valid i128, e.g.
         // the value could overflow
         // While, initially, the error here seems to be a ParseErr::Failure, it
@@ -187,11 +187,8 @@ mod tests {
 
         // Invalid integer number: Found real number
         let parse_result = Integer::parse(b"-1.0 ", 0);
-        let expected_error = ParseRecoverable::new(
-            b"-1.0 ",
-            stringify!(Integer),
-            ParseErrorCode::WrongObjectType,
-        );
+        let expected_error =
+            ParseRecoverable::new(b"-1.", stringify!(Integer), ParseErrorCode::WrongObjectType);
         assert_err_eq!(parse_result, expected_error);
 
         // Invalid integer number: Out of range

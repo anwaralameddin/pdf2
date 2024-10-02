@@ -20,7 +20,7 @@ impl<'buffer> Filter<'buffer> for Fl {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = self.predictor.filter(bytes)?;
         let mut filtered = Vec::default();
 
@@ -37,7 +37,7 @@ impl<'buffer> Filter<'buffer> for Fl {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let mut defiltered = Vec::default();
 
         let mut defilter = ZlibDecoder::new(bytes.as_ref());
@@ -55,9 +55,9 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
 
     impl Fl {
-        pub(in crate::process::filter) fn new<'buffer>(
-            decode_parms: Option<&'buffer Dictionary>,
-        ) -> FilterResult<'buffer, Self> {
+        pub(in crate::process::filter) fn new(
+            decode_parms: Option<&Dictionary>,
+        ) -> FilterResult<Self> {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
                 Ok(Self { predictor })
@@ -74,9 +74,9 @@ pub(in crate::process::filter) mod error {
     #[derive(Debug, Error, PartialEq, Clone)]
     pub enum FlErrorCode {
         #[error("Filtering: {0}")]
-        // TODO (TEMP) Avoid to_string when Flate is implemented internally
+        // TODO Avoid to_string when Flate is implemented internally
         Filter(String),
-        // TODO (TEMP) Avoid to_string when Flate is implemented internally
+        // TODO Avoid to_string when Flate is implemented internally
         #[error("Defiltering: {0}")]
         Defilter(String),
     }

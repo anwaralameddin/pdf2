@@ -51,7 +51,7 @@ impl Table {
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
         offset: Offset,
-    ) -> XRefResult<'static, ()> {
+    ) -> XRefResult<()> {
         let object_number = ObjectNumber::new(object_number).ok_or(XRefErr::InUseObjectNumber {
             object_number,
             generation_number,
@@ -68,7 +68,7 @@ impl Table {
         object_number: ObjectNumberOrZero,
         stream_object_number: ObjectNumber,
         index: IndexNumber,
-    ) -> XRefResult<'static, Option<(ObjectNumber, IndexNumber)>> {
+    ) -> XRefResult<Option<(ObjectNumber, IndexNumber)>> {
         let object_number =
             ObjectNumber::new(object_number).ok_or(XRefErr::CompressedObjectNumber {
                 object_number,

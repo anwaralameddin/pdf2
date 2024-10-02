@@ -10,6 +10,7 @@ use ::std::fmt::Result as FmtResult;
 use self::stream::Stream;
 use super::direct::DirectValue;
 use crate::object::indirect::reference::Reference;
+use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
@@ -35,16 +36,25 @@ impl Display for IndirectValue<'_> {
 
 impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
-        Stream::parse_suppress_recoverable(buffer, offset)
-            .or_else(|| DirectValue::parse_suppress_recoverable(buffer, offset))
-            .unwrap_or_else(|| {
-                Err(ParseRecoverable::new(
-                    &buffer[offset..],
-                    stringify!(IndirectValue),
-                    ParseErrorCode::NotFoundUnion,
-                )
-                .into())
-            })
+        match Stream::parse(buffer, offset) {
+            Ok(stream) => Ok(IndirectValue::Stream(stream)),
+            Err(ParseErr::Recoverable(ParseRecoverable { code, .. })) => {
+                if let ParseErrorCode::FoundDictionary(dictionary) = code {
+                    Ok(IndirectValue::Direct(DirectValue::Dictionary(dictionary)))
+                } else {
+                    DirectValue::parse_suppress_recoverable(buffer, offset).unwrap_or_else(|| {
+                        Err(ParseRecoverable::new(
+                            &buffer[offset..],
+                            stringify!(IndirectValue),
+                            ParseErrorCode::NotFoundUnion,
+                        )
+                        .into())
+                    })
+                }
+            }
+
+            Err(err) => Err(err),
+        }
     }
 
     fn span(&self) -> Span {

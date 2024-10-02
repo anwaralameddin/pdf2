@@ -38,10 +38,12 @@ impl<'buffer> ObjectParser<'buffer> for Increment<'buffer> {
             .unwrap_or_else(|| {
                 // Except for Subsection, Section and XRefStream, NotFound
                 // errors for xref objects should be propagated as failures.
-                Err(
-                    ParseFailure::new(buffer, stringify!(Increment), ParseErrorCode::NotFoundUnion)
-                        .into(),
+                Err(ParseFailure::new(
+                    &buffer[offset..],
+                    stringify!(Increment),
+                    ParseErrorCode::NotFoundUnion,
                 )
+                .into())
             })
     }
 
@@ -88,15 +90,6 @@ mod convert {
             };
             dictionary.opt_usize(KEY_PREV)
         }
-
-        // Avoid calling several times. Store in the processed table.
-        // pub(crate) fn trailer(self) -> XRefResult<Trailer<'buffer>> {
-        //     let dictionary = match self {
-        //         Self::Section(section) => section.trailer,
-        //         Self::Stream(stream) => stream.trailer,
-        //     };
-        //     Trailer::try_from(dictionary)
-        // }
     }
 }
 

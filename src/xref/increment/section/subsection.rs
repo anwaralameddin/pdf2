@@ -84,7 +84,7 @@ impl ObjectParser<'_> for Subsection {
                     ParseFailure::new(
                         err.buffer(),
                         stringify!(Subsection),
-                        ParseErrorCode::SubsectionEntry {
+                        ParseErrorCode::RecSubsectionEntry {
                             index,
                             first_object_number,
                             entry_count,
@@ -180,7 +180,7 @@ mod tests {
         let expected_error = ParseFailure::new(
             b"",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 5,
                 first_object_number: 0,
                 entry_count: 6,
@@ -204,7 +204,7 @@ mod tests {
                 0000000400 00000 n\r\n\
                 0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,
@@ -229,7 +229,7 @@ mod tests {
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 1,
                 first_object_number: 0,
                 entry_count: 6,
@@ -255,7 +255,7 @@ mod tests {
             0000000400 00000 n\r\n\
             0000000500 00000 n\r\n",
             stringify!(Subsection),
-            ParseErrorCode::SubsectionEntry {
+            ParseErrorCode::RecSubsectionEntry {
                 index: 0,
                 first_object_number: 0,
                 entry_count: 6,

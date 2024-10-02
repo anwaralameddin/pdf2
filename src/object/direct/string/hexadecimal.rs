@@ -1,4 +1,3 @@
-use ::nom::bytes::complete::tag;
 use ::nom::character::complete::char;
 use ::nom::character::complete::hex_digit1;
 use ::nom::combinator::opt;
@@ -60,18 +59,6 @@ impl<'buffer> ObjectParser<'buffer> for Hexadecimal<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
 
-        // This check is unnecessary because the start of Names and hexadecimal
-        // strings are mutually exclusive. However, this allows early return if
-        // a dictionary start is found
-        let is_dictionary = tag::<_, _, NomError<_>>(b"<<")(remains);
-        if is_dictionary.is_ok() {
-            return Err(ParseRecoverable::new(
-                remains,
-                stringify!(Hexadecimal),
-                ParseErrorCode::WrongObjectType,
-            )
-            .into());
-        }
         // REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
         // White-space characters are allowed and ignored in a hexadecimal
         // string.
@@ -154,7 +141,7 @@ mod encode {
             encoding.decode(
                 |data| {
                     AHx.defilter(data)
-                        .map_err(|err| EncodingErr::new(data, EncodingErrorCode::Filter(err.code)))
+                        .map_err(|err| EncodingErr::new(data, EncodingErrorCode::Filter(err)))
                 },
                 self.value,
             )
@@ -226,10 +213,10 @@ mod tests {
 
         // Hexadecimal: Dictionary opening
         let parse_result = Hexadecimal::parse(b"<<412048657861646563696D616C20537472696E67>", 0);
-        let expected_error = ParseRecoverable::new(
-            b"<<412048657861646563696D616C20537472696E67>",
+        let expected_error = ParseFailure::new(
+            b"<412048657861646563696D616C20537472696E67>",
             stringify!(Hexadecimal),
-            ParseErrorCode::WrongObjectType,
+            ParseErrorCode::MissingClosing(ErrorKind::Char),
         );
         assert_err_eq!(parse_result, expected_error);
 

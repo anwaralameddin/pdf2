@@ -59,9 +59,6 @@ impl Display for StartXRef {
 
 impl Parser<'_> for StartXRef {
     fn parse(buffer: &[Byte]) -> ParseResult<Self> {
-        // TODO
-        // - Indicate the offset will be ignored
-        // - buffer and offset need to be coupled
         let mut start = if let Some(start) = buffer.len().checked_sub(STARTXREF_MAX_SIZE) {
             start
         } else {

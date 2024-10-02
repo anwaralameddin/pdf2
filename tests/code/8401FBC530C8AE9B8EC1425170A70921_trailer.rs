@@ -1,5 +1,5 @@
 unsafe {
-    Trailer::new(1660, Span::new(0, 270), &dictionary)
+    Trailer::new(1660, Span::new(0, 270))
     .set_root(Reference::new_unchecked(1, 0, 20, 5))
     .set_info(Reference::new_unchecked(6, 0, 32, 5))
     .set_id([

@@ -58,9 +58,6 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
         let remains_len = remains.len();
         let start = offset;
 
-        let mut map = HashMap::default();
-        let mut key: Name;
-        let mut value: DirectValue;
         let (mut remains, recognised) =
             recognize(terminated(tag(b"<<"), opt(white_space_or_comment)))(remains).map_err(
                 parse_recoverable!(
@@ -75,6 +72,10 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
         let mut offset = offset + recognised.len();
         // Here, we know that the buffer starts with a dictionary, and the
         // following errors should be propagated as DictionaryFailure
+
+        let mut map = HashMap::default();
+        let mut key: Name;
+        let mut value: DirectValue;
         loop {
             // Check for the end of the dictionary (closing angle brackets)
             if let Ok((buf, _)) = tag::<_, _, NomError<_>>(b">>")(remains) {
@@ -213,8 +214,9 @@ mod convert {
             &'buffer self,
             key: &'static [Byte],
         ) -> ObjectResult<&DirectValue> {
-            self.opt_get(key)
-                .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
+            self.opt_get(key).ok_or_else(|| {
+                ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+            })
         }
 
         pub(crate) fn opt_array(&self, key: &'static [Byte]) -> ObjectResult<Option<&Array>> {
@@ -223,9 +225,9 @@ mod convert {
                     value.as_array().ok_or_else(|| {
                         ObjectErr::new(
                             key,
-                            self,
+                            self.span(),
                             ObjectErrorCode::Type {
-                                value,
+                                value_span: value.span(),
                                 expected_type: stringify!(Array),
                             },
                         )
@@ -236,8 +238,9 @@ mod convert {
 
         pub(crate) fn required_array(&self, key: &'static [Byte]) -> ObjectResult<&Array> {
             self.opt_array(key).and_then(|value| {
-                value
-                    .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
+                value.ok_or_else(|| {
+                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+                })
             })
         }
 
@@ -247,9 +250,9 @@ mod convert {
                     value.as_name().ok_or_else(|| {
                         ObjectErr::new(
                             key,
-                            self,
+                            self.span(),
                             ObjectErrorCode::Type {
-                                value,
+                                value_span: value.span(),
                                 expected_type: stringify!(Name),
                             },
                         )
@@ -260,8 +263,9 @@ mod convert {
 
         pub(crate) fn required_name(&self, key: &'static [Byte]) -> ObjectResult<&Name> {
             self.opt_name(key).and_then(|value| {
-                value
-                    .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
+                value.ok_or_else(|| {
+                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+                })
             })
         }
 
@@ -275,9 +279,9 @@ mod convert {
                         .ok_or_else(|| {
                             ObjectErr::new(
                                 key,
-                                self,
+                                self.span(),
                                 ObjectErrorCode::Type {
-                                    value,
+                                    value_span: value.span(),
                                     expected_type: stringify!(u64),
                                 },
                             )
@@ -288,8 +292,9 @@ mod convert {
 
         pub(crate) fn required_u64(&self, key: &'static [Byte]) -> ObjectResult<u64> {
             self.opt_u64(key).and_then(|value| {
-                value
-                    .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
+                value.ok_or_else(|| {
+                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+                })
             })
         }
 
@@ -303,9 +308,9 @@ mod convert {
                         .ok_or_else(|| {
                             ObjectErr::new(
                                 key,
-                                self,
+                                self.span(),
                                 ObjectErrorCode::Type {
-                                    value,
+                                    value_span: value.span(),
                                     expected_type: stringify!(usize),
                                 },
                             )
@@ -316,8 +321,9 @@ mod convert {
 
         pub(crate) fn required_usize(&self, key: &'static [Byte]) -> ObjectResult<usize> {
             self.opt_usize(key).and_then(|value| {
-                value
-                    .ok_or_else(|| ObjectErr::new(key, self, ObjectErrorCode::MissingRequiredEntry))
+                value.ok_or_else(|| {
+                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+                })
             })
         }
 
@@ -330,9 +336,9 @@ mod convert {
                     value.as_reference().ok_or_else(|| {
                         ObjectErr::new(
                             key,
-                            self,
+                            self.span(),
                             ObjectErrorCode::Type {
-                                value,
+                                value_span: value.span(),
                                 expected_type: stringify!(Reference),
                             },
                         )

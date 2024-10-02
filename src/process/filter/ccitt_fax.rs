@@ -8,9 +8,7 @@ use crate::Byte;
 pub(super) struct Ccf {}
 
 impl Ccf {
-    pub(super) fn new<'buffer>(
-        _decode_parms: Option<&'buffer Dictionary>,
-    ) -> FilterResult<'buffer, Self> {
+    pub(super) fn new(_decode_parms: Option<&Dictionary>) -> FilterResult<Self> {
         todo!("Implement Ccf::new")
     }
 }
@@ -19,14 +17,14 @@ impl<'buffer> Filter<'buffer> for Ccf {
     fn filter(
         &self,
         _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         todo!("Implement Ccf::filter")
     }
 
     fn defilter(
         &self,
         _buffer: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         todo!("Implement Ccf::defilter")
     }
 }

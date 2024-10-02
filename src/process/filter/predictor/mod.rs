@@ -32,7 +32,7 @@ impl<'buffer> Filter<'buffer> for Predictor {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::Tiff(predictor) => predictor.filter(bytes),
@@ -43,7 +43,7 @@ impl<'buffer> Filter<'buffer> for Predictor {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult<'buffer, Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         match self {
             Self::None => Ok(bytes.into()),
             Self::Tiff(predictor) => predictor.defilter(bytes),
@@ -67,13 +67,12 @@ mod convert {
     use crate::object::direct::dictionary::Dictionary;
     use crate::object::direct::numeric::Numeric;
     use crate::object::direct::DirectValue;
+    use crate::parse::ObjectParser;
     use crate::process::filter::error::FilterErr;
     use crate::process::filter::error::FilterErrorCode;
 
     impl Predictor {
-        pub(in crate::process::filter) fn new<'buffer>(
-            decode_parms: &'buffer Dictionary,
-        ) -> FilterResult<'buffer, Self> {
+        pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> FilterResult<Self> {
             let bits_per_component = decode_parms
                 .opt_get(KEY_BITS_PER_COMPONENT)
                 .map(BitsPerComponent::try_from)
@@ -107,12 +106,12 @@ mod convert {
                     15 => Ok(Self::Png(Png::new(PngAlgorithm::Optimum, parms))),
                     _ => Err(FilterErr::new(
                         stringify!(Predictor),
-                        FilterErrorCode::UnsupportedParameter(value.deref()),
+                        FilterErrorCode::UnsupportedParameter(*value.deref()),
                     )),
                 },
                 Some(value) => Err(FilterErr::new(
                     stringify!(Predictor),
-                    FilterErrorCode::ValueType(stringify!(Integer), value),
+                    FilterErrorCode::ValueType(stringify!(Integer), value.span()),
                 )),
                 None => Ok(Self::None),
             }
