@@ -74,17 +74,17 @@ mod convert {
     impl Predictor {
         pub(in crate::process::filter) fn new(decode_parms: &Dictionary) -> FilterResult<Self> {
             let bits_per_component = decode_parms
-                .opt_get(KEY_BITS_PER_COMPONENT)
+                .get(KEY_BITS_PER_COMPONENT)
                 .map(BitsPerComponent::try_from)
                 .transpose()?
                 .unwrap_or_default();
             let colors = decode_parms
-                .opt_get(KEY_COLORS)
+                .get(KEY_COLORS)
                 .map(Colors::try_from)
                 .transpose()?
                 .unwrap_or_default();
             let columns = decode_parms
-                .opt_get(KEY_COLUMNS)
+                .get(KEY_COLUMNS)
                 .map(Columns::try_from)
                 .transpose()?
                 .unwrap_or_default();
@@ -94,7 +94,7 @@ mod convert {
                 columns,
             };
 
-            match decode_parms.opt_get(KEY_PREDICTOR) {
+            match decode_parms.get(KEY_PREDICTOR) {
                 Some(DirectValue::Numeric(Numeric::Integer(value))) => match value.deref() {
                     1 => Ok(Self::None),
                     2 => Ok(Self::Tiff(Tiff::new(parms))),

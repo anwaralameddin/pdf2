@@ -15,7 +15,9 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
+use crate::parse::ResolvingParser;
 use crate::parse::Span;
+use crate::parse::ParsedObjects;
 use crate::Byte;
 use crate::Offset;
 
@@ -34,9 +36,13 @@ impl Display for IndirectValue<'_> {
     }
 }
 
-impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
-    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
-        match Stream::parse(buffer, offset) {
+impl<'buffer> ResolvingParser<'buffer> for IndirectValue<'buffer> {
+    fn parse(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+        parsed_objects: &ParsedObjects<'buffer>,
+    ) -> ParseResult<'buffer, Self> {
+        match Stream::parse(buffer, offset, parsed_objects) {
             Ok(stream) => Ok(IndirectValue::Stream(stream)),
             Err(ParseErr::Recoverable(ParseRecoverable { code, .. })) => {
                 if let ParseErrorCode::FoundDictionary(dictionary) = code {
@@ -61,23 +67,6 @@ impl<'buffer> ObjectParser<'buffer> for IndirectValue<'buffer> {
         match self {
             Self::Stream(stream) => stream.span(),
             Self::Direct(direct) => direct.span(),
-        }
-    }
-}
-
-mod lookup {
-    use ::std::collections::HashMap;
-
-    use super::*;
-
-    impl IndirectValue<'_> {
-        pub(crate) fn lookup<'a>(
-            &self,
-            _parsed_objects: &'a HashMap<Reference, DirectValue>,
-        ) -> Option<&'a DirectValue> {
-            todo!("Implement lookup and report unfound references")
-            // REFERENCE: [7.3.9 Null object, p33]
-            // TODO indirect references to non-existent objects should resolve to null
         }
     }
 }

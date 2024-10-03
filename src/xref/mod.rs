@@ -3,10 +3,10 @@ pub(crate) mod increment;
 pub(crate) mod pretable;
 pub(crate) mod startxref;
 
-use ::std::collections::BTreeSet;
 use ::std::collections::HashMap;
 
 use self::error::XRefErr;
+use crate::parse::error::ParseErr;
 use crate::xref::error::XRefResult;
 use crate::GenerationNumber;
 use crate::IndexNumber;
@@ -19,10 +19,14 @@ pub(crate) trait ToTable {
 }
 
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct Table {
+pub(crate) struct Table<'buffer> {
     // TODO(QUESTION) Can the same object number and generation number be used
     // more than once? If so, add the section number to avoid collisions
-    pub(crate) in_use: BTreeSet<(Offset, (ObjectNumber, GenerationNumber))>,
+    pub(crate) in_use: Vec<(
+        Offset,
+        (ObjectNumber, GenerationNumber),
+        Option<ParseErr<'buffer>>,
+    )>,
     // TODO
     // - Any need to subtarct one from the generation number to get the actual
     // freed object?
@@ -33,7 +37,7 @@ pub(crate) struct Table {
     // TODO Add trailer here rather than in the Pdf struct
 }
 
-impl Table {
+impl<'buffer> Table<'buffer> {
     pub(super) fn insert_free(
         &mut self,
         object_number: ObjectNumberOrZero,
@@ -59,7 +63,7 @@ impl Table {
         })?;
         // TODO Check if the offset or id is already in use
         self.in_use
-            .insert((offset, (object_number, generation_number)));
+            .push((offset, (object_number, generation_number), None));
         Ok(())
     }
 
@@ -80,7 +84,7 @@ impl Table {
             .insert(object_number, (stream_object_number, index)))
     }
 
-    pub(super) fn extend(&mut self, other: Table) {
+    pub(super) fn extend(&mut self, other: Table<'buffer>) {
         // TODO Report overriden values
         self.in_use.extend(other.in_use);
         // FIXME Be careful when extending free objects. The below does not take
@@ -126,7 +130,7 @@ mod tests {
                     Some(extension)
                         if extension.to_ascii_lowercase() == "pdf" && path.is_file() =>
                     {
-                        eprintln!("Path: {}", path.display());
+                        println!("Path: {}", path.display());
                         let file = File::open(&path).unwrap();
                         let mut reader = BufReader::new(file);
                         let mut buffer = Vec::default();

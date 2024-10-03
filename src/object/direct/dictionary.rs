@@ -36,7 +36,7 @@ pub struct Dictionary<'buffer> {
 impl Display for Dictionary<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "<<")?;
-        for (i, (key, value)) in self.map.iter().enumerate() {
+        for (i, (key, value)) in self.iter().enumerate() {
             if i > 0 {
                 write!(f, " ")?;
             }
@@ -123,18 +123,18 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
             };
 
             if let Some(old_value) = map.insert(escpaed_key.clone(), value) {
-                // Dictionary keys should not be duplicated.
-                // REFERENCE: [7.3.7 Dictionary objects, p30]
-                //
-                // TODO
-                // - Print only if verbose mode is enabled.
-                // - Replace with a `log::error!` call
-                eprintln!(
-                    "Dictionary: Overwriting value for key {}: {} -> {:?}",
-                    key,
-                    old_value,
-                    map.get(&escpaed_key)
-                );
+                if let Some(new_value) = map.get(&escpaed_key) {
+                    // Dictionary keys should not be duplicated.
+                    // REFERENCE: [7.3.7 Dictionary objects, p30]
+                    //
+                    // TODO
+                    // - Print only if verbose mode is enabled.
+                    // - Replace with a `log::error!` call
+                    eprintln!(
+                        "Dictionary: Overwriting value for key {}: {} -> {}",
+                        key, old_value, new_value
+                    );
+                }
             };
         }
 
@@ -170,11 +170,10 @@ mod convert {
 
     use super::*;
     use crate::object::direct::array::Array;
-    use crate::object::direct::numeric::Integer;
-    use crate::object::direct::numeric::Numeric;
     use crate::object::error::ObjectErr;
     use crate::object::error::ObjectErrorCode;
     use crate::object::error::ObjectResult;
+    use crate::parse::ParsedObjects;
 
     impl<'buffer> Dictionary<'buffer> {
         pub fn new(
@@ -196,31 +195,40 @@ mod convert {
         }
     }
 
-    impl<'buffer> IntoIterator for Dictionary<'buffer> {
-        type Item = (Vec<Byte>, DirectValue<'buffer>);
-        type IntoIter = <HashMap<Vec<Byte>, DirectValue<'buffer>> as IntoIterator>::IntoIter;
-
-        fn into_iter(self) -> Self::IntoIter {
-            self.map.into_iter()
-        }
-    }
-
     impl<'buffer> Dictionary<'buffer> {
-        pub(crate) fn opt_get(&'buffer self, key: &'static [Byte]) -> Option<&DirectValue> {
-            self.map.get(key)
+        pub(crate) fn opt_resolve(
+            &'buffer self,
+            key: &'static [Byte],
+            parsed_objects: &'buffer ParsedObjects,
+        ) -> Option<ObjectResult<&DirectValue>> {
+            self.get(key).map(|value| {
+                value
+                    .resolve(parsed_objects)
+                    .map_err(|code| ObjectErr::new(key, self.span(), code))
+            })
         }
 
         pub(crate) fn required_get(
             &'buffer self,
             key: &'static [Byte],
         ) -> ObjectResult<&DirectValue> {
-            self.opt_get(key).ok_or_else(|| {
+            self.get(key).ok_or_else(|| {
                 ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
             })
         }
 
+        pub(crate) fn required_resolve(
+            &'buffer self,
+            key: &'static [Byte],
+            parsed_objects: &'buffer ParsedObjects,
+        ) -> ObjectResult<&DirectValue> {
+            self.opt_resolve(key, parsed_objects).ok_or_else(|| {
+                ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+            })?
+        }
+
         pub(crate) fn opt_array(&self, key: &'static [Byte]) -> ObjectResult<Option<&Array>> {
-            self.opt_get(key)
+            self.get(key)
                 .map(|value| {
                     value.as_array().ok_or_else(|| {
                         ObjectErr::new(
@@ -236,16 +244,8 @@ mod convert {
                 .transpose()
         }
 
-        pub(crate) fn required_array(&self, key: &'static [Byte]) -> ObjectResult<&Array> {
-            self.opt_array(key).and_then(|value| {
-                value.ok_or_else(|| {
-                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
-                })
-            })
-        }
-
         pub(crate) fn opt_name(&self, key: &'static [Byte]) -> ObjectResult<Option<&Name>> {
-            self.opt_get(key)
+            self.get(key)
                 .map(|value| {
                     value.as_name().ok_or_else(|| {
                         ObjectErr::new(
@@ -270,22 +270,18 @@ mod convert {
         }
 
         pub(crate) fn opt_u64(&self, key: &'static [Byte]) -> ObjectResult<Option<u64>> {
-            self.opt_get(key)
+            self.get(key)
                 .map(|value| {
-                    value
-                        .as_numeric()
-                        .and_then(Numeric::as_integer)
-                        .and_then(Integer::as_u64)
-                        .ok_or_else(|| {
-                            ObjectErr::new(
-                                key,
-                                self.span(),
-                                ObjectErrorCode::Type {
-                                    value_span: value.span(),
-                                    expected_type: stringify!(u64),
-                                },
-                            )
-                        })
+                    value.as_u64().ok_or_else(|| {
+                        ObjectErr::new(
+                            key,
+                            self.span(),
+                            ObjectErrorCode::Type {
+                                value_span: value.span(),
+                                expected_type: stringify!(u64),
+                            },
+                        )
+                    })
                 })
                 .transpose()
         }
@@ -299,39 +295,47 @@ mod convert {
         }
 
         pub(crate) fn opt_usize(&self, key: &'static [Byte]) -> ObjectResult<Option<usize>> {
-            self.opt_get(key)
+            self.get(key)
                 .map(|value| {
-                    value
-                        .as_numeric()
-                        .and_then(Numeric::as_integer)
-                        .and_then(Integer::as_usize)
-                        .ok_or_else(|| {
-                            ObjectErr::new(
-                                key,
-                                self.span(),
-                                ObjectErrorCode::Type {
-                                    value_span: value.span(),
-                                    expected_type: stringify!(usize),
-                                },
-                            )
-                        })
+                    value.as_usize().ok_or_else(|| {
+                        ObjectErr::new(
+                            key,
+                            self.span(),
+                            ObjectErrorCode::Type {
+                                value_span: value.span(),
+                                expected_type: stringify!(usize),
+                            },
+                        )
+                    })
                 })
                 .transpose()
         }
 
-        pub(crate) fn required_usize(&self, key: &'static [Byte]) -> ObjectResult<usize> {
-            self.opt_usize(key).and_then(|value| {
-                value.ok_or_else(|| {
-                    ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
+        pub(crate) fn required_resolve_usize(
+            &'buffer self,
+            key: &'static [Byte],
+            parsed_objects: &'buffer ParsedObjects,
+        ) -> ObjectResult<usize> {
+            self.required_resolve(key, parsed_objects)
+                .and_then(|value| {
+                    value.as_usize().ok_or_else(|| {
+                        ObjectErr::new(
+                            key,
+                            self.span(),
+                            ObjectErrorCode::Type {
+                                value_span: value.span(),
+                                expected_type: stringify!(usize),
+                            },
+                        )
+                    })
                 })
-            })
         }
 
         pub(crate) fn opt_reference(
             &self,
             key: &'static [Byte],
         ) -> ObjectResult<Option<&Reference>> {
-            self.opt_get(key)
+            self.get(key)
                 .map(|value| {
                     value.as_reference().ok_or_else(|| {
                         ObjectErr::new(

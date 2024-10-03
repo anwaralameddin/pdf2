@@ -2,15 +2,18 @@ pub(crate) mod character_set;
 pub(crate) mod error;
 pub(crate) mod num;
 
-use std::ops::Index;
-
+use ::std::collections::HashMap;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use ::std::ops::Index;
 
 use self::error::ParseErr;
 use self::error::ParseResult;
+use crate::object::indirect::object::IndirectObject;
 use crate::Byte;
+use crate::GenerationNumber;
+use crate::ObjectNumber;
 use crate::Offset;
 
 pub(crate) const EOF: &str = "%%EOF";
@@ -31,6 +34,10 @@ pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
 
+// TODO Add support for spans within object streams
+pub(crate) type ParsedObjects<'buffer> =
+    HashMap<(ObjectNumber, GenerationNumber), IndirectObject<'buffer>>;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub struct Span {
     start: usize,
@@ -42,6 +49,35 @@ pub(crate) trait Parser<'buffer> {
         Self: Sized;
 
     fn spans(&self) -> Vec<Span>;
+}
+
+pub(crate) trait ResolvingParser<'buffer> {
+    fn parse(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+        parsed_objects: &ParsedObjects<'buffer>,
+    ) -> ParseResult<'buffer, Self>
+    where
+        Self: Sized;
+
+    fn span(&self) -> Span;
+
+    fn parse_suppress_recoverable<O>(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+        parsed_objects: &ParsedObjects<'buffer>,
+    ) -> Option<ParseResult<'buffer, O>>
+    where
+        Self: Sized,
+        O: From<Self>,
+    {
+        let result = Self::parse(buffer, offset, parsed_objects);
+        match result {
+            Ok(object) => Some(Ok(object.into())),
+            Err(ParseErr::Failure(err)) => Some(Err(ParseErr::Failure(err))),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait ObjectParser<'buffer> {
@@ -109,6 +145,23 @@ mod convert {
 }
 
 mod tests {
+    #[macro_export]
+    macro_rules! res_parse_assert_eq {
+        ($type:ident, $buffer:expr, $expected_parsed:expr) => {
+            assert_eq!(
+                $type::parse($buffer, 0, &ParsedObjects::default()).unwrap(),
+                $expected_parsed
+            );
+        };
+        // The two patterns differ only in the trailing comma
+        ($type:ident, $buffer:expr, $expected_parsed:expr,) => {
+            assert_eq!(
+                $type::parse($buffer, 0, &ParsedObjects::default()).unwrap(),
+                $expected_parsed
+            );
+        };
+    }
+
     #[macro_export]
     macro_rules! parse_assert_eq {
         ($type:ident, $buffer:expr, $expected_parsed:expr) => {

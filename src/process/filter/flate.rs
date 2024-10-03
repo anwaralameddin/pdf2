@@ -89,7 +89,8 @@ mod tests {
     use crate::assert_err_eq;
     use crate::lax_stream_defilter_filter;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::ObjectParser;
+    use crate::parse::ResolvingParser;
+    use crate::parse::ParsedObjects;
     use crate::process::filter::error::FilterErr;
 
     #[test]

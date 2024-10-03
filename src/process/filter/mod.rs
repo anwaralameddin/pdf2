@@ -195,15 +195,15 @@ mod convert {
         pub(crate) fn new(dictionary: &Dictionary) -> FilterResult<Self> {
             // TODO Move this to a separate function that `parses` the stream
             // dictionary according to a specific schema.
-            let filtering = if dictionary.opt_get(KEY_F).is_some() {
-                dictionary.opt_get(KEY_FFILTER)
+            let filtering = if dictionary.get(KEY_F).is_some() {
+                dictionary.get(KEY_FFILTER)
             } else {
-                dictionary.opt_get(KEY_FILTER)
+                dictionary.get(KEY_FILTER)
             };
-            let decode_pars = if dictionary.opt_get(KEY_F).is_some() {
-                dictionary.opt_get(KEY_FDECODEPARMS)
+            let decode_pars = if dictionary.get(KEY_F).is_some() {
+                dictionary.get(KEY_FDECODEPARMS)
             } else {
-                dictionary.opt_get(KEY_DECODEPARMS)
+                dictionary.get(KEY_DECODEPARMS)
             };
 
             let filter_chain = match (filtering, decode_pars) {
@@ -282,7 +282,7 @@ mod tests {
     #[macro_export]
     macro_rules! strict_stream_defilter_filter {
         ($buffer:expr, $expected:expr) => {
-            let stream = Stream::parse($buffer, 0).unwrap();
+            let stream = Stream::parse($buffer, 0, &ParsedObjects::default()).unwrap();
             let defiltered = stream.defilter().unwrap();
             assert_eq!(defiltered, $expected);
             let refiltered = stream.filter_buffer(defiltered.as_slice()).unwrap();
@@ -299,7 +299,7 @@ mod tests {
     #[macro_export]
     macro_rules! lax_stream_defilter_filter {
         ($buffer:expr, $expected:expr) => {
-            let stream = Stream::parse($buffer, 0).unwrap();
+            let stream = Stream::parse($buffer, 0, &ParsedObjects::default()).unwrap();
             let defiltered = stream.defilter().unwrap();
             assert_eq!(defiltered, $expected);
             let refiltered = stream.filter_buffer(defiltered.as_slice()).unwrap();
