@@ -28,7 +28,18 @@ repos:
   #   hooks:
   #     - id: yamlfmt
 # ------------------------------------------------------------
-# Rust Testing
+# Rust Build
+# ------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: cargo-build
+        name: cargo build
+        entry: cargo build --tests --release
+        language: system
+        pass_filenames: false
+        always_run: true
+# ------------------------------------------------------------
+# Rust Test
 # ------------------------------------------------------------
   - repo: local
     hooks:
@@ -39,7 +50,7 @@ repos:
         pass_filenames: false
         always_run: true
 # ------------------------------------------------------------
-# FIXME Rust Testing
+# FIXME Rust Format
 # ------------------------------------------------------------
 # - repo: local
 #   hooks:
