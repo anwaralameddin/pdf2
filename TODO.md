@@ -12,8 +12,6 @@
 
 ## Features
 
-- Recursively look up indirect reference values.
-- Read stream length from an indirect reference.
 - Parse free and compressed objects.
 - Log comments in their context.
 - Report unparsed spans in the PDF file.

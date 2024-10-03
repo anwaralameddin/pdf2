@@ -16,11 +16,13 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
+use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
 use crate::parse_failure;
 use crate::parse_recoverable;
+use crate::parse::ParsedObjects;
 use crate::Byte;
 use crate::Offset;
 
@@ -38,8 +40,12 @@ impl Display for IndirectObject<'_> {
     }
 }
 
-impl<'buffer> ObjectParser<'buffer> for IndirectObject<'buffer> {
-    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
+    fn parse(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+        parsed_objects: &ParsedObjects<'buffer>,
+    ) -> ParseResult<'buffer, Self> {
         // REFERENCE: [7.3.10 Indirect objects, p33]
         let id = Id::parse(buffer, offset).map_err(|err| {
             ParseRecoverable::new(
@@ -67,7 +73,7 @@ impl<'buffer> ObjectParser<'buffer> for IndirectObject<'buffer> {
         let offset = offset + (remains_len - remains.len());
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
-        let object = IndirectValue::parse(buffer, offset).map_err(|err| {
+        let object = IndirectValue::parse(buffer, offset, parsed_objects).map_err(|err| {
             ParseFailure::new(
                 err.buffer(),
                 stringify!(IndirectObject),
@@ -140,13 +146,13 @@ mod tests {
     use crate::object::indirect::reference::Reference;
     use crate::object::indirect::stream::Stream;
     use crate::object::indirect::stream::KEY_LENGTH;
-    use crate::parse_assert_eq;
+    use crate::res_parse_assert_eq;
 
     #[test]
     fn object_valid() {
         // Synthetic tests
         let buffer = b"1 0 obj /Name\nendobj";
-        parse_assert_eq!(
+        res_parse_assert_eq!(
             IndirectObject,
             buffer,
             IndirectObject {
@@ -163,7 +169,7 @@ mod tests {
             value,
             span: Span::new(0, buffer.len()),
         };
-        parse_assert_eq!(IndirectObject, buffer, object);
+        res_parse_assert_eq!(IndirectObject, buffer, object);
 
         let buffer =
             b"1 0 obj\n<</Length 29>>\nstream\nA stream with a direct length\nendstream\nendobj";
@@ -183,7 +189,7 @@ mod tests {
             value: value.into(),
             span: Span::new(0, buffer.len()),
         };
-        parse_assert_eq!(IndirectObject, buffer, object);
+        res_parse_assert_eq!(IndirectObject, buffer, object);
 
         // TODO Add tests
 
@@ -195,7 +201,7 @@ mod tests {
     fn object_invalid() {
         // Synthetic tests
         // Indirect Object: Incomplete
-        let parse_result = IndirectObject::parse(b"1 0 obj /Name e", 0);
+        let parse_result = IndirectObject::parse(b"1 0 obj /Name e", 0, &ParsedObjects::default());
         let expected_error = ParseFailure::new(
             b"e",
             stringify!(IndirectObject),
@@ -204,7 +210,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the endobj keyword
-        let parse_result = IndirectObject::parse(b"1 0 obj /Name <", 0);
+        let parse_result = IndirectObject::parse(b"1 0 obj /Name <", 0, &ParsedObjects::default());
         let expected_error = ParseFailure::new(
             b"<",
             stringify!(IndirectObject),
@@ -213,7 +219,11 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Incomplete object
-        let parse_result = IndirectObject::parse(b"1 0 obj (A partial literal string", 0);
+        let parse_result = IndirectObject::parse(
+            b"1 0 obj (A partial literal string",
+            0,
+            &ParsedObjects::default(),
+        );
         let expected_error = ParseFailure::new(
             b"",
             stringify!(IndirectObject),
@@ -225,7 +235,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the object keyword
-        let parse_result = IndirectObject::parse(b"1 0 /Name<", 0);
+        let parse_result = IndirectObject::parse(b"1 0 /Name<", 0, &ParsedObjects::default());
         let expected_error = ParseRecoverable::new(
             b"/Name<",
             stringify!(IndirectObject),
@@ -234,7 +244,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing value
-        let parse_result = IndirectObject::parse(b"1 0 obj endobj", 0);
+        let parse_result = IndirectObject::parse(b"1 0 obj endobj", 0, &ParsedObjects::default());
         let expected_error = ParseFailure::new(
             b"endobj",
             stringify!(IndirectObject),

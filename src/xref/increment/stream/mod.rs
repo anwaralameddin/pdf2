@@ -17,6 +17,8 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
+use crate::parse::ParsedObjects;
+use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
@@ -45,11 +47,18 @@ impl Display for XRefStream<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
-    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<'buffer, Self> {
+        // [Table 17 — Additional entries specific to a cross-reference stream
+        // dictionary, p66-67]
+        // The entire in the trailer dictionary needed to parse the
+        // cross-reference stream should never be references, and we can safely
+        // use ParseObjects::default() here.
+        let parsed_objects = ParsedObjects::default();
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
-        let IndirectObject { id, value, span } = ObjectParser::parse(buffer, offset)?;
+        let IndirectObject { id, value, span } =
+            ResolvingParser::parse(buffer, offset, &parsed_objects)?;
 
         let stream = if let IndirectValue::Stream(stream) = value {
             stream

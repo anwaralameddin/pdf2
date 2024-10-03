@@ -19,6 +19,8 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
+use crate::parse::ParsedObjects;
+use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDSTREAM;
 use crate::parse::KW_STREAM;
@@ -53,9 +55,13 @@ impl Display for Stream<'_> {
     }
 }
 
-impl<'buffer> ObjectParser<'buffer> for Stream<'buffer> {
+impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
     /// REFERENCE: [7.3.8 Stream objects, p31-32]
-    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+    fn parse(
+        buffer: &'buffer [Byte],
+        offset: Offset,
+        parsed_objects: &ParsedObjects<'buffer>,
+    ) -> ParseResult<'buffer, Self> {
         let dictionary = Dictionary::parse(buffer, offset)?;
         let dictionary_span = dictionary.span();
         let remains = &buffer[dictionary_span.end()..];
@@ -77,20 +83,17 @@ impl<'buffer> ObjectParser<'buffer> for Stream<'buffer> {
         // Here, we know that the buffer starts with a stream, and the following
         // errors should be propagated as StreamFailure
 
-        let length = dictionary.required_usize(KEY_LENGTH).map_err(|err| {
-            ParseFailure::new(
-                &buffer[err.dictionary_span],
-                stringify!(Stream),
-                ParseErrorCode::Object(err),
-            )
-        })?;
+        let length = dictionary
+            .required_resolve_usize(KEY_LENGTH, parsed_objects)
+            .map_err(|err| {
+                ParseFailure::new(
+                    &buffer[err.dictionary_span],
+                    stringify!(Stream),
+                    ParseErrorCode::Object(err),
+                )
+            })?;
 
-        // FIXME Add support for indirect reference
-        // DirectValue::Reference(_reference) => {
-        //     todo!("Indirect reference for stream length")
-        // }
-
-        let file = dictionary.opt_get(KEY_F);
+        let file = dictionary.get(KEY_F);
         if let Some(file) = file {
             todo!("Implement Stream with data stored in a file: {:?}", file);
         }
@@ -229,7 +232,7 @@ mod tests {
     use crate::object::error::ObjectErrorCode;
     use crate::object::indirect::reference::Reference;
     use crate::parse::error::ParseFailure;
-    use crate::parse_assert_eq;
+    use crate::res_parse_assert_eq;
     use crate::Byte;
 
     #[test]
@@ -247,28 +250,28 @@ mod tests {
             "".as_bytes(),
             Span::new(0, 32),
         );
-        parse_assert_eq!(Stream, buffer, stream);
+        res_parse_assert_eq!(Stream, buffer, stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.bin");
         let stream: Stream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_xobject.rs");
-        parse_assert_eq!(Stream, buffer, stream);
+        res_parse_assert_eq!(Stream, buffer, stream);
 
         // PDF produced by pdfTeX-1.40.21
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/3AB9790B3CB9A73CF4BF095B2CE17671_stream.bin");
         let stream: Stream =
             include!("../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_stream.rs");
-        parse_assert_eq!(Stream, buffer, stream);
+        res_parse_assert_eq!(Stream, buffer, stream);
 
         // PDF produced by Microsoft Word for Office 365
         let buffer: &[Byte] =
             include_bytes!("../../../tests/data/B72168B54640B245A7CCF42DCDC8C026_stream.bin");
         let stream: Stream =
             include!("../../../tests/code/B72168B54640B245A7CCF42DCDC8C026_stream.rs");
-        parse_assert_eq!(Stream, buffer, stream);
+        res_parse_assert_eq!(Stream, buffer, stream);
 
         // TODO Add a stream with a length that is an indirect reference
     }
@@ -277,7 +280,7 @@ mod tests {
     fn stream_invalid() {
         // Synthetic tests
         // Stream: Length not found in stream dictionary
-        let parse_result = Stream::parse(b"<<>>\nstream\nendstream", 0);
+        let parse_result = Stream::parse(b"<<>>\nstream\nendstream", 0, &ParsedObjects::default());
         let expected_error = ParseFailure::new(
             b"<<>>",
             stringify!(Stream),
@@ -291,7 +294,11 @@ mod tests {
 
         // Stream: Length has the wrong type. Only NonNegative values and References are
         // allowed for Length Stream: Length of invalid value: -1
-        let parse_result = Stream::parse(b"<</Length -1>>\nstream\nendstream", 0);
+        let parse_result = Stream::parse(
+            b"<</Length -1>>\nstream\nendstream",
+            0,
+            &ParsedObjects::default(),
+        );
         let expected_error = ParseFailure::new(
             b"<</Length -1>>",
             stringify!(Stream),
@@ -310,7 +317,11 @@ mod tests {
         // where usize::MAX is less than u64::MAX, e.g. 32-bit systems
 
         // Stream: Data is too short
-        let parse_result = Stream::parse(b"<</Length 10>>\nstream\n0123456\nendstream", 0);
+        let parse_result = Stream::parse(
+            b"<</Length 10>>\nstream\n0123456\nendstream",
+            0,
+            &ParsedObjects::default(),
+        );
         let expected_error = ParseFailure::new(
             b"dstream",
             stringify!(Stream),
@@ -319,7 +330,11 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Stream: Data is too long
-        let parse_result = Stream::parse(b"<</Length 5>>\nstream\n0123456789\nendstream", 0);
+        let parse_result = Stream::parse(
+            b"<</Length 5>>\nstream\n0123456789\nendstream",
+            0,
+            &ParsedObjects::default(),
+        );
         let expected_error = ParseFailure::new(
             b"56789\nendstream",
             stringify!(Stream),

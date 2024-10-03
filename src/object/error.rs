@@ -4,6 +4,8 @@ use crate::error::DisplayUsingBuffer;
 use crate::fmt::debug_bytes;
 use crate::parse::Span;
 use crate::Byte;
+use crate::GenerationNumber;
+use crate::ObjectNumber;
 
 pub(crate) type ObjectResult<T> = Result<T, ObjectErr>;
 
@@ -38,6 +40,12 @@ pub enum ObjectErrorCode {
         expected_type: &'static str,
         value_span: Span,
     },
+    #[error("Cyclic reference: {0} {1}")]
+    CyclicReference(ObjectNumber, GenerationNumber),
+    #[error("Missing referenced object: {0} {1}")]
+    MissingReferencedObject(ObjectNumber, GenerationNumber),
+    #[error("Reference resolves to a stream: {0} {1}")]
+    ReferenceToStream(ObjectNumber, GenerationNumber),
     #[error("Missing required entry")]
     MissingRequiredEntry,
 }

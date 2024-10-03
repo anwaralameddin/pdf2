@@ -94,19 +94,22 @@ impl<'buffer> ObjectParser<'buffer> for DirectValue<'buffer> {
     }
 }
 
-mod lookup {
-    use ::std::collections::HashMap;
-
+mod resolve {
     use super::*;
+    use crate::object::error::ObjectErrorCode;
+    use crate::parse::ParsedObjects;
 
     impl DirectValue<'_> {
-        pub(crate) fn lookup<'a>(
-            &self,
-            _parsed_objects: &'a HashMap<Reference, DirectValue>,
-        ) -> Option<&'a DirectValue> {
-            todo!("Implement lookup and report unfound references")
-            // REFERENCE: [7.3.9 Null object, p33]
-            // TODO Indirect references to non-existent objects should resolve to null
+        // TODO Cache the result of the resolve method or store it inplace
+        pub(crate) fn resolve<'buffer>(
+            &'buffer self,
+            parsed_objects: &'buffer ParsedObjects,
+        ) -> Result<&DirectValue, ObjectErrorCode> {
+            if let DirectValue::Reference(reference) = self {
+                reference.resolve(parsed_objects)
+            } else {
+                Ok(self)
+            }
         }
     }
 }

@@ -414,6 +414,8 @@ mod tests {
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
     use crate::parse::ObjectParser;
+    use crate::parse::ResolvingParser;
+    use crate::parse::ParsedObjects;
 
     #[test]
     fn section_trailer_valid() {
@@ -465,7 +467,7 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let object = IndirectObject::parse(buffer, 0).unwrap();
+        let object = IndirectObject::parse(buffer, 0, &ParsedObjects::default()).unwrap();
         let val_ref = Name::new(VAL_XREF, Span::new(19, 5));
         let key_length = KEY_LENGTH.to_vec();
 

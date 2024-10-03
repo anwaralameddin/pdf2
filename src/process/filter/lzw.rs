@@ -332,7 +332,7 @@ mod convert {
             if let Some(decode_parms) = decode_parms {
                 let predictor = Predictor::new(decode_parms)?;
                 let early_change = decode_parms
-                    .opt_get(KEY_EARLY_CHANGE)
+                    .get(KEY_EARLY_CHANGE)
                     .map(EarlyChange::try_from)
                     .transpose()?
                     .unwrap_or_default();
@@ -427,7 +427,8 @@ mod tests {
     use super::*;
     use crate::assert_err_eq;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::ObjectParser;
+    use crate::parse::ResolvingParser;
+    use crate::parse::ParsedObjects;
     // use crate::lax_stream_defilter_filter;
     use crate::strict_stream_defilter_filter;
 

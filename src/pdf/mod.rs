@@ -1,20 +1,22 @@
 pub(crate) mod error;
 
-use ::std::collections::HashMap;
 use ::std::fs::File;
 use ::std::io::BufReader;
 use ::std::path::Path;
 
+use self::error::ObjectRecoverable;
+use self::error::PdfErr;
 use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
+use self::error::PdfResult;
 use crate::object::indirect::object::IndirectObject;
+use crate::parse::ParsedObjects;
+use crate::parse::Parser;
+use crate::parse::ResolvingParser;
+use crate::xref::pretable::PreTable;
 use crate::xref::Table;
+use crate::xref::ToTable;
 use crate::Byte;
-use crate::GenerationNumber;
-use crate::ObjectNumber;
-
-// TODO Add support for spans within object streams
-type ObjectsInUse<'path> = HashMap<(ObjectNumber, GenerationNumber), IndirectObject<'path>>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
@@ -31,20 +33,132 @@ pub struct Pdf<'path> {
     // • The trailer
     // trailer: Trailer<'path>,
     /// • The cross-reference table
-    table: Table,
+    pretable: PreTable<'path>,
     // • The version of the PDF specification
     // TODO version: Version,
     /// REFERENCE:
     /// - [7.5.1 General, p53]
     /// - [7.5.3 File body, p55]
     /// • The body of a PDF file
-    objects_in_use: ObjectsInUse<'path>,
+    objects_in_use: ParsedObjects<'path>,
     // TODO Add support for:
     // - Free objects
     // - Compressed objects
     // - comments: Vec<Comment>,
     // - spans: BTreeSet<Span>,
     errors: PdfRecoverable<'path>,
+}
+
+impl<'path> PdfBuilder<'path> {
+    // fn get_trailer(&'path self, pretable: PreTable<'path>) -> PdfResult<Trailer> {
+    //     let mut pretable = pretable;
+    //     pretable
+    //         .pop()
+    //         .map(|increment| increment.trailer())
+    //         .transpose()
+    //         .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err)))?
+    //         .ok_or_else(||PdfErr::new(self.path, PdfErrorCode::EmptyPreTable))
+    // }
+
+    fn parse_objects_in_use(
+        &'path self,
+        table: Table,
+        errors: &mut Vec<ObjectRecoverable<'path>>,
+    ) -> PdfResult<ParsedObjects> {
+        // At this point, we should not immediately fail. Instead, we
+        // collect all errors and report them at the end.
+
+        let mut parsed_objects = ParsedObjects::default();
+        let mut to_parse = table.in_use;
+        // Different data structures are considered here, namely:
+        // - Vec (faster iteration)
+        // - BTreeSet (faster in-order buffer parsing)
+        // - VecDeque (faster insertion and removal)
+        // No measureable performance difference was observed between the three.
+        // However, Vec::default() was more performant than
+        // Vec::with_capacity(to_parse.len()) on the test set.
+        let mut erroneous = Vec::default();
+
+        loop {
+            'inner: for (offset, (object_number, generation_number), _) in to_parse.iter() {
+                if *offset >= self.buffer_len {
+                    errors.push(ObjectRecoverable::OutOfBounds(
+                        *object_number,
+                        *generation_number,
+                        *offset,
+                        self.buffer_len,
+                    ));
+                    continue 'inner;
+                }
+
+                let object = match IndirectObject::parse(&self.buffer, *offset, &parsed_objects) {
+                    Ok(object) => object,
+                    Err(err) => {
+                        erroneous.push((*offset, (*object_number, *generation_number), Some(err)));
+                        continue 'inner;
+                    }
+                };
+                // At this point, we have a valid indirect object, and there is
+                // no need to skip the object on errors
+                let parsed_id = object.id;
+                if parsed_id.object_number != *object_number
+                    || parsed_id.generation_number != *generation_number
+                {
+                    errors.push(ObjectRecoverable::MismatchedId(
+                        *object_number,
+                        *generation_number,
+                        parsed_id,
+                    ));
+                }
+
+                parsed_objects.insert((*object_number, *generation_number), object);
+            }
+
+            if erroneous.is_empty() || to_parse.len() == erroneous.len() {
+                for (offset, (object_number, generation_number), err) in erroneous.into_iter() {
+                    if let Some(err) = err {
+                        errors.push(ObjectRecoverable::Parse(
+                            object_number,
+                            generation_number,
+                            offset,
+                            &self.buffer,
+                            err,
+                        ));
+                    }
+                }
+
+                break;
+            }
+            to_parse = erroneous;
+            erroneous = Vec::default();
+        }
+
+        Ok(parsed_objects)
+    }
+
+    pub fn build(&'path self) -> PdfResult<'path, Pdf<'path>> {
+        // REFERENCE: [7.5.1 General, p54]
+        // Apart from linearised PDFs, files should be read from the end
+        // using the trailer and cross-reference table.
+        let pretable = PreTable::parse(&self.buffer)
+            .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(&self.buffer, err)))?;
+        let table = pretable
+            .to_table()
+            .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(&self.buffer, err)))?;
+        // let trailer = self.get_trailer(pretable)?;
+        let mut errors = Vec::default();
+        let objects_in_use = self.parse_objects_in_use(table, &mut errors)?;
+        let errors = PdfRecoverable::new(self.path, errors);
+
+        Ok(Pdf {
+            path: self.path,
+            buffer: &self.buffer,
+            // trailer,
+            pretable,
+            objects_in_use,
+            errors,
+        })
+    }
 }
 
 impl Pdf<'_> {
@@ -64,107 +178,6 @@ impl Pdf<'_> {
             self.objects_in_use.len(),
             self.errors.len()
         )
-    }
-}
-
-mod build {
-
-    use super::error::ObjectRecoverable;
-    use super::error::PdfErr;
-    use super::error::PdfErrorCode;
-    use super::error::PdfResult;
-    use super::*;
-    use crate::object::indirect::object::IndirectObject;
-    use crate::parse::ObjectParser;
-    use crate::parse::Parser;
-    use crate::xref::pretable::PreTable;
-    use crate::xref::ToTable;
-
-    impl<'path> PdfBuilder<'path> {
-        // fn get_trailer(&'path self, pretable: PreTable<'path>) -> PdfResult<Trailer> {
-        //     let mut pretable = pretable;
-        //     pretable
-        //         .pop()
-        //         .map(|increment| increment.trailer())
-        //         .transpose()
-        //         .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(err)))?
-        //         .ok_or_else(||PdfErr::new(self.path, PdfErrorCode::EmptyPreTable))
-        // }
-
-        fn parse_objects_in_use(
-            &'path self,
-            table: &Table,
-            errors: &mut Vec<ObjectRecoverable<'path>>,
-        ) -> PdfResult<ObjectsInUse> {
-            // At this point, we should not immediately fail. Instead, we
-            // collect all errors and report them at the end.
-            let mut objects = HashMap::default();
-            for (offset, (object_number, generation_number)) in table.in_use.iter() {
-                if *offset >= self.buffer_len {
-                    errors.push(ObjectRecoverable::OutOfBounds(
-                        *object_number,
-                        *generation_number,
-                        *offset,
-                        self.buffer_len,
-                    ));
-                    continue;
-                }
-                let object = match IndirectObject::parse(&self.buffer, *offset) {
-                    Ok(object) => object,
-                    Err(err) => {
-                        errors.push(ObjectRecoverable::Parse(
-                            *object_number,
-                            *generation_number,
-                            *offset,
-                            &self.buffer,
-                            err,
-                        ));
-                        continue;
-                    }
-                };
-                // At this point, we have a valid indirect object, and there is
-                // no need to skip the object on errors
-                let parsed_id = object.id;
-                if parsed_id.object_number != *object_number
-                    || parsed_id.generation_number != *generation_number
-                {
-                    errors.push(ObjectRecoverable::MismatchedId(
-                        *object_number,
-                        *generation_number,
-                        parsed_id,
-                    ));
-                    // continue;
-                }
-
-                objects.insert((*object_number, *generation_number), object);
-            }
-
-            Ok(objects)
-        }
-
-        pub fn build(&'path self) -> PdfResult<'path, Pdf<'path>> {
-            // REFERENCE: [7.5.1 General, p54]
-            // Apart from linearised PDFs, files should be read from the end
-            // using the trailer and cross-reference table.
-            let pretable = PreTable::parse(&self.buffer)
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(&self.buffer, err)))?;
-            let table = pretable
-                .to_table()
-                .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(&self.buffer, err)))?;
-            // let trailer = self.get_trailer(pretable)?;
-            let mut errors = Vec::default();
-            let objects_in_use = self.parse_objects_in_use(&table, &mut errors)?;
-            let errors = PdfRecoverable::new(self.path, errors);
-
-            Ok(Pdf {
-                path: self.path,
-                buffer: &self.buffer,
-                // trailer,
-                table,
-                objects_in_use,
-                errors,
-            })
-        }
     }
 }
 
@@ -213,7 +226,7 @@ mod tests {
     fn file_valid() {
         // TODO Ensure that the directory is not empty
         let dir = PathBuf::from("tests/data/parse/file/valid");
-        let mut err_msgs = Vec::default();
+        let mut erroneous = 0;
         let mut dirs = VecDeque::from([dir]);
         while let Some(dir) = dirs.pop_back() {
             let entries = if let Ok(entries) = read_dir(&dir) {
@@ -232,10 +245,11 @@ mod tests {
                     Some(extension)
                         if extension.to_ascii_lowercase() == "pdf" && path.is_file() =>
                     {
-                        eprintln!("Path: {}", path.display());
+                        println!("Path: {}", path.display());
                         let builder = PdfBuilder::new(&path).unwrap();
-                        match builder.build() {
-                            Ok(pdf) => {
+                        let pdf = builder.build().unwrap();
+                        match pdf.status() {
+                            Ok(_) => {
                                 println!(
                                     "{}: # Objects {:?}",
                                     path.display(),
@@ -243,8 +257,8 @@ mod tests {
                                 );
                             }
                             Err(err) => {
-                                eprintln!("ERROR: {}: {}", path.display(), err);
-                                err_msgs.push(format!("{}: {}", path.display(), err));
+                                eprintln!("ERROR: {}", err);
+                                erroneous += 1;
                             }
                         }
                     }
@@ -252,11 +266,8 @@ mod tests {
                 }
             }
         }
-        if !err_msgs.is_empty() {
-            panic!(
-                "Errors: Failed to parse the cross-reference table in {} files",
-                err_msgs.len()
-            );
+        if erroneous != 0 {
+            panic!("Errors: Failed to parse objects in {erroneous} files");
         }
     }
 }

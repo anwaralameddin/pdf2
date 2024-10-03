@@ -32,7 +32,7 @@ impl Display for Increment<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Increment<'buffer> {
-    fn parse(buffer: &'buffer [Byte], offset: crate::Offset) -> ParseResult<'buffer, Self> {
+    fn parse(buffer: &'buffer [Byte], offset: crate::Offset) -> ParseResult<Self> {
         Section::parse_suppress_recoverable::<Self>(buffer, offset)
             .or_else(|| XRefStream::parse_suppress_recoverable::<Self>(buffer, offset))
             .unwrap_or_else(|| {

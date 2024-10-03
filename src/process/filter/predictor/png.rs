@@ -19,7 +19,7 @@ impl<'buffer> Filter<'buffer> for Png {
     fn filter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult< Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = bytes.as_ref();
         // REFERENCE:
         // [[https://www.w3.org/TR/png/#4Concepts.EncodingScanlineAbs]
@@ -74,7 +74,7 @@ impl<'buffer> Filter<'buffer> for Png {
     fn defilter(
         &self,
         bytes: impl Into<Vec<Byte>> + AsRef<[Byte]> + 'buffer,
-    ) -> FilterResult< Vec<Byte>> {
+    ) -> FilterResult<Vec<Byte>> {
         let bytes = bytes.as_ref();
 
         let bits_per_scanline =
@@ -435,7 +435,8 @@ mod tests {
 
     use crate::lax_stream_defilter_filter;
     use crate::object::indirect::stream::Stream;
-    use crate::parse::ObjectParser;
+    use crate::parse::ResolvingParser;
+    use crate::parse::ParsedObjects;
 
     #[test]
     fn png_valid() {
