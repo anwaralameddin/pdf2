@@ -6,6 +6,7 @@ use ::nom::Err as NomErr;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
+use nom::combinator::recognize;
 
 use super::id::Id;
 use super::IndirectValue;
@@ -16,13 +17,13 @@ use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
+use crate::parse::ParsedObjects;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
 use crate::parse_failure;
 use crate::parse_recoverable;
-use crate::parse::ParsedObjects;
 use crate::Byte;
 use crate::Offset;
 
@@ -46,6 +47,18 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
         offset: Offset,
         parsed_objects: &ParsedObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
+        let remains = &buffer[offset..];
+        let remains_len = remains.len();
+        let start = offset;
+        let mut offset = offset;
+        // Some of the test files contain whitespaces at the specified offset
+        // before the object id
+        // HACK Check the standard if the validator should flag these
+        // whitespaces before the object id as errors
+        if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
+            offset += recognised.len();
+        }
+
         // REFERENCE: [7.3.10 Indirect objects, p33]
         let id = Id::parse(buffer, offset).map_err(|err| {
             ParseRecoverable::new(
@@ -55,22 +68,21 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
             )
         })?;
         let id_span = id.span();
-        let offset = id_span.end();
+        offset = id_span.end();
         let remains = &buffer[offset..];
-        let remains_len = remains.len();
 
-        let (remains, _) = terminated(tag(KW_OBJ), opt(white_space_or_comment))(remains).map_err(
-            parse_recoverable!(
-                e,
-                ParseRecoverable::new(
-                    e.input,
-                    stringify!(IndirectObject),
-                    ParseErrorCode::NotFound(e.code)
-                )
-            ),
-        )?;
-
-        let offset = offset + (remains_len - remains.len());
+        let (_, recognised) = recognize(terminated(tag(KW_OBJ), opt(white_space_or_comment)))(
+            remains,
+        )
+        .map_err(parse_recoverable!(
+            e,
+            ParseRecoverable::new(
+                e.input,
+                stringify!(IndirectObject),
+                ParseErrorCode::NotFound(e.code)
+            )
+        ))?;
+        offset += recognised.len();
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
         let object = IndirectValue::parse(buffer, offset, parsed_objects).map_err(|err| {
@@ -84,7 +96,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
             )
         })?;
         let object_span = object.span();
-        let offset = object_span.end();
+        offset = object_span.end();
         let remains = &buffer[offset..];
 
         // REFERENCE: [7.3.8.1 General, p31]
@@ -102,10 +114,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
             )
         ))?;
 
-        let span = Span::new(
-            id_span.start(),
-            id_span.len() + (remains_len - remains.len()),
-        );
+        let span = Span::new(start, remains_len - remains.len());
         let indirect_object = Self {
             id,
             value: object,
