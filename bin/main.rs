@@ -10,6 +10,7 @@ use self::fs::filter_pdf_files;
 
 fn main() {
     let args = Args::parse();
+    // TODO Process files as thex become avilable
     let mut files = filter_pdf_files(args.files);
     if let Some(dir) = args.directory {
         append_pdf_files(&mut files, &dir);

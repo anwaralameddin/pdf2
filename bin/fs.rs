@@ -28,14 +28,18 @@ pub(super) fn append_pdf_files(files: &mut Vec<PathBuf>, dir: &Path) {
                     }
                     Err(err) => {
                         // TODO Replace with log::warn!.
-                        eprintln!("WARNING: Failed to read entry: {:?}", err);
+                        eprintln!("WARNING: Failed to read entry. Error: {:?}", err);
                     }
                 }
             }
         }
         Err(err) => {
             // TODO Replace with log::warn!.
-            eprintln!("WARNING: Failed to read directory: {:?}", err);
+            eprintln!(
+                "WARNING: Failed to read directory {}. Error: {:?}",
+                dir.display(),
+                err
+            );
         }
     }
 }
