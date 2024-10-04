@@ -1,4 +1,6 @@
 use ::nom::character::complete::char;
+use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::sequence::preceded;
 use ::nom::Err as NomErr;
 use ::std::fmt::Debug;
@@ -56,11 +58,12 @@ impl<'buffer> ObjectParser<'buffer> for Name<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
 
-        let (_, value) =
-            preceded(char('/'), printable_token)(remains).map_err(parse_recoverable!(
+        let (_, value) = preceded(char('/'), recognize(opt(printable_token)))(remains).map_err(
+            parse_recoverable!(
                 e,
                 ParseRecoverable::new(e.input, stringify!(Name), ParseErrorCode::NotFound(e.code))
-            ))?;
+            ),
+        )?;
 
         let len = value.len() + 1;
         let span = Span::new(offset, len);
@@ -222,6 +225,7 @@ mod tests {
     #[test]
     fn name_valid() {
         // Synthetic tests
+        parse_assert_eq!(Name, b"/", Name::from(("", Span::new(0, 1))));
         parse_assert_eq!(Name, b"/ABC123", Name::from(("ABC123", Span::new(0, 7))));
         parse_assert_eq!(
             Name,

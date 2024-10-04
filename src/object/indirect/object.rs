@@ -1,12 +1,12 @@
 use ::nom::bytes::complete::tag;
 use ::nom::combinator::opt;
+use ::nom::combinator::recognize;
 use ::nom::sequence::delimited;
 use ::nom::sequence::terminated;
 use ::nom::Err as NomErr;
 use ::std::fmt::Display;
 use ::std::fmt::Formatter;
 use ::std::fmt::Result as FmtResult;
-use nom::combinator::recognize;
 
 use super::id::Id;
 use super::IndirectValue;

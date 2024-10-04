@@ -1,5 +1,5 @@
-use ::nom::bytes::complete::tag;
 use ::nom::combinator::opt;
+use ::nom::bytes::complete::tag;
 use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::nom::sequence::terminated;

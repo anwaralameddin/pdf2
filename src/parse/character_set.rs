@@ -4,12 +4,12 @@ use ::nom::bytes::complete::take_till;
 use ::nom::bytes::complete::take_while;
 use ::nom::bytes::complete::take_while1;
 use ::nom::character::complete::char;
-use ::nom::combinator::opt;
 use ::nom::combinator::recognize;
 use ::nom::multi::many1;
 use ::nom::sequence::delimited;
 use ::nom::sequence::preceded;
 use ::nom::IResult;
+use nom::combinator::opt;
 
 use crate::Byte;
 
@@ -76,10 +76,6 @@ const fn is_delimiter(byte: Byte) -> bool {
         || byte == b'}'
         || byte == b'/'
         || byte == b'%'
-}
-
-pub(crate) fn delimiter(buffer: &[Byte]) -> IResult<&[Byte], &[Byte]> {
-    take_while1(is_delimiter)(buffer)
 }
 
 /// REFERENCE: [7.2.3 Character set, p23] indicates that regular characters are
@@ -282,55 +278,6 @@ mod tests {
             eol(b"\r\n<").unwrap(),
             (b"<".as_slice(), b"\r\n".as_slice())
         );
-    }
-
-    #[test]
-    fn delimiter_valid() {
-        assert_eq!(
-            delimiter(b"() ").unwrap(),
-            (b" ".as_slice(), b"()".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"<<>> ").unwrap(),
-            (b" ".as_slice(), b"<<>>".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"<> ").unwrap(),
-            (b" ".as_slice(), b"<>".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"[] ").unwrap(),
-            (b" ".as_slice(), b"[]".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"{} ").unwrap(),
-            (b" ".as_slice(), b"{}".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"/ ").unwrap(),
-            (b" ".as_slice(), b"/".as_slice())
-        );
-        assert_eq!(
-            delimiter(b"% ").unwrap(),
-            (b" ".as_slice(), b"%".as_slice())
-        );
-    }
-
-    #[test]
-    fn delimiter_invalid() {
-        let parse_result = delimiter(b" ");
-        let expected_error = Err(NomErr::Error(NomError::new(
-            " ".as_bytes(),
-            ErrorKind::TakeWhile1,
-        )));
-        assert_eq!(parse_result, expected_error);
-
-        let parse_result = delimiter(b"R");
-        let expected_error = Err(NomErr::Error(NomError::new(
-            "R".as_bytes(),
-            ErrorKind::TakeWhile1,
-        )));
-        assert_eq!(parse_result, expected_error);
     }
 
     #[test]
