@@ -60,6 +60,7 @@ impl PartialEq for Literal<'_> {
 impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         // NOTE: many0 does not result in Failures, so there is no need to
         // handle its errors separately from `char('<')`
@@ -88,9 +89,9 @@ impl<'buffer> ObjectParser<'buffer> for Literal<'buffer> {
                 ParseErrorCode::MissingClosing(e.code)
             )
         ))?;
+        let offset = offset + value.len() + 2;
 
-        let len = value.len() + 2;
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

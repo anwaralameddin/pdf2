@@ -57,6 +57,7 @@ impl PartialEq for Name<'_> {
 impl<'buffer> ObjectParser<'buffer> for Name<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         let (_, value) = preceded(char('/'), recognize(opt(printable_token)))(remains).map_err(
             parse_recoverable!(
@@ -64,9 +65,9 @@ impl<'buffer> ObjectParser<'buffer> for Name<'buffer> {
                 ParseRecoverable::new(e.input, stringify!(Name), ParseErrorCode::NotFound(e.code))
             ),
         )?;
+        let offset = offset + value.len() + 1;
 
-        let len = value.len() + 1;
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

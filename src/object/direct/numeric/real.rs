@@ -39,6 +39,7 @@ impl Display for Real {
 impl ObjectParser<'_> for Real {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         // REFERENCE: [7.3.3 Numeric objects, p24]
         // A real number is represented in its decimal form and does not permit
@@ -55,17 +56,18 @@ impl ObjectParser<'_> for Real {
             e,
             ParseRecoverable::new(e.input, stringify!(Real), ParseErrorCode::NotFound(e.code))
         ))?;
+        let offset = offset + value.len();
+
         // Here, we know that the buffer starts with a real number, and the
         // following errors should be propagated as RealFailure
 
-        let len = value.len();
         // It is not guaranteed that the string of digits and '.' is a valid
         // f64, e.g.  the value could overflow
         let value = ascii_to_f64(value).ok_or_else(|| {
             ParseFailure::new(value, stringify!(Real), ParseErrorCode::ParseFloatError)
         })?;
 
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

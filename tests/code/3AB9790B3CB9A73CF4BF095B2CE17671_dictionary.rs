@@ -1,34 +1,34 @@
 Dictionary::new([
-    ("Type".into(), Name::from(("XRef", Span::new(19, 5))).into()),
-    ("Size".into(), Integer::new(440, Span::new(46, 3)).into(),),
+    ("Type".into(), Name::from(("XRef", Span::new(19, 24))).into()),
+    ("Size".into(), Integer::new(440, Span::new(46, 49)).into(),),
     ("Root".into(), unsafe {
-        Reference::new_unchecked(437, 0, 67, 7).into()
+        Reference::new_unchecked(437, 0, 67, 74).into()
     }),
     (
         "W".into(),
         Array::new([
-            Integer::new(1, Span::new(54, 1)).into(),
-            Integer::new(3, Span::new(56, 1)).into(),
-            Integer::new(1, Span::new(58, 1)).into(),
-        ], Span::new(53, 7)).into(),
+            Integer::new(1, Span::new(54, 55)).into(),
+            Integer::new(3, Span::new(56, 57)).into(),
+            Integer::new(1, Span::new(58, 59)).into(),
+        ], Span::new(53, 60)).into(),
     ),
     (
         "Index".into(),
         Array::new([
-            Integer::new(0, Span::new(33, 1)).into(),
-            Integer::new(440, Span::new(35, 3)).into(),
-        ], Span::new(32, 7)).into(),
+            Integer::new(0, Span::new(33, 34)).into(),
+            Integer::new(440, Span::new(35, 38)).into(),
+        ], Span::new(32, 39)).into(),
     ),
     ("Info".into(), unsafe {
-        Reference::new_unchecked(438, 0, 81, 7).into()
+        Reference::new_unchecked(438, 0, 81, 88).into()
     }),
     (
         "ID".into(),
         Array::new([
-            Hexadecimal::from(("3AB9790B3CB9A73CF4BF095B2CE17671", Span::new(94, 34))).into(),
-            Hexadecimal::from(("3AB9790B3CB9A73CF4BF095B2CE17671", Span::new(129, 34))).into(),
-        ], Span::new(93, 71)).into(),
+            Hexadecimal::from(("3AB9790B3CB9A73CF4BF095B2CE17671", Span::new(94, 128))).into(),
+            Hexadecimal::from(("3AB9790B3CB9A73CF4BF095B2CE17671", Span::new(129, 163))).into(),
+        ], Span::new(93, 164)).into(),
     ),
-    ("Length".into(), Integer::new(1089, Span::new(173, 4)).into(),),
-    ("Filter".into(), Name::from(("FlateDecode", Span::new(192, 12))).into()),
-], Span::new(10, 197))
+    ("Length".into(), Integer::new(1089, Span::new(173, 177)).into(),),
+    ("Filter".into(), Name::from(("FlateDecode", Span::new(192, 204))).into()),
+], Span::new(10, 207))

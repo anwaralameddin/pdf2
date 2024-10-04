@@ -74,6 +74,7 @@ impl Display for EntryData {
 impl ObjectParser<'_> for Entry {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         let (_, entry) = terminated(
             separated_pair(
@@ -98,10 +99,14 @@ impl ObjectParser<'_> for Entry {
             // for xref objects should be propagated as failures.
             ParseFailure::new(e.input, stringify!(Entry), ParseErrorCode::NotFound(e.code))
         ))?;
+        let offset = offset + LINE_LEN;
+
         let entry_data = EntryData::try_from(entry)?;
+
+        let span = Span::new(start, offset);
         let entry = Self {
             data: entry_data,
-            span: Span::new(offset, LINE_LEN),
+            span,
         };
         Ok(entry)
     }

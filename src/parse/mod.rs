@@ -122,12 +122,9 @@ mod convert {
     use super::*;
 
     impl Span {
-        pub fn new(start: usize, len: usize) -> Self {
+        pub fn new(start: usize, end: usize) -> Self {
             // TODO: Require that start <= end
-            Self {
-                start,
-                end: start + len,
-            }
+            Self { start, end }
         }
 
         pub fn start(&self) -> usize {

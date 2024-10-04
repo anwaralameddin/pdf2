@@ -11,6 +11,7 @@ use ::nom::Err as NomErr;
 use ::std::fmt::Display;
 
 use crate::parse::character_set::eol;
+use crate::parse::character_set::white_space;
 use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
@@ -70,20 +71,27 @@ impl Parser<'_> for StartXRef {
             .into());
         };
         let remains = &buffer[start..];
-        // alt((char('\r'), char('\n'))) is used here instead of eol to allow
-        // for a file ending with "%%EOF\r" instead of "%%EOF\r\n". Also,
-        // ´complete` rather than `streaming` variants of `tag` and `char` are
-        // used to ensure that the parser does return an Incomplete error when
-        // the file ends with the EOF marker without trailing EOL characters.
+
         let (remains, recognised) =
             take_until::<_, _, NomError<_>>(KW_STARTXREF)(remains).unwrap_or((remains, &[]));
-
         let remains_len = remains.len();
         start += recognised.len();
+        let mut offset = start;
+
         let (remains, start_xref_offset) = delimited(
             terminated(tag(KW_STARTXREF), eol),
             digit1,
-            delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
+            delimited(
+                eol,
+                tag(EOF),
+                // alt((char('\r'), char('\n'))) is used here instead of eol to
+                // allow for a file ending with "%%EOF\r" instead of
+                // "%%EOF\r\n". Also, ´complete` rather than `streaming`
+                // variants of `tag` and `char` are used to ensure that the
+                // parser does return an Incomplete error when the file ends
+                // with the EOF marker without trailing EOL characters.
+                opt(alt((char('\r'), char('\n')))),
+            ),
         )(remains)
         .map_err(parse_failure!(
             e,
@@ -95,6 +103,7 @@ impl Parser<'_> for StartXRef {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
+        offset += remains_len - remains.len();
 
         let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| {
             ParseFailure::new(
@@ -104,7 +113,7 @@ impl Parser<'_> for StartXRef {
             )
         })?;
 
-        let span = Span::new(start, remains_len - remains.len());
+        let span = Span::new(start, offset);
         Ok(Self {
             offset: start_xref_offset,
             span,
@@ -120,11 +129,18 @@ impl ObjectParser<'_> for StartXRef {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
         let remains_len = remains.len();
+        let start = offset;
 
         let (remains, start_xref_offset) = delimited(
             terminated(tag(KW_STARTXREF), eol),
             digit1,
-            delimited(eol, tag(EOF), opt(alt((char('\r'), char('\n'))))),
+            delimited(
+                eol,
+                tag(EOF),
+                // Some test files contain additional trailing whitespace characters
+                // TODO Check the PDF standard if the validator should flag this as an error
+                opt(white_space),
+            ),
         )(remains)
         .map_err(parse_recoverable!(
             e,
@@ -134,6 +150,7 @@ impl ObjectParser<'_> for StartXRef {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
+        let offset = offset + remains_len - remains.len();
 
         let start_xref_offset = ascii_to_usize(start_xref_offset).ok_or_else(|| {
             ParseFailure::new(
@@ -143,7 +160,7 @@ impl ObjectParser<'_> for StartXRef {
             )
         })?;
 
-        let span = Span::new(offset, remains_len - remains.len());
+        let span = Span::new(start, offset);
         Ok(Self {
             offset: start_xref_offset,
             span,
@@ -190,12 +207,12 @@ mod tests {
         let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(238838, Span::new(735, 23))
+            StartXRef::new(238838, Span::new(735, 758))
         );
         let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 735).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(238838, Span::new(735, 23))
+            StartXRef::new(238838, Span::new(735, 758))
         );
 
         // PDF produced by MikTeX pdfTeX-1.40.11
@@ -204,12 +221,12 @@ mod tests {
         let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(265666, Span::new(128, 23))
+            StartXRef::new(265666, Span::new(128, 151))
         );
         let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 128).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(265666, Span::new(128, 23))
+            StartXRef::new(265666, Span::new(128, 151))
         );
 
         // PDF produced by pdfTeX-1.40.21
@@ -218,12 +235,12 @@ mod tests {
         let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(309373, Span::new(1322, 23))
+            StartXRef::new(309373, Span::new(1322, 1345))
         );
         let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1322).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(309373, Span::new(1322, 23))
+            StartXRef::new(309373, Span::new(1322, 1345))
         );
 
         // PDF produced by pdfTeX-1.40.22
@@ -232,12 +249,12 @@ mod tests {
         let start_xref_offset = <StartXRef as Parser>::parse(buffer).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(365385, Span::new(1993, 23))
+            StartXRef::new(365385, Span::new(1993, 2016))
         );
         let start_xref_offset = <StartXRef as ObjectParser>::parse(buffer, 1993).unwrap();
         assert_eq!(
             start_xref_offset,
-            StartXRef::new(365385, Span::new(1993, 23))
+            StartXRef::new(365385, Span::new(1993, 2016))
         );
     }
 

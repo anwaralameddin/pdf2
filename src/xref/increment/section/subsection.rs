@@ -58,6 +58,8 @@ impl ObjectParser<'_> for Subsection {
                     )
                 ),
             )?;
+        let mut offset = offset + (remains_len - remains.len());
+
         // Here, we know that the buffer starts with a cross-reference subsection, and
         // the following errors should be propagated as SubsectionFail
 
@@ -76,7 +78,6 @@ impl ObjectParser<'_> for Subsection {
             )
         })?;
 
-        let mut offset = offset + (remains_len - remains.len());
         let entries = (0..entry_count).try_fold(
             Vec::with_capacity(entry_count),
             |mut entries, index| -> ParseResult<Vec<Entry>> {
@@ -97,7 +98,8 @@ impl ObjectParser<'_> for Subsection {
                 Ok(entries)
             },
         )?;
-        let span = Span::new(start, offset - start);
+
+        let span = Span::new(start, offset);
         Ok(Self {
             first_object_number,
             entries,

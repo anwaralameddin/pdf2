@@ -1,5 +1,5 @@
-use ::nom::combinator::opt;
 use ::nom::bytes::complete::tag;
+use ::nom::combinator::opt;
 use ::nom::combinator::recognize;
 use ::nom::error::Error as NomError;
 use ::nom::sequence::terminated;
@@ -60,7 +60,6 @@ impl PartialEq for Dictionary<'_> {
 impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
-        let remains_len = remains.len();
         let start = offset;
 
         let (mut remains, recognised) =
@@ -75,6 +74,7 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
                 ),
             )?;
         let mut offset = offset + recognised.len();
+
         // Here, we know that the buffer starts with a dictionary, and the
         // following errors should be propagated as DictionaryFailure
 
@@ -83,10 +83,11 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
         let mut value: DirectValue;
         loop {
             // Check for the end of the dictionary (closing angle brackets)
-            if let Ok((buf, _)) = tag::<_, _, NomError<_>>(b">>")(remains) {
-                remains = buf;
+            if tag::<_, _, NomError<_>>(b">>")(remains).is_ok() {
+                offset += 2;
                 break;
             }
+
             // Parse the key
             key = Name::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
@@ -97,11 +98,13 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
             })?;
             offset = key.span().end();
             remains = &buffer[offset..];
+
             // opt does not return an error, so there is no need for specific
             // error handling
             if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
                 offset += recognised.len();
             }
+
             // Parse the value
             value = DirectValue::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
@@ -112,21 +115,21 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
             })?;
             offset = value.span().end();
             remains = &buffer[offset..];
+
             // opt does not return an error, so there is no need for specific
             // error handling
             if let Ok((buf, recognised)) = recognize(opt(white_space_or_comment))(remains) {
                 remains = buf;
                 offset += recognised.len();
             }
-            // Record the key-value pair
 
+            // Record the key-value pair
             let escpaed_key = if let Ok(escpaed_key) = key.escape() {
                 escpaed_key
             } else {
                 eprintln!("Failed to escape key: {}", key);
                 key.to_vec()
             };
-
             if let Some(old_value) = map.insert(escpaed_key.clone(), value) {
                 if let Some(new_value) = map.get(&escpaed_key) {
                     // Dictionary keys should not be duplicated.
@@ -143,7 +146,7 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
             };
         }
 
-        let span = Span::new(start, remains_len - remains.len());
+        let span = Span::new(start, offset);
         Ok(Self { map, span })
     }
 
@@ -424,7 +427,7 @@ mod tests {
     fn dictionary_escape() {
         assert_eq!(
             Dictionary::new(
-                HashMap::from([(b"Key".to_vec(), Null::new(Span::new(5, 4)).into())]),
+                HashMap::from([(b"Key".to_vec(), Null::new(Span::new(5, 9)).into())]),
                 Span::new(0, 9)
             ),
             Dictionary::new([], Span::new(0, 9))

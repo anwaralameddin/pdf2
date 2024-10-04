@@ -35,6 +35,7 @@ impl Display for Boolean {
 impl ObjectParser<'_> for Boolean {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         let (_, (value, len)) = alt((
             map(tag::<_, _, NomError<_>>(KW_TRUE), |_true| (true, 4)),
@@ -48,8 +49,9 @@ impl ObjectParser<'_> for Boolean {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
+        let offset = offset + len;
 
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

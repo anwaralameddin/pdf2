@@ -31,14 +31,15 @@ impl Display for Null {
 impl ObjectParser<'_> for Null {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
-        let (..) = tag::<_, _, NomError<_>>(KW_NULL)(remains).map_err(parse_recoverable!(
+        tag::<_, _, NomError<_>>(KW_NULL)(remains).map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(e.input, stringify!(Null), ParseErrorCode::NotFound(e.code))
         ))?;
+        let offset = offset + 4;
 
-        let span = Span::new(offset, 4);
-
+        let span = Span::new(start, offset);
         Ok(Self { span })
     }
 

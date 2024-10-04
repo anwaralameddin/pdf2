@@ -50,6 +50,8 @@ impl ObjectParser<'_> for Id {
             e,
             ParseRecoverable::new(e.input, stringify!(Id), ParseErrorCode::NotFound(e.code))
         ))?;
+        let offset = offset + (remains_len - remains.len());
+
         // This method should not return failure, as the pair of numbers could
         // be part of an array of numbers, not an Id.
 
@@ -66,7 +68,7 @@ impl ObjectParser<'_> for Id {
             )
         })?;
 
-        let span = Span::new(start, remains_len - remains.len());
+        let span = Span::new(start, offset);
         let id = Self {
             object_number,
             generation_number,
@@ -112,12 +114,12 @@ mod tests {
             object_number: u64,
             generation_number: GenerationNumber,
             start: usize,
-            len: usize,
+            end: usize,
         ) -> Self {
             Self {
                 object_number: ObjectNumber::new_unchecked(object_number),
                 generation_number,
-                span: Span::new(start, len),
+                span: Span::new(start, end),
             }
         }
     }

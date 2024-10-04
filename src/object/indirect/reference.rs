@@ -32,6 +32,8 @@ impl Display for Reference {
 
 impl ObjectParser<'_> for Reference {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
+        let start = offset;
+
         let id = Id::parse(buffer, offset).map_err(|err| {
             ParseRecoverable::new(
                 err.buffer(),
@@ -39,8 +41,8 @@ impl ObjectParser<'_> for Reference {
                 ParseErrorCode::RecNotFound(Box::new(err.code())),
             )
         })?;
-        let id_span = id.span();
-        let remains = &buffer[id_span.end()..];
+        let mut offset = id.span().end();
+        let remains = &buffer[offset..];
 
         // At this point, even though we have an Id, it is unclear if it is a
         // reference or a sequence of integers. For example, `12 0` appearing in
@@ -54,8 +56,9 @@ impl ObjectParser<'_> for Reference {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
+        offset += 1;
 
-        let span = Span::new(id_span.start(), id_span.len() + 1);
+        let span = Span::new(start, offset);
         let reference = Self { id, span };
         Ok(reference)
     }
@@ -99,11 +102,11 @@ mod tests {
             object_number: u64,
             generation_number: GenerationNumber,
             start: usize,
-            len: usize,
+            end: usize,
         ) -> Self {
             Self {
-                id: Id::new_unchecked(object_number, generation_number, start, len - 1),
-                span: Span::new(start, len),
+                id: Id::new_unchecked(object_number, generation_number, start, end - 1),
+                span: Span::new(start, end),
             }
         }
     }

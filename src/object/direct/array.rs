@@ -51,7 +51,6 @@ impl PartialEq for Array<'_> {
 impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
-        let remains_len = remains.len();
         let start = offset;
 
         let mut values = Vec::default();
@@ -65,14 +64,17 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
             ParseRecoverable::new(e.input, stringify!(Array), ParseErrorCode::NotFound(e.code))
         ))?;
         let mut offset = offset + recognised.len();
+
         // Here, we know that the buffer starts with an array, and the following
         // errors should be propagated as ArrayFailure
+
         loop {
             // Check for the end of the array (closing square bracket)
-            if let Ok((buf, _)) = char::<_, NomError<_>>(']')(remains) {
-                remains = buf;
+            if char::<_, NomError<_>>(']')(remains).is_ok() {
+                offset += 1;
                 break;
             }
+
             // Parse the value
             value = DirectValue::parse(buffer, offset).map_err(|err| {
                 ParseFailure::new(
@@ -85,6 +87,7 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
             remains = &buffer[offset..];
 
             values.push(value);
+
             // opt does not return an error, so there is no need for specific
             // error handling
             if let Ok((buf, recognised)) = recognize(opt(white_space_or_comment))(remains) {
@@ -93,7 +96,7 @@ impl<'buffer> ObjectParser<'buffer> for Array<'buffer> {
             }
         }
 
-        let span = Span::new(start, remains_len - remains.len());
+        let span = Span::new(start, offset);
         let array = Self {
             array: values,
             span,
@@ -158,12 +161,12 @@ mod tests {
         let buffer = b"[1 1.0 true null(A literal string)/Name]";
         let expected_parsed = Array::new(
             [
-                Integer::new(1, Span::new(1, 1)).into(),
-                Real::new(1.0, Span::new(3, 3)).into(),
-                Boolean::new(true, Span::new(7, 4)).into(),
-                Null::new(Span::new(12, 4)).into(),
-                Literal::from(("A literal string", Span::new(16, 18))).into(),
-                Name::from(("Name", Span::new(34, 5))).into(),
+                Integer::new(1, Span::new(1, 2)).into(),
+                Real::new(1.0, Span::new(3, 6)).into(),
+                Boolean::new(true, Span::new(7, 11)).into(),
+                Null::new(Span::new(12, 16)).into(),
+                Literal::from(("A literal string", Span::new(16, 34))).into(),
+                Name::from(("Name", Span::new(34, 39))).into(),
             ],
             Span::new(0, 40),
         );
@@ -182,29 +185,29 @@ mod tests {
             [
                 Array::new(
                     [
-                        Integer::new(1, Span::new(2, 1)).into(),
-                        Integer::new(2, Span::new(4, 1)).into(),
-                        Integer::new(3, Span::new(6, 1)).into(),
+                        Integer::new(1, Span::new(2, 3)).into(),
+                        Integer::new(2, Span::new(4, 5)).into(),
+                        Integer::new(3, Span::new(6, 7)).into(),
                     ],
-                    Span::new(1, 7),
+                    Span::new(1, 8),
                 )
                 .into(),
                 Array::new(
                     [
-                        Integer::new(4, Span::new(9, 1)).into(),
-                        Integer::new(5, Span::new(11, 1)).into(),
-                        Integer::new(6, Span::new(13, 1)).into(),
+                        Integer::new(4, Span::new(9, 10)).into(),
+                        Integer::new(5, Span::new(11, 12)).into(),
+                        Integer::new(6, Span::new(13, 14)).into(),
                     ],
-                    Span::new(8, 7),
+                    Span::new(8, 15),
                 )
                 .into(),
                 Array::new(
                     [
-                        Integer::new(7, Span::new(16, 1)).into(),
-                        Integer::new(8, Span::new(18, 1)).into(),
-                        Integer::new(9, Span::new(20, 1)).into(),
+                        Integer::new(7, Span::new(16, 17)).into(),
+                        Integer::new(8, Span::new(18, 19)).into(),
+                        Integer::new(9, Span::new(20, 21)).into(),
                     ],
-                    Span::new(15, 7),
+                    Span::new(15, 22),
                 )
                 .into(),
             ],
@@ -217,8 +220,8 @@ mod tests {
         let buffer = b"[<CD74097EBFE5D8A25FE8A229299730FA><CD74097EBFE5D8A25FE8A229299730FA>]";
         let expected_parsed = Array::new(
             [
-                Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(1, 34))).into(),
-                Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(35, 34))).into(),
+                Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(1, 35))).into(),
+                Hexadecimal::from(("CD74097EBFE5D8A25FE8A229299730FA", Span::new(35, 69))).into(),
             ],
             Span::new(0, 70),
         );

@@ -36,6 +36,7 @@ impl Display for Integer {
 impl ObjectParser<'_> for Integer {
     fn parse(buffer: &[Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         let (remains, value) = recognize::<_, _, NomError<_>, _>(pair(
             opt(alt((char('-'), (char('+'))))),
@@ -49,19 +50,20 @@ impl ObjectParser<'_> for Integer {
                 ParseErrorCode::NotFound(e.code)
             )
         ))?;
-        let len = value.len();
+        let offset = offset + value.len();
 
         // REFERENCE: [7.3.3 Numeric objects, p 24]
         // Real numbers cannot be used where integers are expected. Hence, the
         // next character should not be '.'
         if char::<_, NomError<_>>('.')(remains).is_ok() {
             return Err(ParseRecoverable::new(
-                &buffer[offset..offset + len + 1],
+                &buffer[start..offset + 1],
                 stringify!(Integer),
                 ParseErrorCode::WrongObjectType,
             )
             .into());
         }
+
         // Here, we know that the buffer starts with an integer, and the
         // following errors should be propagated as IntegerFailure
 
@@ -74,7 +76,7 @@ impl ObjectParser<'_> for Integer {
             ParseRecoverable::new(value, stringify!(Integer), ParseErrorCode::ParseIntError)
         })?;
 
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

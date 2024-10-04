@@ -48,6 +48,8 @@ impl Display for XRefStream<'_> {
 
 impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<'buffer, Self> {
+        let start = offset;
+
         // [Table 17 — Additional entries specific to a cross-reference stream
         // dictionary, p66-67]
         // The entire in the trailer dictionary needed to parse the
@@ -59,6 +61,8 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
         // errors
         let IndirectObject { id, value, span } =
             ResolvingParser::parse(buffer, offset, &parsed_objects)?;
+        let mut offset = span.end();
+        let remains = &buffer[offset..];
 
         let stream = if let IndirectValue::Stream(stream) = value {
             stream
@@ -74,10 +78,6 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
             .into());
         };
 
-        let start = span.start();
-        let mut offset = span.end();
-
-        let remains = &buffer[offset..];
         // Skip white space and comments
         // TODO Double check if comments are allowed here
         if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
@@ -97,15 +97,13 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
                 )
             })?;
 
-        let end = startxref
+        let offset = startxref
             .as_ref()
             .map(|value| value.span().end())
             .unwrap_or(offset);
-        let span = Span::new(start, end - start);
 
-        let xref_stream = XRefStream::new(id, stream, startxref, span);
-
-        Ok(xref_stream)
+        let span = Span::new(start, offset);
+        Ok(XRefStream::new(id, stream, startxref, span))
     }
 
     fn span(&self) -> Span {
@@ -295,8 +293,8 @@ mod tests {
             include!("../../../../tests/code/1F0F80D27D156F7EF35B1DF40B1BD3E8_dictionary.rs");
         let xref_stream = XRefStream {
             id: unsafe { Id::new_unchecked(749, 0, 0, 6) },
-            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1976)),
-            startxref: Some(StartXRef::new(365385, Span::new(1993, 23))),
+            stream: Stream::new(dictionary, &buffer[215..1975], Span::new(10, 1986)),
+            startxref: Some(StartXRef::new(365385, Span::new(1993, 2016))),
             span: Span::new(0, 2016),
         };
         parse_assert_eq!(XRefStream, buffer, xref_stream);
@@ -309,8 +307,8 @@ mod tests {
             include!("../../../../tests/code/3AB9790B3CB9A73CF4BF095B2CE17671_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(439, 0, 0, 6) },
-            Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1305)),
-            Some(StartXRef::new(309373, Span::new(1322, 23))),
+            Stream::new(dictionary, &buffer[215..1304], Span::new(10, 1315)),
+            Some(StartXRef::new(309373, Span::new(1322, 1345))),
             Span::new(0, 1345),
         );
         parse_assert_eq!(XRefStream, buffer, xref_stream);
@@ -323,8 +321,8 @@ mod tests {
             include!("../../../../tests/code/CD74097EBFE5D8A25FE8A229299730FA_dictionary.rs");
         let xref_stream = XRefStream::new(
             unsafe { Id::new_unchecked(190, 0, 0, 6) },
-            Stream::new(dictionary, &buffer[215..717], Span::new(10, 718)),
-            Some(StartXRef::new(238838, Span::new(735, 23))),
+            Stream::new(dictionary, &buffer[215..717], Span::new(10, 728)),
+            Some(StartXRef::new(238838, Span::new(735, 758))),
             Span::new(0, 758),
         );
         parse_assert_eq!(XRefStream, buffer, xref_stream);

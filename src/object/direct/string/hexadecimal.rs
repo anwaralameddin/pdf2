@@ -58,6 +58,7 @@ impl PartialEq for Hexadecimal<'_> {
 impl<'buffer> ObjectParser<'buffer> for Hexadecimal<'buffer> {
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
         let remains = &buffer[offset..];
+        let start = offset;
 
         // REFERENCE: [7.3.4.3 Hexadecimal strings, p27]
         // White-space characters are allowed and ignored in a hexadecimal
@@ -89,9 +90,9 @@ impl<'buffer> ObjectParser<'buffer> for Hexadecimal<'buffer> {
                 ParseErrorCode::MissingClosing(e.code)
             )
         ))?;
+        let offset = offset + value.len() + 2;
 
-        let len = value.len() + 2;
-        let span = Span::new(offset, len);
+        let span = Span::new(start, offset);
         Ok(Self { value, span })
     }
 

@@ -9,6 +9,7 @@ use ::nom::sequence::tuple;
 use ::nom::Err as NomErr;
 use ::std::fmt::Debug;
 use ::std::fmt::Display;
+use nom::combinator::recognize;
 
 use crate::object::direct::dictionary::Dictionary;
 use crate::parse::character_set::eol;
@@ -62,16 +63,17 @@ impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
         offset: Offset,
         parsed_objects: &ParsedObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
-        let dictionary = Dictionary::parse(buffer, offset)?;
-        let dictionary_span = dictionary.span();
-        let remains = &buffer[dictionary_span.end()..];
-        let remains_len = remains.len();
+        let start = offset;
 
-        let (remains, _) = tuple((
+        let dictionary = Dictionary::parse(buffer, offset)?;
+        let offset = dictionary.span().end();
+        let remains = &buffer[offset..];
+
+        let (remains, recognised) = recognize(tuple((
             opt(white_space_or_comment),
             tag(KW_STREAM),
             preceded(opt(char('\r')), char('\n')),
-        ))(remains)
+        )))(remains)
         .map_err(parse_recoverable!(
             e,
             ParseRecoverable::new(
@@ -80,6 +82,8 @@ impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
                 ParseErrorCode::NotFound(e.code),
             )
         ))?;
+        let mut offset = offset + recognised.len();
+
         // Here, we know that the buffer starts with a stream, and the following
         // errors should be propagated as StreamFailure
 
@@ -107,10 +111,13 @@ impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
                     ParseErrorCode::StreamData(e.code),
                 )
             ))?;
+        offset += length;
 
-        let (remains, _) = delimited(opt(eol), tag(KW_ENDSTREAM), opt(white_space_or_comment))(
-            remains,
-        )
+        let (_, recognised) = recognize(delimited(
+            opt(eol),
+            tag(KW_ENDSTREAM),
+            opt(white_space_or_comment),
+        ))(remains)
         .map_err(parse_failure!(
             e,
             ParseFailure::new(
@@ -119,11 +126,9 @@ impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
                 ParseErrorCode::MissingClosing(e.code),
             )
         ))?;
+        offset += recognised.len();
 
-        let span = Span::new(
-            dictionary_span.start(),
-            dictionary_span.len() + (remains_len - remains.len()),
-        );
+        let span = Span::new(start, offset);
         let stream = Self {
             dictionary,
             data,
@@ -243,7 +248,7 @@ mod tests {
             Dictionary::new(
                 [(
                     KEY_LENGTH.to_vec(),
-                    Integer::new(0, Span::new(10, 1)).into(),
+                    Integer::new(0, Span::new(10, 11)).into(),
                 )],
                 Span::new(0, 13),
             ),
@@ -307,7 +312,7 @@ mod tests {
                 Span::new(0, 14),
                 ObjectErrorCode::Type {
                     expected_type: stringify!(usize),
-                    value_span: Span::new(10, 2),
+                    value_span: Span::new(10, 12),
                 },
             )),
         );

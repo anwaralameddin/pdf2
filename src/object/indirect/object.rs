@@ -48,8 +48,8 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
         parsed_objects: &ParsedObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
         let mut remains = &buffer[offset..];
-        let remains_len = remains.len();
         let start = offset;
+
         let mut offset = offset;
         // Some of the test files contain whitespaces at the specified offset
         // before the object id
@@ -67,8 +67,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
                 ParseErrorCode::RecNotFound(Box::new(err.code())),
             )
         })?;
-        let id_span = id.span();
-        offset = id_span.end();
+        offset = id.span().end();
         remains = &buffer[offset..];
 
         let (_, recognised) = recognize(terminated(tag(KW_OBJ), opt(white_space_or_comment)))(
@@ -83,8 +82,10 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
             )
         ))?;
         offset += recognised.len();
+
         // Here, we know that the buffer starts with an indirect object, and
         // the following errors should be propagated as IndirectObjectFailure
+
         let object = IndirectValue::parse(buffer, offset, parsed_objects).map_err(|err| {
             ParseFailure::new(
                 err.buffer(),
@@ -95,16 +96,15 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
                 ),
             )
         })?;
-        let object_span = object.span();
-        offset = object_span.end();
+        offset = object.span().end();
         remains = &buffer[offset..];
 
         // REFERENCE: [7.3.8.1 General, p31]
-        let (remains, _) = delimited(
+        let (_, recognised) = recognize(delimited(
             opt(white_space_or_comment),
             tag(KW_ENDOBJ),
             opt(white_space_or_comment),
-        )(remains)
+        ))(remains)
         .map_err(parse_failure!(
             e,
             ParseFailure::new(
@@ -113,8 +113,9 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
                 ParseErrorCode::MissingClosing(e.code),
             )
         ))?;
+        offset += recognised.len();
 
-        let span = Span::new(start, remains_len - remains.len());
+        let span = Span::new(start, offset);
         let indirect_object = Self {
             id,
             value: object,
@@ -166,13 +167,13 @@ mod tests {
             buffer,
             IndirectObject {
                 id: unsafe { Id::new_unchecked(1, 0, 0, 4) },
-                value: Name::from(("Name", Span::new(8, 5))).into(),
+                value: Name::from(("Name", Span::new(8, 13))).into(),
                 span: Span::new(0, buffer.len())
             },
         );
 
         let buffer = b"1 0 obj 2 0 R endobj";
-        let value = unsafe { Reference::new_unchecked(2, 0, 8, 5) }.into();
+        let value = unsafe { Reference::new_unchecked(2, 0, 8, 13) }.into();
         let object = IndirectObject {
             id: unsafe { Id::new_unchecked(1, 0, 0, 4) },
             value,
@@ -186,12 +187,12 @@ mod tests {
             Dictionary::new(
                 [(
                     KEY_LENGTH.to_vec(),
-                    Integer::new(29, Span::new(18, 2)).into(),
+                    Integer::new(29, Span::new(18, 20)).into(),
                 )],
-                Span::new(8, 14),
+                Span::new(8, 22),
             ),
             "A stream with a direct length".as_bytes(),
-            Span::new(8, 62),
+            Span::new(8, 70),
         );
         let object = IndirectObject {
             id: unsafe { Id::new_unchecked(1, 0, 0, 4) },

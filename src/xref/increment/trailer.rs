@@ -441,17 +441,17 @@ mod tests {
         let key_rigid = b"rgid".to_vec();
         let vale_rigid: DirectValue = Literal::from((
             "PB:318039020_AS:510882528206848@1498815294792",
-            Span::new(120, 47),
+            Span::new(120, 167),
         ))
         .into();
         let key_habibi = b"habibi-version".to_vec();
-        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(184, 8))).into();
+        let val_habibi: DirectValue = Literal::from(("8.12.0", Span::new(184, 192))).into();
         let key_comunity = b"comunity-version".to_vec();
-        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(211, 11))).into();
+        let val_comunity: DirectValue = Literal::from(("v189.11.0", Span::new(211, 222))).into();
         let key_worker = b"worker-version".to_vec();
-        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(239, 8))).into();
+        let val_worker: DirectValue = Literal::from(("8.12.0", Span::new(239, 247))).into();
         let key_dd = b"dd".to_vec();
-        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(252, 15))).into();
+        let val_dd: DirectValue = Literal::from(("1498815349362", Span::new(252, 267))).into();
 
         let dictionary = Dictionary::parse(buffer, 0).unwrap();
         let trailer = include!("../../../tests/code/8401FBC530C8AE9B8EC1425170A70921_trailer.rs");
@@ -471,24 +471,24 @@ mod tests {
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
         let object = IndirectObject::parse(buffer, 0, &ParsedObjects::default()).unwrap();
-        let val_ref = Name::new(VAL_XREF, Span::new(19, 5));
+        let val_ref = Name::new(VAL_XREF, Span::new(19, 24));
         let key_length = KEY_LENGTH.to_vec();
 
-        let val_length: DirectValue = Integer::new(1760, Span::new(173, 4)).into();
+        let val_length: DirectValue = Integer::new(1760, Span::new(173, 177)).into();
         let key_filter = KEY_FILTER.to_vec();
-        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(192, 12))).into();
+        let val_filter: DirectValue = Name::from(("FlateDecode", Span::new(192, 204))).into();
 
         if let IndirectValue::Stream(stream) = object.value {
             let dictionary = stream.dictionary;
-            let trailer = Trailer::new(750, Span::new(10, 197))
-                .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 7) })
+            let trailer = Trailer::new(750, Span::new(10, 207))
+                .set_root(unsafe { Reference::new_unchecked(747, 0, 67, 74) })
                 .set_w([1, 3, 1])
                 .set_index([(0, 750)])
-                .set_info(unsafe { Reference::new_unchecked(748, 0, 81, 7) })
+                .set_info(unsafe { Reference::new_unchecked(748, 0, 81, 88) })
                 .set_id([
-                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 34)))
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(94, 128)))
                         .into(),
-                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(129, 34)))
+                    Hexadecimal::from(("1F0F80D27D156F7EF35B1DF40B1BD3E8", Span::new(129, 163)))
                         .into(),
                 ])
                 .set_type(&val_ref)
@@ -527,7 +527,7 @@ mod tests {
             KEY_SIZE,
             dictionary.span(),
             ObjectErrorCode::Type {
-                value_span: Span::new(8, 3),
+                value_span: Span::new(8, 11),
                 expected_type: stringify!(u64),
             },
         );

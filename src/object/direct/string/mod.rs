@@ -145,8 +145,11 @@ mod tests {
             String_::parse(b"<412048657861646563696D616C20537472696E67>", 0).unwrap();
         assert_eq!(
             parse_result,
-            Hexadecimal::from(("412048657861646563696D616C20537472696E67", Span::new(0, 42)))
-                .into()
+            Hexadecimal::from((
+                "412048657861646563696D616C20537472696E67",
+                Span::new(0, 42)
+            ))
+            .into()
         );
 
         // TODO The below requires a comparison method for `String_` that compares the escaped values and ignores the span

@@ -70,13 +70,14 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
                     ParseErrorCode::NotFound(e.code)
                 )
             ))?;
+        let mut offset = offset + recognised.len();
+
         // Here, we know that the buffer starts with a cross-reference section,
         // not a cross-reference stream, and the following errors should be
         // propagated as SectionFail
+
         let mut subsections = VecDeque::new();
         let mut subsection: Subsection;
-
-        let mut offset = offset + recognised.len();
         while let Some(result) =
             Subsection::parse_suppress_recoverable::<Subsection>(buffer, offset)
         {
@@ -86,6 +87,7 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
             subsections.push_back(subsection);
         }
         remains = &buffer[offset..];
+
         // HACK The below addresses the issue with the example PDFs that contain
         // a white space before the trailer keyword that is not accounted for in
         // the standard
@@ -113,8 +115,8 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
             )
         })?;
         offset = trailer.span().end();
-
         remains = &buffer[offset..];
+
         // Skip white space and comments
         // TODO Double check if comments are allowed here
         if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {
@@ -133,13 +135,12 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
                     ),
                 )
             })?;
-
-        let end = startxref
+        let offset = startxref
             .as_ref()
             .map(|value| value.span().end())
             .unwrap_or(offset);
-        let span = Span::new(start, end - start);
 
+        let span = Span::new(start, offset);
         let section = Section {
             subsections,
             trailer,
@@ -248,15 +249,15 @@ mod tests {
             VecDeque::default(),
             Dictionary::new(
                 [
-                    (b"Size".to_vec(), Integer::new(1, Span::new(21, 1)).into()),
+                    (b"Size".to_vec(), Integer::new(1, Span::new(21, 22)).into()),
                     (
                         b"Root".to_vec(),
-                        unsafe { Reference::new_unchecked(1, 0, 29, 5) }.into(),
+                        unsafe { Reference::new_unchecked(1, 0, 29, 34) }.into(),
                     ),
                 ],
-                Span::new(13, 23),
+                Span::new(13, 36),
             ),
-            Some(StartXRef::new(0, Span::new(37, 17))),
+            Some(StartXRef::new(0, Span::new(37, 54))),
             Span::new(0, 54),
         );
         parse_assert_eq!(Section, buffer, section);
@@ -267,14 +268,14 @@ mod tests {
         let section = Section::new(
             [Subsection::new(
                 0,
-                [Entry::new(EntryData::Free(0, 65535), Span::new(11, 20))],
-                Span::new(6, 25),
+                [Entry::new(EntryData::Free(0, 65535), Span::new(11, 31))],
+                Span::new(6, 31),
             )],
             Dictionary::new(
-                [(b"Size".to_vec(), Integer::new(1, Span::new(46, 1)).into())],
-                Span::new(38, 11),
+                [(b"Size".to_vec(), Integer::new(1, Span::new(46, 47)).into())],
+                Span::new(38, 49),
             ),
-            Some(StartXRef::new(0, Span::new(50, 17))),
+            Some(StartXRef::new(0, Span::new(50, 67))),
             Span::new(0, 67),
         );
         parse_assert_eq!(Section, buffer, section);
