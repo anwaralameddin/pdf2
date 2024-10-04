@@ -93,11 +93,16 @@ impl<'buffer> ObjectParser<'buffer> for DirectValue<'buffer> {
         }
     }
 }
-
 mod resolve {
+    use ::std::collections::HashSet;
+    use ::std::ops::Deref;
+
     use super::*;
     use crate::object::error::ObjectErrorCode;
+    use crate::object::indirect::IndirectValue;
     use crate::parse::ParsedObjects;
+    use crate::GenerationNumber;
+    use crate::ObjectNumber;
 
     impl DirectValue<'_> {
         // TODO Cache the result of the resolve method or store it inplace
@@ -105,10 +110,61 @@ mod resolve {
             &'buffer self,
             parsed_objects: &'buffer ParsedObjects,
         ) -> Result<&DirectValue, ObjectErrorCode> {
-            if let DirectValue::Reference(reference) = self {
-                reference.resolve(parsed_objects)
+            let reference = if let DirectValue::Reference(reference) = self {
+                reference
             } else {
-                Ok(self)
+                return Ok(self);
+            };
+            let id = reference.deref();
+
+            let mut seen = HashSet::<(ObjectNumber, GenerationNumber)>::default();
+            let mut object_number = id.object_number;
+            let mut generation_number = id.generation_number;
+            loop {
+                // Check for cyclic references. Break the loop if the object has
+                // already been resolved.
+                if !seen.insert((object_number, generation_number)) {
+                    // TODO Replace with a warning/ValidationError
+                    eprintln!(
+                        "WARNING: Cyclic reference detected. The cycle involves the following \
+                         objects:",
+                    );
+                    for (object_number, generation_number) in seen {
+                        eprintln!("{} {}", object_number, generation_number);
+                    }
+                    return Err(ObjectErrorCode::CyclicReference(
+                        id.object_number,
+                        id.generation_number,
+                    ));
+                }
+                let value = parsed_objects
+                    .get(&(object_number, generation_number))
+                    .map(|object| &object.value);
+                match value {
+                    Some(IndirectValue::Stream(_)) => {
+                        return Err(ObjectErrorCode::ReferenceToStream(
+                            id.object_number,
+                            id.generation_number,
+                        ))
+                    }
+                    Some(IndirectValue::Direct(DirectValue::Reference(reference))) => {
+                        let id = reference.deref();
+                        object_number = id.object_number;
+                        generation_number = id.generation_number;
+                    }
+                    Some(IndirectValue::Direct(value)) => return Ok(value),
+                    None => {
+                        // REFERENCE: [7.3.9 Null object, p33]
+                        // Indirect references to non-existent objects should
+                        // resolve to null. This method returns None instead of
+                        // Some(Null) as Null initialisation requires specifying
+                        // its span.
+                        return Err(ObjectErrorCode::MissingReferencedObject(
+                            id.object_number,
+                            id.generation_number,
+                        ));
+                    }
+                }
             }
         }
     }
