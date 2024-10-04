@@ -15,6 +15,7 @@ pub use self::pdf::PdfBuilder;
 
 // Limit the size of the decoded stream to 1 GiB.
 const DECODED_LIMIT: usize = 1 << 30;
+const MAX_DEBUG_BYTES: usize = 100;
 
 /// Although u32 would suffice for most cases, allowing for ~.5 GiB files,
 /// [7.5.4 Cross-reference table, p56] only restricts bytes offsets to 10

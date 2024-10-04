@@ -11,7 +11,6 @@ use ::std::fmt::Result as FmtResult;
 
 use super::name::Name;
 use super::DirectValue;
-use crate::fmt::debug_bytes;
 use crate::object::indirect::reference::Reference;
 use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErr;
@@ -40,7 +39,13 @@ impl Display for Dictionary<'_> {
             if i > 0 {
                 write!(f, " ")?;
             }
-            write!(f, "/{} {}", debug_bytes(key), value)?;
+            write!(f, "/")?;
+            for &byte in key.iter() {
+                // FIXME char::from(byte) does not produce the expected output
+                // for non-ASCII characters
+                write!(f, "{}", char::from(byte))?;
+            }
+            write!(f, " {}", value)?;
         }
         write!(f, ">>")
     }

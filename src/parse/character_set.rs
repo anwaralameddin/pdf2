@@ -11,7 +11,6 @@ use ::nom::sequence::delimited;
 use ::nom::sequence::preceded;
 use ::nom::IResult;
 
-use crate::fmt::debug_bytes;
 use crate::Byte;
 
 /// REFERENCE: [3.68 white-space character, p14] and ["Table 1 — White-space
@@ -38,7 +37,11 @@ pub(crate) fn comment(buffer: &[Byte]) -> IResult<&[Byte], &[Byte]> {
     // TODO Warn/store comments as they are included in the array, dictionary,
     // indirect object, indirect reference or hexadecimal string structures.
     // Print only if verbose mode is enabled.
-    eprintln!("Comment: {}", debug_bytes(comment));
+    eprint!("Comment:");
+    for &byte in comment {
+        eprint!("{}", char::from(byte));
+    }
+    eprintln!();
     Ok((buffer, comment))
 }
 

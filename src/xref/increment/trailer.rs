@@ -99,7 +99,10 @@ impl Display for Trailer<'_> {
             writeln!(f, "]")?;
         }
         for (key, value) in self.others.iter() {
-            writeln!(f, "{} {}", debug_bytes(key), value)?;
+            for &byte in key.iter() {
+                write!(f, "{}", char::from(byte))?;
+            }
+            writeln!(f, " {}", value)?;
         }
         writeln!(f, ">>")
     }
@@ -414,8 +417,8 @@ mod tests {
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
     use crate::parse::ObjectParser;
-    use crate::parse::ResolvingParser;
     use crate::parse::ParsedObjects;
+    use crate::parse::ResolvingParser;
 
     #[test]
     fn section_trailer_valid() {
