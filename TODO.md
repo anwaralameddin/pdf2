@@ -14,7 +14,6 @@
 
 - Parse free and compressed objects.
 - Log comments in their context.
-- Report unparsed spans in the PDF file.
 - Implement the remaining filters/encoders.
 - Process dictionaries and streams based on their <code>/Type</code> and <code>/SubType</code> so that <code>XRefStream</code> implementation of <code>Process</code> becomes a special case for <code>/Type /XRef</code>.
 - Implement object streams.

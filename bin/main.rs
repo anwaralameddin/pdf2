@@ -42,5 +42,11 @@ fn main() {
         }
         // TODO Replace with log::info!.
         println!("INFO: PDF summary: {}", pdf.summary());
+
+        let (parsed, not_parsed) = pdf.join_spans();
+        // TODO Replace with log::info!.
+        println!("INFO: Parsed spans: {:?}", parsed);
+        // TODO Replace with log::info!.
+        println!("INFO: Not parsed spans: {:?}", not_parsed);
     }
 }

@@ -13,6 +13,7 @@ use crate::object::indirect::object::IndirectObject;
 use crate::parse::ParsedObjects;
 use crate::parse::Parser;
 use crate::parse::ResolvingParser;
+use crate::parse::Span;
 use crate::xref::pretable::PreTable;
 use crate::xref::Table;
 use crate::xref::ToTable;
@@ -30,6 +31,7 @@ pub struct PdfBuilder<'path> {
 pub struct Pdf<'path> {
     path: &'path Path,
     buffer: &'path [Byte],
+    buffer_len: usize,
     // • The trailer
     // trailer: Trailer<'path>,
     /// • The cross-reference table
@@ -160,6 +162,7 @@ impl<'path> PdfBuilder<'path> {
         Ok(Pdf {
             path: self.path,
             buffer: &self.buffer,
+            buffer_len: self.buffer_len,
             // trailer,
             pretable,
             objects_in_use,
@@ -185,6 +188,39 @@ impl Pdf<'_> {
             self.objects_in_use.len(),
             self.errors.len()
         )
+    }
+
+    pub fn join_spans(&self) -> (Vec<Span>, Vec<Span>) {
+        // TODO Rethink the algorithm. In particular, compare the performance of
+        // Vec::sort_unstable, Vec::sort, and BTreeSet
+        let mut spans = Vec::with_capacity(self.objects_in_use.len() + self.pretable.spans().len());
+        spans.extend(self.objects_in_use.values().map(|object| object.span()));
+        spans.extend(self.pretable.spans());
+        spans.sort_unstable();
+        let mut parsed = Vec::default();
+        let mut not_parsed = Vec::default();
+        let mut prev_start = 0usize;
+        let mut prev_end = 0usize;
+        for span in spans {
+            if span.start() <= prev_end {
+                prev_end = span.end().max(prev_end);
+                continue;
+            }
+            if prev_start != prev_end {
+                parsed.push(Span::new(prev_start, prev_end));
+            }
+            not_parsed.push(Span::new(prev_end, span.start()));
+            prev_start = span.start();
+            prev_end = span.end();
+        }
+        if prev_start != prev_end {
+            parsed.push(Span::new(prev_start, prev_end));
+        }
+        if prev_end != self.buffer_len {
+            not_parsed.push(Span::new(prev_end, self.buffer_len));
+        }
+
+        (parsed, not_parsed)
     }
 }
 
@@ -261,6 +297,18 @@ mod tests {
                                     "{}: # Objects {:?}",
                                     path.display(),
                                     pdf.objects_in_use.len()
+                                );
+
+                                let (parsed, not_parsed) = pdf.join_spans();
+                                println!(
+                                    "INFO: Parsed spans: {}: {:?}",
+                                    pdf.path.display(),
+                                    parsed
+                                );
+                                println!(
+                                    "INFO: Not parsed spans: {}: {:?}",
+                                    pdf.path.display(),
+                                    not_parsed
                                 );
                             }
                             Err(err) => {
