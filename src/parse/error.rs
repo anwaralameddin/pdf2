@@ -7,6 +7,7 @@ use crate::object::direct::dictionary::Dictionary;
 use crate::object::error::ObjectErr;
 use crate::Byte;
 use crate::ObjectNumberOrZero;
+use crate::Offset;
 
 pub(crate) type ParseResult<'buffer, T> = Result<T, ParseErr<'buffer>>;
 /// Recoverable parsing error
@@ -64,6 +65,8 @@ pub enum ParseErrorCode<'buffer> {
     // Whole buffer errors
     #[error("Buffer is too small")]
     TooSmallBuffer,
+    #[error("Out of bounds. Offset: {0}, Buffer length: {1}")]
+    OutOfBounds(Offset, usize),
     // Whole object errors
     #[error("Wrong object type")]
     WrongObjectType,

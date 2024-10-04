@@ -69,13 +69,14 @@ impl Parser<'_> for StartXRef {
             )
             .into());
         };
+        let remains = &buffer[start..];
         // alt((char('\r'), char('\n'))) is used here instead of eol to allow
         // for a file ending with "%%EOF\r" instead of "%%EOF\r\n". Also,
         // ´complete` rather than `streaming` variants of `tag` and `char` are
         // used to ensure that the parser does return an Incomplete error when
         // the file ends with the EOF marker without trailing EOL characters.
-        let (remains, recognised) = take_until::<_, _, NomError<_>>(KW_STARTXREF)(&buffer[start..])
-            .unwrap_or((&buffer[start..], &[]));
+        let (remains, recognised) =
+            take_until::<_, _, NomError<_>>(KW_STARTXREF)(remains).unwrap_or((remains, &[]));
 
         let remains_len = remains.len();
         start += recognised.len();

@@ -47,7 +47,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
         offset: Offset,
         parsed_objects: &ParsedObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
-        let remains = &buffer[offset..];
+        let mut remains = &buffer[offset..];
         let remains_len = remains.len();
         let start = offset;
         let mut offset = offset;
@@ -69,7 +69,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
         })?;
         let id_span = id.span();
         offset = id_span.end();
-        let remains = &buffer[offset..];
+        remains = &buffer[offset..];
 
         let (_, recognised) = recognize(terminated(tag(KW_OBJ), opt(white_space_or_comment)))(
             remains,
@@ -97,7 +97,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
         })?;
         let object_span = object.span();
         offset = object_span.end();
-        let remains = &buffer[offset..];
+        remains = &buffer[offset..];
 
         // REFERENCE: [7.3.8.1 General, p31]
         let (remains, _) = delimited(

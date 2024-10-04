@@ -81,7 +81,9 @@ impl<'path> PdfBuilder<'path> {
 
         loop {
             'inner: for (offset, (object_number, generation_number), _) in to_parse.iter() {
-                if *offset >= self.buffer_len {
+                // TODO Check the standard on how to handle offset 0 for an
+                // in-use object
+                if *offset >= self.buffer_len || *offset == 0 {
                     errors.push(ObjectRecoverable::OutOfBounds(
                         *object_number,
                         *generation_number,
@@ -90,6 +92,11 @@ impl<'path> PdfBuilder<'path> {
                     ));
                     continue 'inner;
                 }
+                // Given the above check, there is no need to check for
+                // out-of-bounds offsets in the `IndirectObject::parse` method
+                // or when parsing indirect objects' IDs and values. Still, this
+                // does not cover cross-reference sections and streams. Hence, a
+                // similar check is used in `Increment::parse`.
 
                 let object = match IndirectObject::parse(&self.buffer, *offset, &parsed_objects) {
                     Ok(object) => object,

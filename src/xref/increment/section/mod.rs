@@ -58,7 +58,7 @@ impl Display for Section<'_> {
 impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
     /// REFERENCE: [7.5.4 Cross-reference table, p56]
     fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
-        let remains = &buffer[offset..];
+        let mut remains = &buffer[offset..];
         let start = offset;
 
         let (_, recognised) =
@@ -85,7 +85,7 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
             offset = subsection.span().end();
             subsections.push_back(subsection);
         }
-        let remains = &buffer[offset..];
+        remains = &buffer[offset..];
         // HACK The below addresses the issue with the example PDFs that contain
         // a white space before the trailer keyword that is not accounted for in
         // the standard
@@ -114,7 +114,7 @@ impl<'buffer> ObjectParser<'buffer> for Section<'buffer> {
         })?;
         offset = trailer.span().end();
 
-        let remains = &buffer[offset..];
+        remains = &buffer[offset..];
         // Skip white space and comments
         // TODO Double check if comments are allowed here
         if let Ok((_, recognised)) = recognize(opt(white_space_or_comment))(remains) {

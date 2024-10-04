@@ -14,6 +14,7 @@ use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
 use crate::parse::Span;
 use crate::Byte;
+use crate::Offset;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55]
 #[derive(Debug, PartialEq)]
@@ -32,7 +33,18 @@ impl Display for Increment<'_> {
 }
 
 impl<'buffer> ObjectParser<'buffer> for Increment<'buffer> {
-    fn parse(buffer: &'buffer [Byte], offset: crate::Offset) -> ParseResult<Self> {
+    fn parse(buffer: &'buffer [Byte], offset: Offset) -> ParseResult<Self> {
+        // TODO Check the standard on how to handle offset 0 for an
+        // in-use object
+        if offset >= buffer.len() || offset == 0 {
+            return Err(ParseFailure::new(
+                &[],
+                stringify!(Increment),
+                ParseErrorCode::OutOfBounds(offset, buffer.len()),
+            )
+            .into());
+        }
+
         Section::parse_suppress_recoverable::<Self>(buffer, offset)
             .or_else(|| XRefStream::parse_suppress_recoverable::<Self>(buffer, offset))
             .unwrap_or_else(|| {
