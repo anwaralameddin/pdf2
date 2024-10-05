@@ -14,6 +14,9 @@ use crate::ObjectNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
+// TODO Add IncrementNumber
+pub(crate) type ObjectSpecifier = (ObjectNumber, GenerationNumber, Offset);
+
 pub(crate) trait ToTable {
     fn to_table(&self) -> XRefResult<Table>;
 }
@@ -22,11 +25,7 @@ pub(crate) trait ToTable {
 pub(crate) struct Table<'buffer> {
     // TODO(QUESTION) Can the same object number and generation number be used
     // more than once? If so, add the section number to avoid collisions
-    pub(crate) in_use: Vec<(
-        Offset,
-        (ObjectNumber, GenerationNumber),
-        Option<ParseErr<'buffer>>,
-    )>,
+    pub(crate) in_use: Vec<(ObjectSpecifier, Option<ParseErr<'buffer>>)>,
     // TODO
     // - Any need to subtarct one from the generation number to get the actual
     // freed object?
@@ -63,7 +62,7 @@ impl<'buffer> Table<'buffer> {
         })?;
         // TODO Check if the offset or id is already in use
         self.in_use
-            .push((offset, (object_number, generation_number), None));
+            .push(((object_number, generation_number, offset), None));
         Ok(())
     }
 

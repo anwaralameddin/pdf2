@@ -139,7 +139,7 @@ impl<'buffer> ObjectParser<'buffer> for Dictionary<'buffer> {
                     // - Print only if verbose mode is enabled.
                     // - Replace with a `log::error!` call
                     eprintln!(
-                        "Dictionary: Overwriting value for key {}: {} -> {}",
+                        "Dictionary: Overridden value for key {}: {} -> {}",
                         key, old_value, new_value
                     );
                 }
@@ -181,7 +181,7 @@ mod convert {
     use crate::object::error::ObjectErr;
     use crate::object::error::ObjectErrorCode;
     use crate::object::error::ObjectResult;
-    use crate::parse::ParsedObjects;
+    use crate::pdf::InUseObjects;
 
     impl<'buffer> Dictionary<'buffer> {
         pub fn new(
@@ -207,7 +207,7 @@ mod convert {
         pub(crate) fn opt_resolve(
             &'buffer self,
             key: &'static [Byte],
-            parsed_objects: &'buffer ParsedObjects,
+            parsed_objects: &'buffer InUseObjects,
         ) -> Option<ObjectResult<&DirectValue>> {
             self.get(key).map(|value| {
                 value
@@ -228,7 +228,7 @@ mod convert {
         pub(crate) fn required_resolve(
             &'buffer self,
             key: &'static [Byte],
-            parsed_objects: &'buffer ParsedObjects,
+            parsed_objects: &'buffer InUseObjects,
         ) -> ObjectResult<&DirectValue> {
             self.opt_resolve(key, parsed_objects).ok_or_else(|| {
                 ObjectErr::new(key, self.span(), ObjectErrorCode::MissingRequiredEntry)
@@ -322,7 +322,7 @@ mod convert {
         pub(crate) fn required_resolve_usize(
             &'buffer self,
             key: &'static [Byte],
-            parsed_objects: &'buffer ParsedObjects,
+            parsed_objects: &'buffer InUseObjects,
         ) -> ObjectResult<usize> {
             self.required_resolve(key, parsed_objects)
                 .and_then(|value| {

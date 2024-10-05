@@ -37,7 +37,7 @@ type ObjectNumberOrZero = u64;
 /// - They are allowed the maximum value of 65,535.
 /// Hence, it can be represented as a u16.
 type GenerationNumber = u16;
-type SectionNumber = GenerationNumber;
+type IncrementNumber = usize;
 type IndexNumber = u64;
 /// REFERENCE: [4.7 byte, p7]
 type Byte = u8;

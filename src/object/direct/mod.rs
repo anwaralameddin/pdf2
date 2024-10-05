@@ -100,7 +100,7 @@ mod resolve {
     use super::*;
     use crate::object::error::ObjectErrorCode;
     use crate::object::indirect::IndirectValue;
-    use crate::parse::ParsedObjects;
+    use crate::pdf::InUseObjects;
     use crate::GenerationNumber;
     use crate::ObjectNumber;
 
@@ -108,7 +108,7 @@ mod resolve {
         // TODO Cache the result of the resolve method or store it inplace
         pub(crate) fn resolve<'buffer>(
             &'buffer self,
-            parsed_objects: &'buffer ParsedObjects,
+            parsed_objects: &'buffer InUseObjects,
         ) -> Result<&DirectValue, ObjectErrorCode> {
             let reference = if let DirectValue::Reference(reference) = self {
                 reference

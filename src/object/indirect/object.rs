@@ -16,8 +16,8 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
+use crate::pdf::InUseObjects;
 use crate::parse::ObjectParser;
-use crate::parse::ParsedObjects;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
@@ -45,7 +45,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectObject<'buffer> {
     fn parse(
         buffer: &'buffer [Byte],
         offset: Offset,
-        parsed_objects: &ParsedObjects<'buffer>,
+        parsed_objects: &InUseObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
         let mut remains = &buffer[offset..];
         let start = offset;
@@ -211,7 +211,7 @@ mod tests {
     fn object_invalid() {
         // Synthetic tests
         // Indirect Object: Incomplete
-        let parse_result = IndirectObject::parse(b"1 0 obj /Name e", 0, &ParsedObjects::default());
+        let parse_result = IndirectObject::parse(b"1 0 obj /Name e", 0, &InUseObjects::default());
         let expected_error = ParseFailure::new(
             b"e",
             stringify!(IndirectObject),
@@ -220,7 +220,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the endobj keyword
-        let parse_result = IndirectObject::parse(b"1 0 obj /Name <", 0, &ParsedObjects::default());
+        let parse_result = IndirectObject::parse(b"1 0 obj /Name <", 0, &InUseObjects::default());
         let expected_error = ParseFailure::new(
             b"<",
             stringify!(IndirectObject),
@@ -232,7 +232,7 @@ mod tests {
         let parse_result = IndirectObject::parse(
             b"1 0 obj (A partial literal string",
             0,
-            &ParsedObjects::default(),
+            &InUseObjects::default(),
         );
         let expected_error = ParseFailure::new(
             b"",
@@ -245,7 +245,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing the object keyword
-        let parse_result = IndirectObject::parse(b"1 0 /Name<", 0, &ParsedObjects::default());
+        let parse_result = IndirectObject::parse(b"1 0 /Name<", 0, &InUseObjects::default());
         let expected_error = ParseRecoverable::new(
             b"/Name<",
             stringify!(IndirectObject),
@@ -254,7 +254,7 @@ mod tests {
         assert_err_eq!(parse_result, expected_error);
 
         // Indirect Object: Missing value
-        let parse_result = IndirectObject::parse(b"1 0 obj endobj", 0, &ParsedObjects::default());
+        let parse_result = IndirectObject::parse(b"1 0 obj endobj", 0, &InUseObjects::default());
         let expected_error = ParseFailure::new(
             b"endobj",
             stringify!(IndirectObject),

@@ -16,8 +16,8 @@ use crate::parse::character_set::white_space_or_comment;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
+use crate::pdf::InUseObjects;
 use crate::parse::ObjectParser;
-use crate::parse::ParsedObjects;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
@@ -55,7 +55,7 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
         // The entire in the trailer dictionary needed to parse the
         // cross-reference stream should never be references, and we can safely
         // use ParseObjects::default() here.
-        let parsed_objects = ParsedObjects::default();
+        let parsed_objects = InUseObjects::default();
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors

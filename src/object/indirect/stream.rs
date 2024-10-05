@@ -19,8 +19,8 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
+use crate::pdf::InUseObjects;
 use crate::parse::ObjectParser;
-use crate::parse::ParsedObjects;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDSTREAM;
@@ -61,7 +61,7 @@ impl<'buffer> ResolvingParser<'buffer> for Stream<'buffer> {
     fn parse(
         buffer: &'buffer [Byte],
         offset: Offset,
-        parsed_objects: &ParsedObjects<'buffer>,
+        parsed_objects: &InUseObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
         let start = offset;
 
@@ -285,7 +285,7 @@ mod tests {
     fn stream_invalid() {
         // Synthetic tests
         // Stream: Length not found in stream dictionary
-        let parse_result = Stream::parse(b"<<>>\nstream\nendstream", 0, &ParsedObjects::default());
+        let parse_result = Stream::parse(b"<<>>\nstream\nendstream", 0, &InUseObjects::default());
         let expected_error = ParseFailure::new(
             b"<<>>",
             stringify!(Stream),
@@ -302,7 +302,7 @@ mod tests {
         let parse_result = Stream::parse(
             b"<</Length -1>>\nstream\nendstream",
             0,
-            &ParsedObjects::default(),
+            &InUseObjects::default(),
         );
         let expected_error = ParseFailure::new(
             b"<</Length -1>>",
@@ -325,7 +325,7 @@ mod tests {
         let parse_result = Stream::parse(
             b"<</Length 10>>\nstream\n0123456\nendstream",
             0,
-            &ParsedObjects::default(),
+            &InUseObjects::default(),
         );
         let expected_error = ParseFailure::new(
             b"dstream",
@@ -338,7 +338,7 @@ mod tests {
         let parse_result = Stream::parse(
             b"<</Length 5>>\nstream\n0123456789\nendstream",
             0,
-            &ParsedObjects::default(),
+            &InUseObjects::default(),
         );
         let expected_error = ParseFailure::new(
             b"56789\nendstream",

@@ -45,8 +45,12 @@ fn main() {
 
         let (parsed, not_parsed) = pdf.join_spans();
         // TODO Replace with log::info!.
-        println!("INFO: Parsed spans: {:?}", parsed);
+        println!("INFO: Parsed spans: {}:{:?}", file.display(), parsed);
         // TODO Replace with log::info!.
-        println!("INFO: Not parsed spans: {:?}", not_parsed);
+        println!(
+            "INFO: Not parsed spans: {}:{:?}",
+            file.display(),
+            not_parsed
+        );
     }
 }
