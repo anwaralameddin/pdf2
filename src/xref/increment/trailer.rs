@@ -28,7 +28,7 @@ pub(super) const KEY_TYPE: &[Byte] = b"Type";
 pub(super) const KEY_W: &[Byte] = b"W";
 pub(super) const VAL_XREF: &[Byte] = b"XRef";
 // Hybrid-reference file trailer dictionary keys
-const KEY_XREF_STM: &[Byte] = b"XRefStm";
+pub(crate) const KEY_XREF_STM: &[Byte] = b"XRefStm";
 // + Other stream dictionary keys
 
 /// REFERENCE:
@@ -416,9 +416,9 @@ mod tests {
     use crate::object::indirect::stream::KEY_FILTER;
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
-    use crate::pdf::InUseObjects;
     use crate::parse::ObjectParser;
     use crate::parse::ResolvingParser;
+    use crate::pdf::InUseObjects;
 
     #[test]
     fn section_trailer_valid() {

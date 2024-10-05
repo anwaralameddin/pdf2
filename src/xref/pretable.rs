@@ -25,10 +25,6 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
         while let Some(offset) = prev {
             let increment = Increment::parse(buffer, offset)?;
 
-            // FIXME This does not take intoaccount the notes on
-            // hybrid-reference file’s trailer dictionary in
-            // REFERENCE: [7.5.8.4 Compatibility with applications that do not
-            // support compressed reference streams, p68]
             prev = increment.prev().map_err(|err| {
                 ParseFailure::new(
                     &buffer[err.dictionary_span],
@@ -36,6 +32,19 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
                     ParseErrorCode::Object(err),
                 )
             })?;
+
+            // dictionary in
+            // REFERENCE: [7.5.8.4 Compatibility with applications that do not
+            // support compressed reference streams, p68]
+            if let Some(xref_stm) = increment.xref_stm().map_err(|err| {
+                ParseFailure::new(
+                    &buffer[err.dictionary_span],
+                    stringify!(PreTable),
+                    ParseErrorCode::Object(err),
+                )
+            })? {
+                prev = Some(xref_stm);
+            }
 
             // We first read the last section and then read the previous one. We
             // use `push_front` to preserve the order of the sections, which

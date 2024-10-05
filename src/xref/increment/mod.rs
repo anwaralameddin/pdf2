@@ -86,6 +86,7 @@ mod table {
 mod convert {
 
     use super::trailer::KEY_PREV;
+    use super::trailer::KEY_XREF_STM;
     use super::*;
     use crate::impl_from_ref;
     use crate::object::error::ObjectResult;
@@ -101,6 +102,14 @@ mod convert {
                 Self::Stream(stream) => &stream.stream.dictionary,
             };
             dictionary.opt_usize(KEY_PREV)
+        }
+
+        pub(crate) fn xref_stm(&self) -> ObjectResult<Option<Offset>> {
+            let dictionary = match self {
+                Self::Section(section) => &section.trailer,
+                Self::Stream(stream) => &stream.stream.dictionary,
+            };
+            dictionary.opt_usize(KEY_XREF_STM)
         }
     }
 }
