@@ -124,6 +124,8 @@ pub enum ParseErrorCode<'buffer> {
     //
     #[error("Object: {0}")]
     Object(#[from] ObjectErr),
+    #[error("Unsupported version: {}", debug_bytes(.0))]
+    UnsupportedVersion(&'buffer [Byte]),
 }
 
 impl DisplayUsingBuffer for ParseErrorCode<'_> {

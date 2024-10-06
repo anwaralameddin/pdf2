@@ -21,8 +21,8 @@ use crate::parse::num::ascii_to_usize;
 use crate::parse::ObjectParser;
 use crate::parse::Parser;
 use crate::parse::Span;
-use crate::parse::EOF;
 use crate::parse::KW_STARTXREF;
+use crate::parse::MARKER_EOF;
 use crate::parse_failure;
 use crate::parse_recoverable;
 use crate::Byte;
@@ -31,8 +31,8 @@ use crate::Offset;
 /// REFERENCE: [7.5.4 Cross-reference table] and [7.5.5 File trailer]
 /// The length of the last three lines of the file is constrained to:
 /// ```rs
-/// KW_STARTXREF.len() + EOL::MAX_LEN + OFFSET_MAX_LEN + EOL::MAX_LEN + EOF.len() +
-/// EOL::MAX_LEN = 9 + 2 + 10 + 2 + 5 + 2 = 30,
+/// KW_STARTXREF.len() + EOL::MAX_LEN + OFFSET_MAX_LEN + EOL::MAX_LEN +
+/// MARKER_EOF.len() + EOL::MAX_LEN = 9 + 2 + 10 + 2 + 5 + 2 = 30,
 /// ```
 /// assuming the same offset length constraint applies to the offset in the
 /// startxref line.
@@ -54,7 +54,7 @@ pub(crate) struct StartXRef {
 
 impl Display for StartXRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\n{}\n{}", KW_STARTXREF, self.offset, EOF)
+        write!(f, "{}\n{}\n{}", KW_STARTXREF, self.offset, MARKER_EOF)
     }
 }
 
@@ -83,7 +83,7 @@ impl Parser<'_> for StartXRef {
             digit1,
             delimited(
                 eol,
-                tag(EOF),
+                tag(MARKER_EOF),
                 // alt((char('\r'), char('\n'))) is used here instead of eol to
                 // allow for a file ending with "%%EOF\r" instead of
                 // "%%EOF\r\n". Also, ´complete` rather than `streaming`
@@ -136,7 +136,7 @@ impl ObjectParser<'_> for StartXRef {
             digit1,
             delimited(
                 eol,
-                tag(EOF),
+                tag(MARKER_EOF),
                 // Some test files contain additional trailing whitespace characters
                 // TODO Check the PDF standard if the validator should flag this as an error
                 opt(white_space),

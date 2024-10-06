@@ -13,7 +13,6 @@ use crate::pdf::InUseObjects;
 use crate::Byte;
 use crate::Offset;
 
-pub(crate) const EOF: &str = "%%EOF";
 pub(crate) const KW_ENDOBJ: &str = "endobj";
 pub(crate) const KW_ENDSTREAM: &str = "endstream";
 pub(crate) const KW_FALSE: &str = "false";
@@ -21,15 +20,17 @@ pub(crate) const KW_ID: &str = "ID";
 pub(crate) const KW_INFO: &str = "info";
 pub(crate) const KW_NULL: &str = "null";
 pub(crate) const KW_OBJ: &str = "obj";
+pub(crate) const KW_R: &str = "R";
 pub(crate) const KW_ROOT: &str = "root";
 pub(crate) const KW_SIZE: &str = "size";
 pub(crate) const KW_START: &str = "start";
-pub(crate) const KW_R: &str = "R";
 pub(crate) const KW_STARTXREF: &str = "startxref";
 pub(crate) const KW_STREAM: &str = "stream";
 pub(crate) const KW_TRAILER: &str = "trailer";
 pub(crate) const KW_TRUE: &str = "true";
 pub(crate) const KW_XREF: &str = "xref";
+pub(crate) const MARKER_EOF: &str = "%%EOF";
+pub(crate) const MARKER_PDF: &str = "%PDF-";
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 pub struct Span {

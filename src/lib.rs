@@ -3,6 +3,7 @@
 
 mod convert;
 mod fmt;
+mod header;
 mod object;
 mod parse;
 pub mod pdf;

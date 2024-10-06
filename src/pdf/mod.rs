@@ -10,6 +10,7 @@ use self::error::PdfErr;
 use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
 use self::error::PdfResult;
+use crate::header::Header;
 use crate::object::indirect::object::IndirectObject;
 use crate::parse::error::ParseErr;
 use crate::parse::Parser;
@@ -41,12 +42,12 @@ pub struct Pdf<'path> {
     path: &'path Path,
     buffer: &'path [Byte],
     buffer_len: usize,
+    // • The version of the PDF specification
+    header: Header<'path>,
     // • The trailer
     // trailer: Trailer<'path>,
     /// • The cross-reference table
     pretable: PreTable<'path>,
-    // • The version of the PDF specification
-    // TODO version: Version,
     /// REFERENCE:
     /// - [7.5.1 General, p53]
     /// - [7.5.3 File body, p55]
@@ -188,6 +189,11 @@ impl<'path> PdfBuilder<'path> {
     }
 
     pub fn build(&'path self) -> PdfResult<'path, Pdf<'path>> {
+        // REFERENCE: [7.5.2 File header, p54-55] and [7.5.6 Incremental
+        // updates, p60]
+        // TODO Update the version using the the document’s catalog dictionary
+        let header = Header::parse(&self.buffer)
+            .map_err(|err| PdfErr::new(self.path, PdfErrorCode::Parse(&self.buffer, err)))?;
         // REFERENCE: [7.5.1 General, p54]
         // Apart from linearised PDFs, files should be read from the end
         // using the trailer and cross-reference table.
@@ -205,6 +211,7 @@ impl<'path> PdfBuilder<'path> {
             path: self.path,
             buffer: &self.buffer,
             buffer_len: self.buffer_len,
+            header,
             // trailer,
             pretable,
             in_use_objects,
@@ -237,7 +244,12 @@ impl Pdf<'_> {
     pub fn join_spans(&self) -> (Vec<Span>, Vec<Span>) {
         // TODO Rethink the algorithm. In particular, compare the performance of
         // Vec::sort_unstable, Vec::sort, and BTreeSet
-        let mut spans = Vec::with_capacity(self.in_use_objects.len() + self.pretable.spans().len());
+        let mut spans = Vec::with_capacity(
+            1 + self.in_use_objects.len()
+                + self.overridden_objects.len()
+                + self.pretable.spans().len(),
+        );
+        spans.extend(self.header.spans());
         spans.extend(
             self.in_use_objects
                 .values()
