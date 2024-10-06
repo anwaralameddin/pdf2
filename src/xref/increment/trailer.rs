@@ -28,7 +28,7 @@ pub(super) const KEY_TYPE: &[Byte] = b"Type";
 pub(super) const KEY_W: &[Byte] = b"W";
 pub(super) const VAL_XREF: &[Byte] = b"XRef";
 // Hybrid-reference file trailer dictionary keys
-const KEY_XREF_STM: &[Byte] = b"XRefStm";
+pub(crate) const KEY_XREF_STM: &[Byte] = b"XRefStm";
 // + Other stream dictionary keys
 
 /// REFERENCE:
@@ -417,8 +417,8 @@ mod tests {
     use crate::object::indirect::stream::KEY_LENGTH;
     use crate::object::indirect::IndirectValue;
     use crate::parse::ObjectParser;
-    use crate::parse::ParsedObjects;
     use crate::parse::ResolvingParser;
+    use crate::pdf::InUseObjects;
 
     #[test]
     fn section_trailer_valid() {
@@ -470,7 +470,7 @@ mod tests {
         // PDF produced by pdfTeX-1.40.22
         let buffer =
             include_bytes!("../../../tests/data/1F0F80D27D156F7EF35B1DF40B1BD3E8_xref_stream.bin");
-        let object = IndirectObject::parse(buffer, 0, &ParsedObjects::default()).unwrap();
+        let object = IndirectObject::parse(buffer, 0, &InUseObjects::default()).unwrap();
         let val_ref = Name::new(VAL_XREF, Span::new(19, 24));
         let key_length = KEY_LENGTH.to_vec();
 

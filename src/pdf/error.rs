@@ -65,10 +65,11 @@ impl Display for PdfRecoverable<'_> {
 // there is no need to include the path here.
 #[derive(Debug, Error, PartialEq, Clone)]
 pub enum ObjectRecoverable<'path> {
-    #[error("Parse. Id: {0} {1}. Offset {2}. Error: {}", .4.display_using_buffer(.3))]
+    #[error("Parse. Id: {0} {1}. Increment: {2}. Offset {3}. Error: {}", .5.display_using_buffer(.4))]
     Parse(
         ObjectNumber,
         GenerationNumber,
+        IncrementNumber,
         Offset,
         &'path [Byte],
         ParseErr<'path>,

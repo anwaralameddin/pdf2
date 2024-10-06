@@ -17,11 +17,11 @@ use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseFailure;
 use crate::parse::error::ParseResult;
 use crate::parse::ObjectParser;
-use crate::parse::ParsedObjects;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::parse::KW_ENDOBJ;
 use crate::parse::KW_OBJ;
+use crate::pdf::InUseObjects;
 use crate::process::filter::FilteringChain;
 use crate::xref::startxref::StartXRef;
 use crate::Byte;
@@ -55,7 +55,7 @@ impl<'buffer> ObjectParser<'buffer> for XRefStream<'buffer> {
         // The entire in the trailer dictionary needed to parse the
         // cross-reference stream should never be references, and we can safely
         // use ParseObjects::default() here.
-        let parsed_objects = ParsedObjects::default();
+        let parsed_objects = InUseObjects::default();
         // There is no need for extra error handling here as
         // IndirectObject::parse already distinguishes between Failure and other
         // errors
@@ -129,13 +129,14 @@ mod table {
     use crate::xref::increment::trailer::KEY_TYPE;
     use crate::xref::increment::trailer::KEY_W;
     use crate::xref::increment::trailer::VAL_XREF;
+    use crate::xref::IncrementToTable;
     use crate::xref::Table;
-    use crate::xref::ToTable;
     use crate::xref_err;
+    use crate::IncrementNumber;
     use crate::ObjectNumberOrZero;
 
-    impl ToTable for XRefStream<'_> {
-        fn to_table(&self) -> XRefResult<Table> {
+    impl IncrementToTable for XRefStream<'_> {
+        fn to_table(&self, increment_number: IncrementNumber) -> XRefResult<Table> {
             // TODO Change the errors below into warnings as long as they don't
             // prevent building the table
 
@@ -193,14 +194,25 @@ mod table {
 
                         match entry {
                             Entry::Free(next_free, generation_number) => {
-                                table.insert_free(object_number, *generation_number, *next_free);
+                                table.insert_free(
+                                    object_number,
+                                    *generation_number,
+                                    increment_number,
+                                    *next_free,
+                                );
                             }
                             Entry::InUse(offset, generation_number) => {
-                                table.insert_in_use(object_number, *generation_number, *offset)?;
+                                table.insert_in_use(
+                                    object_number,
+                                    *generation_number,
+                                    increment_number,
+                                    *offset,
+                                )?;
                             }
                             Entry::Compressed(stream_object_number, index_number) => {
                                 table.insert_compressed(
                                     object_number,
+                                    increment_number,
                                     *stream_object_number,
                                     *index_number,
                                 )?;

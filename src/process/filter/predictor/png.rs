@@ -435,8 +435,8 @@ mod tests {
 
     use crate::lax_stream_defilter_filter;
     use crate::object::indirect::stream::Stream;
+    use crate::pdf::InUseObjects;
     use crate::parse::ResolvingParser;
-    use crate::parse::ParsedObjects;
 
     #[test]
     fn png_valid() {

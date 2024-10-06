@@ -14,10 +14,10 @@ use crate::parse::error::ParseErr;
 use crate::parse::error::ParseErrorCode;
 use crate::parse::error::ParseRecoverable;
 use crate::parse::error::ParseResult;
+use crate::pdf::InUseObjects;
 use crate::parse::ObjectParser;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
-use crate::parse::ParsedObjects;
 use crate::Byte;
 use crate::Offset;
 
@@ -40,7 +40,7 @@ impl<'buffer> ResolvingParser<'buffer> for IndirectValue<'buffer> {
     fn parse(
         buffer: &'buffer [Byte],
         offset: Offset,
-        parsed_objects: &ParsedObjects<'buffer>,
+        parsed_objects: &InUseObjects<'buffer>,
     ) -> ParseResult<'buffer, Self> {
         match Stream::parse(buffer, offset, parsed_objects) {
             Ok(stream) => Ok(IndirectValue::Stream(stream)),

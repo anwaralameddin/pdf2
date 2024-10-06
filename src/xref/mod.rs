@@ -9,31 +9,35 @@ use self::error::XRefErr;
 use crate::parse::error::ParseErr;
 use crate::xref::error::XRefResult;
 use crate::GenerationNumber;
+use crate::IncrementNumber;
 use crate::IndexNumber;
 use crate::ObjectNumber;
 use crate::ObjectNumberOrZero;
 use crate::Offset;
 
+// TODO Add IncrementNumber
+pub(crate) type ObjectSpecifier = (ObjectNumber, GenerationNumber, IncrementNumber, Offset);
+
 pub(crate) trait ToTable {
     fn to_table(&self) -> XRefResult<Table>;
+}
+
+pub(crate) trait IncrementToTable {
+    fn to_table(&self, increment_number: IncrementNumber) -> XRefResult<Table>;
 }
 
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct Table<'buffer> {
     // TODO(QUESTION) Can the same object number and generation number be used
     // more than once? If so, add the section number to avoid collisions
-    pub(crate) in_use: Vec<(
-        Offset,
-        (ObjectNumber, GenerationNumber),
-        Option<ParseErr<'buffer>>,
-    )>,
+    pub(crate) in_use: Vec<(ObjectSpecifier, Option<ParseErr<'buffer>>)>,
     // TODO
     // - Any need to subtarct one from the generation number to get the actual
     // freed object?
     // - (QUESTION) Can an object be free if it was never used?
     // - Validate that they partially form a linked list
-    pub(crate) free: HashMap<(ObjectNumber, GenerationNumber), ObjectNumberOrZero>,
-    pub(crate) compressed: HashMap<ObjectNumber, (ObjectNumber, IndexNumber)>,
+    pub(crate) free: HashMap<(ObjectNumber, GenerationNumber, IncrementNumber), ObjectNumberOrZero>,
+    pub(crate) compressed: HashMap<(ObjectNumber, IncrementNumber), (ObjectNumber, IndexNumber)>,
     // TODO Add trailer here rather than in the Pdf struct
 }
 
@@ -42,46 +46,56 @@ impl<'buffer> Table<'buffer> {
         &mut self,
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
+        increment_number: IncrementNumber,
         next_free: ObjectNumberOrZero,
     ) -> Option<ObjectNumberOrZero> {
         // Ignore the object number 0
         let object_number = ObjectNumber::new(object_number)?;
-        self.free
-            .insert((object_number, generation_number), next_free)
+        self.free.insert(
+            (object_number, generation_number, increment_number),
+            next_free,
+        )
     }
 
     pub(super) fn insert_in_use(
         &mut self,
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
+        increment_number: IncrementNumber,
         offset: Offset,
     ) -> XRefResult<()> {
         let object_number = ObjectNumber::new(object_number).ok_or(XRefErr::InUseObjectNumber {
             object_number,
             generation_number,
+            increment_number,
             offset,
         })?;
         // TODO Check if the offset or id is already in use
-        self.in_use
-            .push((offset, (object_number, generation_number), None));
+        self.in_use.push((
+            (object_number, generation_number, increment_number, offset),
+            None,
+        ));
         Ok(())
     }
 
     pub(super) fn insert_compressed(
         &mut self,
         object_number: ObjectNumberOrZero,
+        increment_number: IncrementNumber,
         stream_object_number: ObjectNumber,
         index: IndexNumber,
     ) -> XRefResult<Option<(ObjectNumber, IndexNumber)>> {
         let object_number =
             ObjectNumber::new(object_number).ok_or(XRefErr::CompressedObjectNumber {
                 object_number,
+                increment_number,
                 stream_object_number,
                 index,
             })?;
-        Ok(self
-            .compressed
-            .insert(object_number, (stream_object_number, index)))
+        Ok(self.compressed.insert(
+            (object_number, increment_number),
+            (stream_object_number, index),
+        ))
     }
 
     pub(super) fn extend(&mut self, other: Table<'buffer>) {

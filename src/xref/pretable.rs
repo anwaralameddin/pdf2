@@ -1,3 +1,5 @@
+use ::std::collections::VecDeque;
+
 use super::increment::Increment;
 use super::startxref::StartXRef;
 use crate::parse::error::ParseErrorCode;
@@ -10,23 +12,19 @@ use crate::Byte;
 
 /// REFERENCE: [7.5.4 Cross-reference table, p55] and [7.5.6 Incremental updates, p60]
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct PreTable<'buffer>(Vec<Increment<'buffer>>);
+pub(crate) struct PreTable<'buffer>(VecDeque<Increment<'buffer>>);
 
 impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
     fn parse(buffer: &'buffer [Byte]) -> ParseResult<Self> {
         let startxref = <StartXRef as Parser>::parse(buffer)?;
 
-        let mut increments = Vec::default();
+        let mut increments = VecDeque::default();
 
         let mut prev = Some(*startxref);
 
         while let Some(offset) = prev {
             let increment = Increment::parse(buffer, offset)?;
 
-            // FIXME This does not take intoaccount the notes on
-            // hybrid-reference file’s trailer dictionary in
-            // REFERENCE: [7.5.8.4 Compatibility with applications that do not
-            // support compressed reference streams, p68]
             prev = increment.prev().map_err(|err| {
                 ParseFailure::new(
                     &buffer[err.dictionary_span],
@@ -35,11 +33,24 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
                 )
             })?;
 
+            // dictionary in
+            // REFERENCE: [7.5.8.4 Compatibility with applications that do not
+            // support compressed reference streams, p68]
+            if let Some(xref_stm) = increment.xref_stm().map_err(|err| {
+                ParseFailure::new(
+                    &buffer[err.dictionary_span],
+                    stringify!(PreTable),
+                    ParseErrorCode::Object(err),
+                )
+            })? {
+                prev = Some(xref_stm);
+            }
+
             // We first read the last section and then read the previous one. We
-            // use `push` to preserve the order of the sections, which
+            // use `push_front` to preserve the order of the sections, which
             // simplifies iterating over them and merging them so that later
             // sections override earlier ones.
-            increments.push(increment);
+            increments.push_front(increment);
         }
 
         Ok(Self(increments))
@@ -53,16 +64,19 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
 mod table {
     use super::*;
     use crate::xref::error::XRefResult;
+    use crate::xref::IncrementToTable;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for PreTable<'_> {
         fn to_table(&self) -> XRefResult<Table> {
-            self.iter()
-                .try_fold(Table::default(), |mut table, increment| {
-                    table.extend(increment.to_table()?);
+            self.iter().enumerate().try_fold(
+                Table::default(),
+                |mut table, (increment_number, increment)| {
+                    table.extend(increment.to_table(increment_number)?);
                     Ok(table)
-                })
+                },
+            )
         }
     }
 }
@@ -73,20 +87,20 @@ mod convert {
 
     use super::*;
 
-    impl<'buffer> From<Vec<Increment<'buffer>>> for PreTable<'buffer> {
-        fn from(value: Vec<Increment<'buffer>>) -> Self {
+    impl<'buffer> From<VecDeque<Increment<'buffer>>> for PreTable<'buffer> {
+        fn from(value: VecDeque<Increment<'buffer>>) -> Self {
             Self(value)
         }
     }
 
     impl<'buffer> FromIterator<Increment<'buffer>> for PreTable<'buffer> {
         fn from_iter<I: IntoIterator<Item = Increment<'buffer>>>(iter: I) -> Self {
-            Self(Vec::from_iter(iter))
+            Self(VecDeque::from_iter(iter))
         }
     }
 
     impl<'buffer> Deref for PreTable<'buffer> {
-        type Target = Vec<Increment<'buffer>>;
+        type Target = VecDeque<Increment<'buffer>>;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -101,7 +115,7 @@ mod convert {
 
     impl<'buffer> IntoIterator for PreTable<'buffer> {
         type Item = Increment<'buffer>;
-        type IntoIter = <Vec<Increment<'buffer>> as IntoIterator>::IntoIter;
+        type IntoIter = <VecDeque<Increment<'buffer>> as IntoIterator>::IntoIter;
 
         fn into_iter(self) -> Self::IntoIter {
             self.0.into_iter()

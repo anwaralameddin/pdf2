@@ -162,13 +162,14 @@ mod table {
     use super::Section;
     use crate::xref::error::XRefErr;
     use crate::xref::error::XRefResult;
+    use crate::xref::IncrementToTable;
     use crate::xref::Table;
-    use crate::xref::ToTable;
+    use crate::IncrementNumber;
     use crate::ObjectNumberOrZero;
 
-    impl ToTable for Section<'_> {
+    impl IncrementToTable for Section<'_> {
         // REFERENCE: [7.5.4 Cross-reference table, p56]
-        fn to_table(&self) -> XRefResult<Table> {
+        fn to_table(&self, increment_number: IncrementNumber) -> XRefResult<Table> {
             let mut object_numbers: HashSet<ObjectNumberOrZero> = Default::default();
             self.subsections.iter().try_fold(
                 Table::default(),
@@ -191,11 +192,17 @@ mod table {
                                 table.insert_free(
                                     object_number,
                                     generation_number,
+                                    increment_number,
                                     next_free_object_number,
                                 );
                             }
                             EntryData::InUse(offset, generation_number) => {
-                                table.insert_in_use(object_number, generation_number, offset)?;
+                                table.insert_in_use(
+                                    object_number,
+                                    generation_number,
+                                    increment_number,
+                                    offset,
+                                )?;
                             }
                         }
                     }

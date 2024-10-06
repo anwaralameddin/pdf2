@@ -1,5 +1,6 @@
 pub(crate) mod error;
 
+use ::std::collections::HashMap;
 use ::std::fs::File;
 use ::std::io::BufReader;
 use ::std::path::Path;
@@ -10,14 +11,22 @@ use self::error::PdfErrorCode;
 use self::error::PdfRecoverable;
 use self::error::PdfResult;
 use crate::object::indirect::object::IndirectObject;
-use crate::parse::ParsedObjects;
+use crate::parse::error::ParseErr;
 use crate::parse::Parser;
 use crate::parse::ResolvingParser;
 use crate::parse::Span;
 use crate::xref::pretable::PreTable;
-use crate::xref::Table;
+use crate::xref::ObjectSpecifier;
 use crate::xref::ToTable;
 use crate::Byte;
+use crate::GenerationNumber;
+use crate::IncrementNumber;
+use crate::ObjectNumber;
+
+// TODO Add support for spans within object streams
+pub(crate) type InUseObjects<'buffer> =
+    HashMap<(ObjectNumber, GenerationNumber), (IndirectObject<'buffer>, IncrementNumber)>;
+type OverridenObjects<'buffer> = Vec<(IndirectObject<'buffer>, IncrementNumber)>;
 
 #[derive(Debug)]
 pub struct PdfBuilder<'path> {
@@ -42,7 +51,8 @@ pub struct Pdf<'path> {
     /// - [7.5.1 General, p53]
     /// - [7.5.3 File body, p55]
     /// • The body of a PDF file
-    objects_in_use: ParsedObjects<'path>,
+    in_use_objects: InUseObjects<'path>,
+    overridden_objects: OverridenObjects<'path>,
     // TODO Add support for:
     // - Free objects
     // - Compressed objects
@@ -62,16 +72,17 @@ impl<'path> PdfBuilder<'path> {
     //         .ok_or_else(||PdfErr::new(self.path, PdfErrorCode::EmptyPreTable))
     // }
 
-    fn parse_objects_in_use(
+    fn parse_objects(
         &'path self,
-        table: Table,
+        in_use: Vec<(ObjectSpecifier, Option<ParseErr>)>,
         errors: &mut Vec<ObjectRecoverable<'path>>,
-    ) -> PdfResult<ParsedObjects> {
+    ) -> PdfResult<(InUseObjects, OverridenObjects)> {
         // At this point, we should not immediately fail. Instead, we
         // collect all errors and report them at the end.
 
-        let mut parsed_objects = ParsedObjects::default();
-        let mut to_parse = table.in_use;
+        let mut in_use_objects = InUseObjects::default();
+        let mut overridden_objects = OverridenObjects::default();
+        let mut to_parse = in_use;
         // Different data structures are considered here, namely:
         // - Vec (faster iteration)
         // - BTreeSet (faster in-order buffer parsing)
@@ -81,8 +92,11 @@ impl<'path> PdfBuilder<'path> {
         // Vec::with_capacity(to_parse.len()) on the test set.
         let mut erroneous = Vec::default();
 
+        // TODO Do we need to avoid resolve in the first iteration?
         loop {
-            'inner: for (offset, (object_number, generation_number), _) in to_parse.iter() {
+            'inner: for ((object_number, generation_number, increment_number, offset), _) in
+                to_parse.iter()
+            {
                 // TODO Check the standard on how to handle offset 0 for an
                 // in-use object
                 if *offset >= self.buffer_len || *offset == 0 {
@@ -100,10 +114,18 @@ impl<'path> PdfBuilder<'path> {
                 // does not cover cross-reference sections and streams. Hence, a
                 // similar check is used in `Increment::parse`.
 
-                let object = match IndirectObject::parse(&self.buffer, *offset, &parsed_objects) {
+                let object = match IndirectObject::parse(&self.buffer, *offset, &in_use_objects) {
                     Ok(object) => object,
                     Err(err) => {
-                        erroneous.push((*offset, (*object_number, *generation_number), Some(err)));
+                        erroneous.push((
+                            (
+                                *object_number,
+                                *generation_number,
+                                *increment_number,
+                                *offset,
+                            ),
+                            Some(err),
+                        ));
                         continue 'inner;
                     }
                 };
@@ -120,15 +142,35 @@ impl<'path> PdfBuilder<'path> {
                     ));
                 }
 
-                parsed_objects.insert((*object_number, *generation_number), object);
+                if let Some((overridden_object, overridden_increment_number)) = in_use_objects
+                    .insert(
+                        (*object_number, *generation_number),
+                        (object, *increment_number),
+                    )
+                {
+                    // TODO Equality should not happen, recheck the relevant
+                    // portion of the code and replace the equality branch with
+                    // unreachable
+                    if *increment_number >= overridden_increment_number {
+                        overridden_objects.push((overridden_object, overridden_increment_number));
+                    } else if let Some((new_object, new_increment_number)) = in_use_objects.insert(
+                        (*object_number, *generation_number),
+                        (overridden_object, overridden_increment_number),
+                    ) {
+                        overridden_objects.push((new_object, new_increment_number));
+                    }
+                }
             }
 
             if erroneous.is_empty() || to_parse.len() == erroneous.len() {
-                for (offset, (object_number, generation_number), err) in erroneous.into_iter() {
+                for ((object_number, generation_number, increment_number, offset), err) in
+                    erroneous.into_iter()
+                {
                     if let Some(err) = err {
                         errors.push(ObjectRecoverable::Parse(
                             object_number,
                             generation_number,
+                            increment_number,
                             offset,
                             &self.buffer,
                             err,
@@ -142,7 +184,7 @@ impl<'path> PdfBuilder<'path> {
             erroneous = Vec::default();
         }
 
-        Ok(parsed_objects)
+        Ok((in_use_objects, overridden_objects))
     }
 
     pub fn build(&'path self) -> PdfResult<'path, Pdf<'path>> {
@@ -156,7 +198,7 @@ impl<'path> PdfBuilder<'path> {
             .map_err(|err| PdfErr::new(self.path, PdfErrorCode::XRef(&self.buffer, err)))?;
         // let trailer = self.get_trailer(pretable)?;
         let mut errors = Vec::default();
-        let objects_in_use = self.parse_objects_in_use(table, &mut errors)?;
+        let (in_use_objects, overridden_objects) = self.parse_objects(table.in_use, &mut errors)?;
         let errors = PdfRecoverable::new(self.path, errors);
 
         Ok(Pdf {
@@ -165,7 +207,8 @@ impl<'path> PdfBuilder<'path> {
             buffer_len: self.buffer_len,
             // trailer,
             pretable,
-            objects_in_use,
+            in_use_objects,
+            overridden_objects,
             errors,
         })
     }
@@ -183,9 +226,10 @@ impl Pdf<'_> {
     // TODO A temporary debugging method
     pub fn summary(&self) -> String {
         format!(
-            "PDF: {} # Objects: {} # Errors: {}",
+            "PDF: {} # In-use Objects: {} # Overriden Objects: {} # Errors: {}",
             self.path.display(),
-            self.objects_in_use.len(),
+            self.in_use_objects.len(),
+            self.overridden_objects.len(),
             self.errors.len()
         )
     }
@@ -193,8 +237,17 @@ impl Pdf<'_> {
     pub fn join_spans(&self) -> (Vec<Span>, Vec<Span>) {
         // TODO Rethink the algorithm. In particular, compare the performance of
         // Vec::sort_unstable, Vec::sort, and BTreeSet
-        let mut spans = Vec::with_capacity(self.objects_in_use.len() + self.pretable.spans().len());
-        spans.extend(self.objects_in_use.values().map(|object| object.span()));
+        let mut spans = Vec::with_capacity(self.in_use_objects.len() + self.pretable.spans().len());
+        spans.extend(
+            self.in_use_objects
+                .values()
+                .map(|(object, _)| object.span()),
+        );
+        spans.extend(
+            self.overridden_objects
+                .iter()
+                .map(|(object, _)| object.span()),
+        );
         spans.extend(self.pretable.spans());
         spans.sort_unstable();
         let mut parsed = Vec::default();
@@ -296,7 +349,7 @@ mod tests {
                                 println!(
                                     "{}: # Objects {:?}",
                                     path.display(),
-                                    pdf.objects_in_use.len()
+                                    pdf.in_use_objects.len()
                                 );
 
                                 let (parsed, not_parsed) = pdf.join_spans();
