@@ -137,9 +137,13 @@ mod resolve {
                         id.generation_number,
                     ));
                 }
+                // HACK This assumes that the length referenced object is not
+                // overriden; if this is not the case, the increment number
+                // should be taken into account
+                // TODO Check the standard if we can assume this
                 let value = parsed_objects
                     .get(&(object_number, generation_number))
-                    .map(|object| &object.value);
+                    .map(|(object, _)| &object.value);
                 match value {
                     Some(IndirectValue::Stream(_)) => {
                         return Err(ObjectErrorCode::ReferenceToStream(

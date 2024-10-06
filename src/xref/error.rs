@@ -8,6 +8,7 @@ use crate::object::error::ObjectErr;
 use crate::process::filter::error::FilterErr;
 use crate::Byte;
 use crate::GenerationNumber;
+use crate::IncrementNumber;
 use crate::IndexNumber;
 use crate::ObjectNumber;
 use crate::ObjectNumberOrZero;
@@ -20,24 +21,28 @@ pub enum XRefErr {
     #[error("Duplicate object number: {0}")]
     DuplicateObjectNumber(u64),
     #[error(
-        "In-use Object. Number: {}. Generation: {}. Offset: {}",
+        "In-use Object. {} {}. Increment: {}. Offset: {}",
         object_number,
         generation_number,
+        increment_number,
         offset
     )]
     InUseObjectNumber {
         object_number: ObjectNumberOrZero,
         generation_number: GenerationNumber,
+        increment_number: IncrementNumber,
         offset: Offset,
     },
     #[error(
-        "Compressed Object. Number: {} 0. Stream: {} 0. Index: {}",
+        "Compressed Object. {} 0. Increment: {}. Stream: {} 0. Index: {}",
         object_number,
+        increment_number,
         stream_object_number,
         index
     )]
     CompressedObjectNumber {
         object_number: ObjectNumberOrZero,
+        increment_number: IncrementNumber,
         stream_object_number: ObjectNumber,
         index: IndexNumber,
     },

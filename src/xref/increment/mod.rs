@@ -70,14 +70,15 @@ impl<'buffer> ObjectParser<'buffer> for Increment<'buffer> {
 mod table {
     use super::*;
     use crate::xref::error::XRefResult;
+    use crate::xref::IncrementToTable;
     use crate::xref::Table;
-    use crate::xref::ToTable;
+    use crate::IncrementNumber;
 
-    impl ToTable for Increment<'_> {
-        fn to_table(&self) -> XRefResult<Table> {
+    impl IncrementToTable for Increment<'_> {
+        fn to_table(&self, increment_number: IncrementNumber) -> XRefResult<Table> {
             match self {
-                Self::Section(section) => section.to_table(),
-                Self::Stream(stream) => stream.to_table(),
+                Self::Section(section) => section.to_table(increment_number),
+                Self::Stream(stream) => stream.to_table(increment_number),
             }
         }
     }

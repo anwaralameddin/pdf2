@@ -64,16 +64,19 @@ impl<'buffer> Parser<'buffer> for PreTable<'buffer> {
 mod table {
     use super::*;
     use crate::xref::error::XRefResult;
+    use crate::xref::IncrementToTable;
     use crate::xref::Table;
     use crate::xref::ToTable;
 
     impl ToTable for PreTable<'_> {
         fn to_table(&self) -> XRefResult<Table> {
-            self.iter()
-                .try_fold(Table::default(), |mut table, increment| {
-                    table.extend(increment.to_table()?);
+            self.iter().enumerate().try_fold(
+                Table::default(),
+                |mut table, (increment_number, increment)| {
+                    table.extend(increment.to_table(increment_number)?);
                     Ok(table)
-                })
+                },
+            )
         }
     }
 }
